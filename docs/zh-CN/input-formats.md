@@ -202,6 +202,14 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 - 这是部署/批次级解析策略，不是某个 SQL 任务的业务属性，因此不放进任务 JSON；
 - Schema 和目标表元数据仍可以填写完整表名，但它们不会替代本配置来决定 Lineage 中是否保留 catalog。
 
+所有层都按同一条规则（表身份）读表名：去掉标识符引号、统一小写（目标表也一样，`INSERT INTO MART.Y` 和
+`mart.y` 是同一张表），首段 catalog 只在配置了时才剥。没配置的三段名保持原样，所以 `cat1.ods.t` 和
+`cat2.ods.t` 在血缘、表卡和字典里都是两张表。只差限定级别的写法，在恰好只有一个候选时仍然能找到对应的表：
+键为 `ods.t` 的 Schema 能描述读 `lake.ods.t` 的语句，读裸名 `orders` 的语句并入 `ods.orders` 的表卡。
+有两个候选时（`ods.t` 旁边同时有 `cat1.ods.t` 和 `cat2.ods.t`）两个都不选。`tables`、`glossary`、
+`catalog` 同样读 `SCOPE_LINEAGE_CATALOG_PREFIXES`；`--catalog-prefixes` 只作用于 `parse`。
+目录（catalog）自己的表名是 `db.table`，所以目录匹配取规范化后表名的最后两段。
+
 ## 源表 Schema 元数据
 
 `--schema` 接收一个 JSON/CSV 文件，也可以接收一个包含富 JSON 的目录，用于源字段解析、
@@ -256,7 +264,9 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 `is_partitioned`），随契约的 `related_metadata.*.table_metadata` 输出，并支撑 semantic 的
 输入表注释与表卡的"这张表是什么"。键名中立：`table_alias`/`table_comment`/`comment` 都可以给
 出中文表名，`buzi_domain`/`domain` 都可以给出业务域。含 `@` 的值（邮箱，例如 `tbl_pic`）在加载
-时被丢弃，时间戳与质量率不进表级事实。完整键表见
+时被丢弃；表级事实的候选键因此被丢弃时，`diagnostics.json.metadata_coverage.metadata_conflicts`
+记一条 `reason: "privacy_refused"`，`issues[]` 只写键名（`table_desc contains @, refused by
+privacy rule`），不写原值。时间戳与质量率不进表级事实。完整键表见
 [`lineage.json` §12.2](lineage-json.md#122-related_metadata)。
 
 `--schema` 还兼容聚合式轻量 JSON。它没有显式字段序号或 DDL，`columns[]` 数组顺序就是字段
@@ -397,6 +407,7 @@ DDL 与 Schema 的字段集合必须一致。存在同一表的多份元数据�
 - **注释同样遮蔽**：补丁里的列注释与 `table_name_cn` / `table_desc` 在读入时就过一遍与 schema 注释相同的遮蔽（`<email>` / `<phone>` / `<id>`），`parse --no-redact-comments` 一并关掉；
 - **表名匹配**与 schema 一致：大小写不敏感，`catalog.db.table` 与 `db.table` 是同一张表；
 - **没命中的键只报告不报错**：运行结束打印 `unmatched=N` 并列出键，拼错的键不会被静默吞掉；
+- **读不进来的条目同样报告**：不足三段的列键（`a.amt`）、含 `@` 的表级事实（被隐私规则拒绝）打印为 `rejected=N (键 (原因)、…)`（`describe` 写作 `patch_rejected=N`），只写键和原因，不回显原文；
 - 文件不存在、不是合法 JSON、顶层不是对象、或 `doc_format` 是别的值时退出码为 2。
 
 `describe --metadata-patch` 接收同一份文件，对已经写好的 `lineage.json` 在内存里做同样的覆盖
@@ -427,7 +438,7 @@ mart.customer_daily,country_code,JP,20
 
 | Key | Value | 用途 |
 | --- | --- | --- |
-| `table` | `db.table` 或全限定名 | 按表卡的规则匹配：取最后两段、忽略大小写。 |
+| `table` | `db.table` 或全限定名 | 按表身份规则匹配：忽略引号和大小写，剥掉已配置的 catalog；只差限定级别的写法，在文件里不可能是别的表时才算匹配。 |
 | `column` | 列名 | 忽略大小写；表或列在语料里不存在时进 `samples_applied.unmatched[]`。 |
 | `value` | 任意标量 | 去首尾空白后脱敏、超过 64 字符截断；空值跳过。 |
 | `count` | 整数，可省 | 给了就按它从大到小排；整列都没给就按文件顺序。 |

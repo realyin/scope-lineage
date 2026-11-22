@@ -15,9 +15,16 @@ from .sqlglot_walk import render_sql_or_none
 from .composition import dedupe_sources
 from .end_to_end import _scope_column_roots
 from .parser import unbound_table_parameters
-from .scope_types import CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID, ScopeLineageResult
+from .scope_types import (
+    AMBIGUOUS_SCOPE_ID,
+    CONSTANT_SCOPE_ID,
+    SYSTEM_SCOPE_ID,
+    ScopeLineageResult,
+)
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
+from .spliced_parameters import quote_spliced_parameters
+from .multi_insert import MultiTableInsert, split_multi_table_inserts
 from .scope_builder import (
     _is_ctas,
     _schema_with_script_local_tables,
@@ -403,7 +410,7 @@ def _parse_script_trees(
 
 
 def _repair_disclosure_warnings(
-    ctas_repairs: list[str], quoted_identifiers: list[str]
+    ctas_repairs: list[str], quoted_identifiers: list[str], parameter_names=()
 ) -> list[dict]:
     """Declare each text-level repair `_parse_script_trees` had to make.
 
@@ -430,7 +437,61 @@ def _repair_disclosure_warnings(
                 + ", ".join(quoted_identifiers)
             ),
         })
+    if parameter_names:
+        warnings.append({
+            "type": "parameter_names_quoted_for_parse",
+            "scope": "TASK",
+            "msg": (
+                "quoted names with a run parameter spliced into them to parse the script: "
+                + ", ".join(parameter_names)
+            ),
+        })
     return warnings
+
+
+def _multi_table_insert_split_warnings(found: list[MultiTableInsert]) -> list[dict]:
+    """Declare each FROM-first multi-table insert that was split before parsing.
+
+    Same reason as the repairs above: the statements a reader sees -- one per target, each
+    with the shared FROM clause -- are not the text the author wrote.
+    """
+    return [
+        {
+            "statement_id": f"stmt:{item.statement_index + 1:03d}",
+            "type": "multi_table_insert_split",
+            "scope": "TASK",
+            "msg": (
+                f"split one FROM-first multi-table insert into {len(item.targets)} "
+                "statements, one per target, each reading the shared FROM clause: "
+                + ", ".join(item.targets)
+            ),
+        }
+        for item in found
+        if item.split
+    ]
+
+
+def _multi_table_insert_unsupported_gaps(found: list[MultiTableInsert]) -> list[dict]:
+    """One gap per FROM-first multi-table insert that could not be split (audit 1.2).
+
+    The parse keeps only ``SELECT * FROM <source>`` of such a statement, so without this
+    every target it writes would be missing from the document with no word about which.
+    """
+    return [
+        {
+            "gap_type": "multi_table_insert_unsupported",
+            "statement_id": f"stmt:{item.statement_index + 1:03d}",
+            "targets": list(item.targets),
+            "reason": item.reason,
+            "root_impact": True,
+            "needed_fact": (
+                "lineage of each target of the multi-table insert; rewrite it as one "
+                "INSERT ... SELECT ... FROM per target"
+            ),
+        }
+        for item in found
+        if not item.split
+    ]
 
 
 def parse_task_lineage(
@@ -495,8 +556,13 @@ def _parse_task_lineage(
     state_builder = _StateBuilder(schema)
     statements: list[dict] = []
     statement_lineage: dict[str, object] = {}
-    warnings: list[dict] = _repair_disclosure_warnings(ctas_repairs, quoted_identifiers)
+    warnings: list[dict] = _repair_disclosure_warnings(
+        ctas_repairs, quoted_identifiers, quote_spliced_parameters(sql)[1]
+    )
     gaps: list[dict] = []
+    multi_inserts = split_multi_table_inserts(sql)[1]
+    warnings.extend(_multi_table_insert_split_warnings(multi_inserts))
+    gaps.extend(_multi_table_insert_unsupported_gaps(multi_inserts))
     # Columns proved by a CREATE ... AS SELECT earlier in this script, so the statements
     # that consume it are not modelled against a table nobody can describe.
     script_local: dict[str, list[str]] = {}
@@ -1023,6 +1089,7 @@ def _apply_projection_write(
             *state_missing_reasons,
             *previous.missing_reasons,
         ]))
+    merge_unresolved: list[str] = []
     merge_conditions = (
         _merge_condition_sources(
             tree,
@@ -1030,10 +1097,14 @@ def _apply_projection_write(
             result=result,
             statement_id=statement_id,
             gaps=gaps,
+            states=states,
+            unresolved=merge_unresolved,
         )
         if isinstance(tree, exp.Merge)
         else []
     )
+    if merge_unresolved:
+        gaps.append(_row_condition_gap(statement_id, result.target_table, merge_unresolved))
     if effect in {"APPEND", "REPLACE_PARTITION"} and previous is not None:
         value_sources = _merge_value_sources(
             _prior_values_for_written_columns(previous, written_values),
@@ -1088,7 +1159,7 @@ def _apply_projection_write(
                 *value_condition_sources.get(column, []),
                 *merge_conditions,
             ])
-    window_context_sources = _write_window_context_sources(result)
+    window_context_sources = _write_window_context_sources(result, states)
     state = states.transition(
         previous,
         table=result.target_table,
@@ -1142,7 +1213,13 @@ def _apply_delete(
     previous = states.current(table)
     where = tree.args.get("where")
     predicate = where.this if isinstance(where, exp.Where) else None
-    membership_sources = _expression_field_sources(predicate, target_table=table)
+    unresolved: list[str] = []
+    membership_sources = _named_sources(_expression_field_sources(
+        predicate, target_table=table, target_alias=tree.this.alias,
+        states=states, unresolved=unresolved,
+    ))
+    if unresolved:
+        gaps.append(_row_condition_gap(statement["statement_id"], table, unresolved))
     deletes_all_rows = predicate is None
     all_membership = _dedupe_dicts([
         *previous.row_membership_sources,
@@ -1335,7 +1412,16 @@ def _apply_update(
     previous = states.current(table)
     where = tree.args.get("where")
     predicate = where.this if isinstance(where, exp.Where) else None
-    condition_sources = _expression_field_sources(predicate, target_table=table)
+    condition_unresolved: list[str] = []
+    condition_sources = _named_sources(_expression_field_sources(
+        predicate, target_table=table, target_alias=tree.this.alias,
+        states=states, unresolved=condition_unresolved,
+    ))
+    unresolved = list(condition_unresolved)
+    column_missing_reasons = {
+        column: list(reasons)
+        for column, reasons in previous.column_missing_reasons.items()
+    }
     changed: list[str] = []
     assignments: list[dict] = []
     value_sources = {
@@ -1353,10 +1439,22 @@ def _apply_update(
             continue
         column = assignment.this.name
         changed.append(column)
+        value_unresolved: list[str] = []
         expression_sources = _expression_field_sources(
             assignment.expression,
             target_table=table,
+            target_alias=tree.this.alias,
+            states=states,
+            unresolved=value_unresolved,
         )
+        if value_unresolved:
+            # The assigned value has a source nobody could name. An unnamed condition
+            # source is only the gap: trace_complete answers whether the values were
+            # traced, the same as for an INSERT condition.
+            column_missing_reasons[column] = list(dict.fromkeys([
+                *column_missing_reasons.get(column, []), _ROW_CONDITION_UNRESOLVED,
+            ]))
+            unresolved.extend(name for name in value_unresolved if name not in unresolved)
         value_sources[column] = _dedupe_dicts([
             *value_sources.get(
                 column,
@@ -1391,8 +1489,10 @@ def _apply_update(
         value_condition_sources=value_conditions,
         columns_known=previous.columns_known,
         missing_reasons=previous.missing_reasons,
-        column_missing_reasons=previous.column_missing_reasons,
+        column_missing_reasons=column_missing_reasons,
     )
+    if unresolved:
+        gaps.append(_row_condition_gap(statement["statement_id"], table, unresolved))
     statement.update({
         "model_status": "modeled",
         "target_table": table,
@@ -1582,14 +1682,26 @@ def _binding_reason_code(issues: list[str]) -> str:
     return "binding_not_applicable"
 
 
-def _write_window_context_sources(result) -> dict[str, list[dict]]:
+def _write_window_context_sources(
+    result,
+    states: _StateBuilder | None = None,
+) -> dict[str, list[dict]]:
+    """Window PARTITION BY / ORDER BY fields per written column, stamped like value sources.
+
+    An entry naming a relation the script wrote says which state it read and whether that
+    relation lives only in the session, so the fold can resolve a temp view's partition
+    column to the table behind it instead of leaving the view's name behind (C2.3-1).
+    """
     from .end_to_end import build_end_to_end_lineage
 
     context: dict[str, list[dict]] = {}
     for item in build_end_to_end_lineage(result):
         entries = item.get("window_context_sources") or []
         if entries:
-            context[item["column"]] = [dict(entry) for entry in entries]
+            context[item["column"]] = [
+                {**entry, **_source_state(states, str(entry.get("table") or ""))}
+                for entry in entries
+            ]
     return context
 
 
@@ -1797,6 +1909,13 @@ def _row_condition_fields(
     """
     if not relation or not column or column == "*":
         return []
+    if relation in _PLACEHOLDER_RELATIONS:
+        # Core could not bind the column to one relation (two joined tables both have
+        # it, or none is known to). A placeholder is no field this read was traced to:
+        # like any other condition field that reaches no physical column, it gets no
+        # name and is a gap. Published as a table, it sat beside trace_complete: true.
+        gaps.append(_condition_field_gap(statement_id, relation, column, condition))
+        return []
     if relation not in result.scopes:
         # A relation the script itself wrote is stamped like a value source: which state
         # was read, and whether it lives only in the session -- so the fold can resolve a
@@ -1807,25 +1926,37 @@ def _row_condition_fields(
         # A literal or a system value decides nothing about which source rows exist.
         return []
     if incomplete_reasons or not fields:
-        gap = {
-            "gap_type": "row_condition_source_unresolved",
-            "statement_id": statement_id,
-            "scope_id": relation,
-            "column": column,
-            "root_impact": True,
-            "needed_fact": "physical field behind a query condition",
-        }
-        if condition is not None:
-            condition_scope_id, block = condition
-            gap.update({
-                "condition_scope_id": condition_scope_id,
-                "logic_block_id": block.logic_block_id,
-                "logic_type": block.logic_type,
-                "expression": block.raw_expression,
-            })
-        gaps.append(gap)
+        gaps.append(_condition_field_gap(statement_id, relation, column, condition))
         return []
     return [{"table": field["table"], "column": field["column"]} for field in fields]
+
+
+_PLACEHOLDER_RELATIONS = frozenset({"UNKNOWN", AMBIGUOUS_SCOPE_ID})
+
+
+def _condition_field_gap(
+    statement_id: str,
+    relation: str,
+    column: str,
+    condition: tuple[str, Any] | None,
+) -> dict:
+    gap = {
+        "gap_type": "row_condition_source_unresolved",
+        "statement_id": statement_id,
+        "scope_id": relation,
+        "column": column,
+        "root_impact": True,
+        "needed_fact": "physical field behind a query condition",
+    }
+    if condition is not None:
+        condition_scope_id, block = condition
+        gap.update({
+            "condition_scope_id": condition_scope_id,
+            "logic_block_id": block.logic_block_id,
+            "logic_type": block.logic_type,
+            "expression": block.raw_expression,
+        })
+    return gap
 
 
 def _only_literal_or_system(generated: list[dict]) -> bool:
@@ -1914,40 +2045,182 @@ def _expression_field_sources(
     expression: exp.Expression | None,
     *,
     target_table: str,
+    target_alias: str | None = None,
+    states: "_StateBuilder | None" = None,
+    unresolved: list[str] | None = None,
 ) -> list[dict]:
     """Physical fields a predicate reads, resolved from the expression alone.
 
     There is deliberately no alias-map parameter: mapping a statement's aliases to
     tables here is guesswork, and MERGE — the one caller that needed it — now resolves
     its aliases through the built scopes instead (MERGE-CTE-002).
+
+    A bare column in a query over several tables is bound by the schema when exactly one
+    of them has it and every other is known not to. Otherwise it is published as
+    ``UNKNOWN`` and its name added to ``unresolved``, so the caller can report the gap
+    rather than pass the placeholder off as traced (WP3q). A qualifier no enclosing query
+    and not the written table (``target_alias``, else its name) declares is the same
+    case. A condition caller drops the placeholder with ``_named_sources`` (a condition
+    field that reaches no physical column gets no name); an UPDATE assignment keeps it
+    beside an incomplete row, because there it is a value.
     """
     if expression is None:
         return []
+    target_names = _target_qualifiers(target_table, target_alias)
     sources: list[dict] = []
     for column in expression.find_all(exp.Column):
         select = column.find_ancestor(exp.Select)
-        if select is None:
-            table = column.table if column.table else target_table
+        if column.table:
+            table = _qualified_column_table(column, select, target_table, target_names)
         else:
-            direct_tables = [
-                item
-                for item in select.find_all(exp.Table)
-                if item.find_ancestor(exp.Select) is select
-            ]
-            # Kept local: rebinding ``aliases`` here would leak this nested query's
-            # alias map onto every later top-level column in the same expression.
-            local_aliases = {
-                (item.alias_or_name or "").lower(): _table_name(item)
-                for item in direct_tables
-            }
-            if column.table:
-                table = local_aliases.get(column.table.lower(), column.table)
-            elif len(direct_tables) == 1:
-                table = _table_name(direct_tables[0])
-            else:
-                table = "UNKNOWN"
+            table = _unqualified_column_table(column.name, select, target_table, states)
+        if table == "UNKNOWN" and unresolved is not None and column.name not in unresolved:
+            unresolved.append(column.name)
         sources.append({"table": table, "column": column.name})
     return _dedupe_dicts(sources)
+
+
+def _named_sources(sources: list[dict]) -> list[dict]:
+    """Condition sources without the ``UNKNOWN`` placeholder.
+
+    Like an INSERT's row condition (``_row_condition_fields``): a condition field no table
+    can be proven to own is the ``row_condition_source_unresolved`` gap, not a field.
+    ``trace_complete`` keeps answering only whether the values were traced.
+    """
+    return [source for source in sources if source["table"] != "UNKNOWN"]
+
+
+def _direct_tables(select: exp.Select) -> list[exp.Table]:
+    return [
+        item
+        for item in select.find_all(exp.Table)
+        if item.find_ancestor(exp.Select) is select
+    ]
+
+
+def _target_qualifiers(target_table: str, target_alias: str | None) -> set[str]:
+    """The names a predicate can qualify the written table by.
+
+    With an alias, only the alias; without one, the table's own name, bare or qualified.
+    """
+    if target_alias:
+        return {target_alias.lower()}
+    return {target_table.lower(), target_table.rsplit(".", 1)[-1].lower()}
+
+
+def _qualified_column_table(
+    column: exp.Column,
+    select: exp.Select | None,
+    target_table: str,
+    target_names: set[str],
+) -> str:
+    """The table a qualified predicate column names, or ``UNKNOWN``.
+
+    The qualifier is looked up the way Spark resolves it: the query the column sits in,
+    then each enclosing query (a correlated reference), then the written table. A
+    qualifier none of them declares used to be published as the table name itself -- a
+    correlated ``t.id`` against ``DELETE FROM mart.t t`` became table ``t``, and a
+    qualifier naming nothing became a table of that name.
+    """
+    qualifier = column.table.lower()
+    full = ".".join(part for part in (column.db, column.table) if part).lower()
+    scope = select
+    while scope is not None:
+        # Each query's alias map stays local to that query: an alias declared in one
+        # nested query never names a table for a column outside it.
+        for item in _direct_tables(scope):
+            name = _table_name(item)
+            if column.db:
+                if not item.alias and name.lower() == full:
+                    return name
+            elif (item.alias_or_name or "").lower() == qualifier:
+                return name
+        scope = scope.find_ancestor(exp.Select)
+    if qualifier in target_names or full in target_names:
+        return target_table
+    return "UNKNOWN"
+
+
+def _unqualified_column_table(
+    column: str,
+    select: exp.Select | None,
+    target_table: str,
+    states: "_StateBuilder | None",
+) -> str:
+    """The table a bare predicate column belongs to, looked up the way Spark does.
+
+    The query the column sits in first: its one table, or the one of its tables the schema
+    proves to own it. When every table there is known not to have it, the enclosing query
+    (an outer reference), and finally the written table unless it too is known not to
+    have it (then ``UNKNOWN``: no table owns it). Outside every query the column is the
+    written table's, as it always was. A query in FROM is not correlated, so the search
+    stops at it. Without metadata saying otherwise, a one-table query keeps the column, as
+    it always did.
+    """
+    scope = select
+    while scope is not None:
+        tables = _direct_tables(scope)
+        known = [_known_table_columns(_table_name(table), states) for table in tables]
+        if any(columns is None or column.lower() in columns for columns in known):
+            if len(tables) == 1:
+                return _table_name(tables[0])
+            return _sole_table_with_column(tables, column, states)
+        if _is_derived_table(scope):
+            return "UNKNOWN"
+        scope = scope.find_ancestor(exp.Select)
+    if select is None:
+        return target_table
+    columns = _known_table_columns(target_table, states)
+    if columns is None or column.lower() in columns:
+        return target_table
+    return "UNKNOWN"
+
+
+def _is_derived_table(select: exp.Select) -> bool:
+    subquery = select.parent
+    return isinstance(subquery, exp.Subquery) and isinstance(
+        subquery.parent, (exp.From, exp.Join)
+    )
+
+
+def _sole_table_with_column(
+    tables: list[exp.Table], column: str, states: "_StateBuilder | None",
+) -> str:
+    """The one table known to have ``column`` while every other is known not to, else
+    ``UNKNOWN``."""
+    owners = []
+    for table in tables:
+        columns = _known_table_columns(_table_name(table), states)
+        if columns is None:
+            return "UNKNOWN"
+        if column.lower() in columns:
+            owners.append(_table_name(table))
+    return owners[0] if len(owners) == 1 else "UNKNOWN"
+
+
+def _known_table_columns(table: str, states: "_StateBuilder | None") -> set[str] | None:
+    if states is None or not table:
+        return None
+    state = states.current_by_table.get(table)
+    if state is not None and state.columns_known:
+        return {name.lower() for name in state.value_sources}
+    columns = states.schema_provider.get_columns(table)
+    return {name.lower() for name in columns} if columns is not None else None
+
+
+_ROW_CONDITION_UNRESOLVED = "row_condition_source_unresolved"
+
+
+def _row_condition_gap(statement_id: str, table: str, columns: list[str]) -> dict:
+    return {
+        "gap_type": _ROW_CONDITION_UNRESOLVED,
+        "statement_id": statement_id,
+        "target_table": table,
+        "column": columns[0] if len(columns) == 1 else None,
+        "columns": list(columns),
+        "root_impact": True,
+        "needed_fact": "which source table owns an unqualified predicate column",
+    }
 
 
 def _merge_condition_expressions(
@@ -1981,6 +2254,8 @@ def _merge_condition_sources(
     result: ScopeLineageResult,
     statement_id: str,
     gaps: list[dict],
+    states: "_StateBuilder | None" = None,
+    unresolved: list[str] | None = None,
 ) -> list[dict]:
     """Row-membership sources for a MERGE, resolved through Core's scope facts.
 
@@ -2013,9 +2288,13 @@ def _merge_condition_sources(
             if column.find_ancestor(exp.Select) is not None:
                 # A column inside a nested query belongs to that query's own sources,
                 # not to either MERGE alias.
-                sources.extend(
-                    _expression_field_sources(column, target_table=target_table)
-                )
+                sources.extend(_named_sources(_expression_field_sources(
+                    column,
+                    target_table=target_table,
+                    target_alias=target.alias if isinstance(target, exp.Table) else None,
+                    states=states,
+                    unresolved=unresolved,
+                )))
                 continue
             qualifier = column.table.lower()
             if not qualifier or qualifier == target_alias:
@@ -2030,7 +2309,7 @@ def _merge_condition_sources(
                 )
                 continue
             physical_fields, generated, incomplete_reasons = _merge_condition_physical_fields(
-                result, column.name
+                result, column.name, states
             )
             if not physical_fields and not incomplete_reasons and _only_literal_or_system(generated):
                 # A USING column that is a literal or a system value decides nothing.
@@ -2047,14 +2326,28 @@ def _merge_condition_sources(
 def _merge_condition_physical_fields(
     result: ScopeLineageResult,
     column_name: str,
+    states: _StateBuilder | None = None,
 ) -> tuple[list[dict], list[dict], list[str]]:
+    """The USING relation's fields behind one MERGE condition column.
+
+    Stamped like ``_row_condition_fields`` does: a USING relation that is a temp view
+    otherwise reached ``row_membership_sources`` as a bare ``{table, column}`` that no
+    fold could recognise, and the view's name outlived the view (X3).
+    """
     if not result.merge_using_scope_id:
         return [], [], ["merge_using_scope_missing"]
     fields, generated, incomplete_reasons = _scope_column_roots(
         result, result.merge_using_scope_id, column_name
     )
     return (
-        [{"table": field["table"], "column": field["column"]} for field in fields],
+        [
+            {
+                "table": field["table"],
+                "column": field["column"],
+                **_source_state(states, field["table"]),
+            }
+            for field in fields
+        ],
         generated,
         incomplete_reasons,
     )

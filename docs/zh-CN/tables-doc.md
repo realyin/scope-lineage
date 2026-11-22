@@ -92,8 +92,11 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
   那份事实而不是重算；借来的文件会抄进本次运行自己的 `.cache/`，下次即本地命中，借出的那份
   目录可以删掉。可重复，按给出的顺序、在本地缓存之后依次尝试；它本身即蕴含 `--incremental`，
   `--no-cache` 仍然优先。语料路径**不进**选项摘要：同一个任务在哪个目录下解析，都该算出同一份事实。
-- 事实文件按任务名存放，两份语料完全可能各有一个同名而内容不同的任务。能不能借用由文件里记着的
-  指纹与选项摘要说了算，不由文件名说了算——同名不同内容的任务照样重算。
+- 事实文件先按任务名（它在 `--lineage` 下的路径）找，找不到再按 `lineage.json` 的 sha256 找：
+  每份缓存在 `.cache/by-content/index.json` 里按内容列出自己的文件，所以子集语料里叫 `task_a`、
+  超集语料里叫 `domain_a/task_a` 的同一个任务照样能借，单文件运行留下的事实也能借。两份语料完全
+  可能各有一个同名而内容不同的任务；能不能借用由文件里记着的指纹与选项摘要说了算，不由怎么找到的
+  说了算——同名不同内容的任务照样重算。
 - 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
   `glossary.json` / `tables.json`、以及工具版本，任何一项对不上，索引就当没有。
   由别的子命令写下的索引或缓存（`command`、`doc_format` 对不上）同样当没有。
@@ -101,6 +104,10 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
   给了 `--cache-from` 时第一项写成 `reused=N (borrowed=B)`，B 是从别处借来的那几个。
 - 不给 `--incremental` 就是原来的全量跑，既不读也不写索引与缓存；`--no-cache` 先把这两样
   删掉再全量跑。
+- **本命令以前发布过、这次不再发布的页面会被删掉**，加不加 `--incremental` 都一样：比如已经没有
+  任何任务碰到的表的卡片。只会删 `--out` 下 `tables/*.md` 这种文件，而且只删本命令自己的记录里
+  有的——索引里的 `written` 清单，或者上一轮写在页面旁边的 `tables.json`。你自己放进去的文件、别的命令写进
+  同一个 `--out` 的文件都不动。`--format json` 的运行不碰 markdown。
 
 ## 跨语料合并：`--merge`
 
@@ -173,7 +180,8 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
          "corpus": "…",                                 // 只有合并过才出现
          "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
-         "grain": {"basis": "group_by", "keys": ["customer_id"]},
+         "grain": {"basis": "group_by", "keys": ["customer_id"],
+                   "evidence": ["logic:ROOT:group_by:001"]},  // evidence：生产方记录了才有
          "candidate_keys": ["customer_id"], "key_confidence": "proven",
          "fields": [{"column": "…", "comment": null, "summary": "…", "structural_role": "measure"}],
          "refresh": {"cycle": "day", "cron": "…", "source": "task_meta"},
@@ -202,6 +210,10 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 - `produced_by[]` 每条来自该任务 semantic profile 的 `task` / `output_shape` / `fields` 块，
   `refresh` 来自任务 JSON 的 `meta`（`schedule_cycle` / `schedule`），没有就是 `null`——
   绝不从分区列或表名猜调度周期。
+- `produced_by[].grain.keys` 用目标列名写每个逻辑键；SELECT 没有投影出来的键（例如
+  `GROUP BY id, upper(k)` 只写聚合值）写成它分组用的表达式 `` UPPER(`a`.`k`) ``，不会写成 `None`。
+  `grain.evidence`（可选，非空才有）就是生产方自己的 `output_shape.grain.evidence`：粒度依据的
+  逻辑块，或者它的粒度推导停下来的原因；生产方没能判定粒度时，读方的 `card.grain_text` 引用它的第一条。
 - MERGE 生产语句的 `grain`、`candidate_keys`、`key_confidence` 是它写入批次的值（M1；以前恒为
   `unknown` / `[]` / `none`）。它们仍不说明整张表：合并写入算追加写入，表卡的 `key_claim`
   照旧被反证。
@@ -234,6 +246,11 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 表与它后缀匹配时并入那张卡；有多张时它自成一张卡，并在该卡的 `findings` 里记
 `ambiguous_bare_name`，由人来确认脚本实际读写的是哪一张。
 
+再往上一级也是同样的规则。表名先规范化（去引号、转小写，首段 catalog 只在
+`SCOPE_LINEAGE_CATALOG_PREFIXES` 配置了时才剥），所以带引号的 `` `ODS`.`Orders` `` 写方和读 `ods.orders`
+的读方是同一张卡；catalog 没配置时，`cat1.ods.t` 和 `cat2.ods.t` 是两张卡。同时出现的 `ods.t` 两张都可能是，
+它自成一张卡并记 `ambiguous_bare_name`（表名虽带库名，finding 仍用这个名字）。
+
 ### 样例值（`--samples`）
 
 Core 不连数据库，所以「这一列的值长什么样」只能由**别人导出**再传进来。`--samples` 接三种写法：
@@ -256,8 +273,9 @@ mart.customer_daily,country_code,CN,10
 }
 ```
 
-- **表名按表卡的规则匹配**：取最后两段、忽略大小写，所以 `spark_catalog.MART.t` 与卡上的
-  `mart.t` 是同一张表；列名也忽略大小写。
+- **表名按表身份规则匹配**：忽略引号和大小写，剥掉已配置的 catalog；只差限定级别的写法，在文件里
+  不可能是别的表时才算匹配。所以卡上的 `spark_catalog.MART.t` 能找到 `mart.t` 的样例值，
+  而 `cat1.mart.t` 和 `cat2.mart.t` 的样例值各归各的卡。列名也忽略大小写。
 - **每列最多 N 个不同的值**（默认 5，`--samples-top` 可改）：文件给了 `count` 就按 `count`
   从大到小排，没给就按文件里的先后顺序；重复的值只占一个位置。
 - **永远脱敏，没有关掉它的开关**：样例值是本工具见过的最容易带个人信息的输入，每个值都先去掉
@@ -357,6 +375,7 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 | JOIN 右侧是物理表，其表卡的 `key_confidence` 是 `proven`，且 `candidate_keys` ⊆ 该 JOIN 右侧连接键列名 | 该条风险改判 `safe`，`reason` 写「生产任务 `<task>` 已证明 `<keys>` 唯一（表卡）」，并加 `basis: "table_card"` |
 | 同上但表卡的 `key_confidence` 是 `candidate` | 同样改判 `safe`，但 `reason` 注明「表卡候选键，未证唯一」，且整条语句的 `key_confidence` 上限压到 `candidate` |
 | 表卡 `key_confidence` 是 `proven_unexposed` 或 `none`，或连接键没盖住候选键 | 不改判，仍是原来的结论 |
+| 表卡上有键，但该 JOIN 根本没有可用的连接键对（例如 ON 用 OR 连接） | 不改判，仍是 `unknown`；`reason` 写「该 JOIN 无可证明的连接键，右侧唯一性无从判定」，而不是「物理表无主键事实」——表上有键事实，缺的是这次 JOIN 的键 |
 | 有生产任务以追加（`INSERT INTO`）或合并（`MERGE`）方式写这张表，或多个生产任务给出的候选键不一致 | 改判 `unknown`，`reason` 说明原因：键只在单批写入内唯一 / 读到哪一版取决于调度顺序（F2） |
 | JOIN 右侧不是物理表本身，而是只装着一张表的行的子查询或 CTE——到那张表为止的每一层都只读一个输入、只做过滤，连接列原样透传到表（G5a-2） | 按上面各行去问那张表的表卡，沿途 WHERE 的等值条件算作钉住；表卡没有答复时保持原判定 |
 | 同上的行子集按某一时点读表：沿途 WHERE 的顶层合取项里有 `开始 <= X` 与 `结束 > X`（反写 `X >= 开始`、`X < 结束` 也认），X 是同一个字面量或 `${…}`；表卡上有一个生产语句带 `validity_window`，ON 的右侧列覆盖它的 `partition`，本语句元数据里开始、结束两列声明类型相同，且别的任务的生产语句都不写这两列（第三轮 G6） | 先于上面各行判定。窗口写入是整表覆盖时判 `safe`；是 MERGE 时判 `unknown`，因为 MERGE 按（分区, 开始）匹配，而表里没有任何事实证明这一对不重复。`reason` 写「表卡：<任务>/<语句> 以 LEAD(开始) OVER (PARTITION BY 分区 ORDER BY 开始) 写 结束，有效期首尾相接；本侧按 开始 <= X < 结束 读」，再写结论与条件（「若表中 (分区, 开始) 不重复，每个分区至多一行有效、不放大；不成立时（(分区, 开始) 重复）右侧同一分区可能多行有效、会放大（写入方 MERGE 此时多行匹配，结果取决于引擎）」）；表卡上各生产语句的 `batch_write_keys` 比窗口分区多出列时写「写入键比窗口分区多出 <列>」及其后果，ON 比窗口分区多出列时写「ON 另按 <列> 关联……则关联不到」。`basis` 为 `table_card`，`claim` 的规则是 `R-VALIDITY-WINDOW`（MERGE 时 `conditional`，`conditions` 为 `[["validity_rows_unique", [分区…, 开始]]]`，前提 `A-WRITERS-CLOSED`）。以 hash 比对等方式关闭旧版本的拉链表不在此列：单条 SQL 证明不了它的区间不重叠 |

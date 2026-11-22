@@ -227,9 +227,11 @@ happened in.
 | `field_usage[]` | array<object> | Which fields of each input source are used by logic blocks or output fields. |
 | `columns[]` | array<object> | A compatibility projection view; new consumers should prefer the richer `outputs[]`. |
 | `union_branch_alignment` | object | UNION branches, field positions, and alignment status. Emitted only for the relevant scopes. |
+| `set_op` / `branches[]` | string / array<string> | On a `kind=union` scope: the set operator and its input branches in order. `set_op` is `UNION_ALL`, `UNION` (de-duplicating), `EXCEPT` or `INTERSECT`. A chain of one operator is one scope; a nested chain with another operator (a `UNION` chain under `UNION ALL`, a `UNION` on the left of `EXCEPT`) is itself a `kind=union` branch, with its own `set_op` and `branches[]`. For `EXCEPT` / `INTERSECT` only the first branch supplies column values; the others only decide which rows survive and are reported by the `set_operation_semantics_partial` fact gap. |
 | `joins[]` | array<object> | A compatibility JOIN structure preserving left and right inputs, type, ON expression, and fields. For exact relations prefer `logic_blocks[].join_relation_detail`. |
 | `filters[]` | array<object> | Compatibility WHERE conditions and referenced fields. For an exact condition breakdown prefer `filter_predicate_detail`. |
 | `group_by[]` / `having[]` | array | Structured clause facts for grouping and post-aggregate filtering. |
+| `grouping_kind` | string | Present only when the GROUP BY is not a plain one: `cube`, `rollup`, `grouping_sets`, `with_cube`, `with_rollup`, or `mixed` when several of these forms meet. `group_by[]` then lists every key named in the clause, inside CUBE / ROLLUP / GROUPING SETS too. These forms add subtotal rows whose rolled-up keys are NULL, so the semantic profile publishes their keys as `candidate`, never `proven`. Absent means a plain GROUP BY or none. |
 | `order_by[]` | array<object> | Sort expressions, fields, and directions. Ordering inside a window also appears in `window_specification`. |
 | `distinct` | boolean | Whether this SELECT uses DISTINCT. |
 | `lateral_views[]` | array<object> | Structured facts for LATERAL VIEW/UDTF. |
@@ -331,7 +333,7 @@ Every logic block has at least:
 | `output_fields[]` | array<string> | The scope output fields this logic produces or affects. |
 | `input_sources[]` | array<string> | The input scopes/physical tables the logic involves. |
 | `field_usage[]` | array<object> | Which logic block and which output use a field. |
-| `expression_features` | object | Functions, operators, and boolean features such as CASE/CAST/window/aggregate/UDF. `functions` holds **called function names** only -- not a SQL keyword that may also be followed by a parenthesis (`IN`, `NOT`, `AND`), and not text inside a string literal; `has_udf` is true only when one of those names is one the function catalog cannot place. |
+| `expression_features` | object | Functions, operators, and boolean features such as CASE/CAST/window/aggregate/UDF. `functions` holds **called function names** only -- not a SQL keyword that may also be followed by a parenthesis (`IN`, `NOT`, `AND`), not text inside a string literal or a comment, and not a name in type position (the `DECIMAL` of `CAST(x AS DECIMAL(18, 2))`); `has_udf` is true only when one of those names is one the function catalog cannot place. The function catalog is a fixed list (hand-named Spark/Hive builtins plus the grammar registrations frozen from the sqlglot version `constraints-dev.txt` pins), not read from the installed sqlglot, so the same SQL gets the same `has_udf` on every supported sqlglot version. `operators` likewise ignores string literals and comments (the `*` of `/* rate * 100 */`, the `-` of `'2024-01-01'`). |
 | `final_target_columns[]` | array<string> | The target fields this logic ultimately affects. |
 | `comments[]` | array<string> | The SQL comments written **inside this block's own expression**, verbatim. The key is absent when there are none. An alias comment sits outside the block expression and is published on the matching `outputs[].comments`. |
 
@@ -339,10 +341,10 @@ Different logic types also carry dedicated details:
 
 | Detail key | Content |
 | --- | --- |
-| `join_relation_detail` | `join_type`, `left_input`, `right_input`, `left_alias`, `right_alias`, `join_key_pairs[]`, `condition_filters[]`, `trace_status`, `missing_reasons[]`. Distinguishes true join keys from extra filters inside ON. `right_input` / `right_alias` are the source this JOIN adds and the alias this JOIN gives it -- a source joined several times has one alias per JOIN. `left_input` / `left_alias` are the scope's first FROM source and its alias, not necessarily the side the ON condition references (in a chained self-join `left_alias` is the hop joined immediately before); each key's real two sides are `join_key_pairs[].left` / `.right`. When the join reads the statement's own target table it also carries `target_self_reference` — the referencing alias, and, when both the target partition and the reference's partition predicate are literal dates, the provable day offset (`partition_offset_days`, `offset_proven: true`); anything less stays `offset_proven: false` rather than guessed. A negative offset is the classic carry-forward shape — the tool states the offset, the consumer names the pattern. |
-| `filter_predicate_detail` | The `conjuncts[]` a WHERE/HAVING condition breaks down into, field resolution, subquery dependencies, and partition-filter judgments. Each conjunct carries `comments[]`, the comments that belong to that conjunct alone: those inside its own `expression`, led by a comment written on its own line above the `AND` that joins it on (or right after that `AND`) -- sqlglot attaches such a comment to the `AND` node, so no conjunct's text holds it, and it goes to the conjunct it was written above. A comment at the end of a line attaches to the last predicate on that line. A comment written on the `WHERE` / `HAVING` itself (`WHERE -- note` above the first predicate) belongs to no conjunct and stays only in the block's `comments[]`. The key is absent when there are none; an additive key, `schema_version` unchanged. |
+| `join_relation_detail` | `join_type`, `left_input`, `right_input`, `left_alias`, `right_alias`, `join_key_pairs[]`, `condition_filters[]`, `trace_status`, `missing_reasons[]`. Distinguishes true join keys from extra filters inside ON. `right_input` / `right_alias` are the source this JOIN adds and the alias this JOIN gives it -- a source joined several times has one alias per JOIN. `left_input` / `left_alias` are the scope's first FROM source and its alias, not necessarily the side the ON condition references (in a chained self-join `left_alias` is the hop joined immediately before); each key's real two sides are `join_key_pairs[].left` / `.right`. Each side carries `bare` (boolean, optional): whether that side of the equality is exactly one column (the right side of `t.region = substr(u.user_id,1,2)` is `false`). A non-bare equality is still a key pair, and `trace_status` and warnings are unaffected; but the uniqueness rules (fan-out, the ontology's table relations) only read pairs whose right side is `bare: true`. Output written before the field existed is read by parsing the pair's `expression`; one that does not parse counts as `false`. When the join reads the statement's own target table it also carries `target_self_reference` — the referencing alias, and, when both the target partition and the reference's partition predicate are literal dates, the provable day offset (`partition_offset_days`, `offset_proven: true`); anything less stays `offset_proven: false` rather than guessed. A negative offset is the classic carry-forward shape — the tool states the offset, the consumer names the pattern. |
+| `filter_predicate_detail` | The `conjuncts[]` a WHERE/HAVING/QUALIFY condition breaks down into, field resolution, subquery dependencies, and partition-filter judgments. `predicate_type` says which clause it is: `where` and `qualify` on a `logic_type=filter` block, `having` on a `logic_type=having` block. A QUALIFY block (id `logic:<scope>:qualify:<n>`) filters the rows after the window functions are computed; consumers that list WHERE conditions must skip it. Each conjunct carries `comments[]`, the comments that belong to that conjunct alone: those inside its own `expression`, led by a comment written on its own line above the `AND` that joins it on (or right after that `AND`) -- sqlglot attaches such a comment to the `AND` node, so no conjunct's text holds it, and it goes to the conjunct it was written above. A comment at the end of a line attaches to the last predicate on that line. A comment written on the `WHERE` / `HAVING` itself (`WHERE -- note` above the first predicate) belongs to no conjunct and stays only in the block's `comments[]`. The key is absent when there are none; an additive key, `schema_version` unchanged. On a MERGE ROOT, each `WHEN ... AND <condition>` is a filter block with `predicate_type` `merge_when` (a MERGE's ON is recorded in `scopes.ROOT.joins[]` with `join_type` `MERGE` and gets no `join` logic block). |
 | `aggregation_detail` | `group_by_items[]`, `aggregate_items[]`, `having`, and the expression source of each item. |
-| `window_specification` | The window function, `partition_by[]`, `order_by[]`, post-window filtering, and trace status. |
+| `window_specification` | The window function, `partition_by[]`, `order_by[]`, post-window filtering, and trace status. A window function written inside a QUALIFY gets its own window block: `output_field` is null (it is no output column) and `filter_after_window[]` holds the QUALIFY conjunct that tests it. A named window (`OVER w` with `WINDOW w AS (...)`) is inlined first, so its partition and order appear here as if written in the `OVER`. |
 
 For example, the same `customer_id` serves different purposes as a JOIN key, a WHERE filter, and a
 SELECT output; `logic_blocks` preserves that context instead of flattening them into one
@@ -397,6 +399,27 @@ Main keys:
 | `merge_branch` / `merge_when_index` | Which WHEN branch a field belongs to in a MERGE. `merge_branch` is **absent** on `WHEN NOT MATCHED BY SOURCE` (see §7); `merge_when_index` is always given. |
 | `merge_branch_qualifier` | The kind of WHEN clause the enum cannot name; currently only `not_matched_by_source`. Absent on the two branches the enum does name. |
 | `comments[]` | The SQL comments written on this projection, verbatim: the alias node's own first, then the rest of the expression subtree in traversal order. The key is absent when there are none. Free text; it takes no part in identifier resolution — see §18. |
+
+### A projection name that is both a source column and an earlier alias
+
+In `SELECT fee AS amt, amt AS fee FROM ods.x` the second `amt` could mean the column `ods.x.amt` or
+the alias defined just before it. Spark reads the source column first and falls back to the
+lateral column alias only when no input has that name ("A local column reference takes
+precedence, over a lateral column alias",
+[Databricks name resolution](https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html);
+SPARK-27561). The tool follows the same rule: when Schema (or a derived table's / CTE's listed
+columns) proves that a source has the column, the output reads that column (`fee` ← `ods.x.amt`).
+A name no source has is still the lateral alias (`SELECT a + 1 AS b, b + 1 AS c`, with no `b` in the
+source, gives `c` = `a + 1 + 1`). When a source's columns are unknown (no Schema for that table, a
+`SELECT *` CTE), the name is read as the alias as before and the statement carries a
+`lateral_alias_ambiguous` warning naming it. Before this rule the alias always won, so outputs of
+this shape changed their sources; see the CHANGELOG **Breaking** entry.
+
+HAVING and QUALIFY follow the same rule ("HAVING prefers the table column over the SELECT list
+alias", QUALIFY likewise, same page): in `SELECT g, MAX(fee) AS amt FROM ods.x GROUP BY g HAVING
+amt > 0`, with `amt` a proven column of `ods.x`, the filter block reads `x.amt > 0`, not
+`MAX(x.fee) > 0`. A name no source has, or one the metadata cannot settle, still reads the alias
+(no warning is added there). ORDER BY prefers the alias and is not changed.
 
 ### `SELECT * EXCEPT (...)`
 
@@ -837,7 +860,7 @@ Each item of `scope_profile.steps[]` contains:
 | `operations[]` | The operations that occur in this scope, such as `join`, `filter`, `aggregate`, `window`. |
 | `direct_inputs[]` | The scopes or physical tables that are direct inputs. |
 | `direct_source_tables[]` | The physical tables this scope reads directly. |
-| `physical_source_tables[]` | Every physical table involved after passing through upstream scopes. |
+| `physical_source_tables[]` | Every physical table involved after passing through upstream scopes. Both lists apply one test: a name that is not a scope of the statement is a table, qualified or bare; in a task document, a temporary view or cached relation an earlier statement of the same script defined is a session relation and is in neither list (it stays in `direct_inputs`). |
 | `output_columns` | The number of output fields. |
 | `logic` | A concise structure of joins, filters, aggregations, window functions, CASE, DISTINCT, UNION, and so on. |
 | `business_summary` | A deterministic summary generated from structural templates; it must not be taken as a complete business definition. |
@@ -924,12 +947,23 @@ Beyond the JSON Schema shape check there are two more validation layers, answeri
 different questions:
 
 - `validate_cross_references(document)`: does every referenced id exist (returns a list
-  of violations);
+  of violations). In a statement document it checks `scope_graph.edges`,
+  `columns[].sources[].scope`, each scope's `depends_on` and `joins[].left_scope` /
+  `right_scope` (a scope or a scope_graph node; a MERGE's target may be a join side),
+  `input_edges[].source_id` when `source_type` is `scope` (must be a scope), and
+  `outputs[].source_logic_blocks` (must be ids in the same scope's `logic_blocks`). A task
+  document is also checked for every `source_state` in `end_to_end_lineage`'s
+  `value_sources`, `row_membership_sources`, `value_condition_sources` and
+  `window_context_sources`: each must be a `table_state_graph` node;
 - `validate_contract_invariants(document)`: **do independently derived views of the same
   fact agree with each other** — chain-layer vs end-to-end trace completeness, physical
   sources vs `source_tables` containment, sentinel-value semantics. Defects where every
   layer looks individually plausible but the conjunction is contradictory (such as an
-  AMBIGUOUS-rooted chain claiming completeness) are only caught here.
+  AMBIGUOUS-rooted chain claiming completeness) are only caught here. A task document is
+  checked through each embedded statement document and through its own
+  `end_to_end_lineage`: a row with `trace_complete: true` must not have a value,
+  row-membership or value-condition source whose `table` is `UNKNOWN` or `AMBIGUOUS` — a
+  placeholder belongs only in a row that says its trace is incomplete.
 
 The CLI runs all three layers in one pass, auditing existing artifacts on disk:
 
@@ -989,8 +1023,8 @@ The personal data a comment most often carries is a way to reach a person, so **
 | Shape | Replaced by | Notes |
 | --- | --- | --- |
 | Email address | `<email>` | Bounded to the characters an address is written with, so adjacent words and punctuation are not swallowed |
-| Phone number | `<phone>` | An 11-digit mainland-China mobile (`1[3-9]…`) and international forms such as `+86 138…` |
-| ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes, whose middle digits must read as a real birth date |
+| Phone number | `<phone>` | An 11-digit mainland-China mobile (`1[3-9]…`) and international forms such as `+86 138…`: 9 to 15 digits of country code and number, not followed by another digit; a number part that is exactly an 8-digit date (`T+1 20260802`, `UTC+8 20260802`) is not masked |
+| ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes, whose middle digits must read as a real birth date in a year from 1900 to the current one; the 18th check digit is not verified |
 
 Masking happens **at collection time**, on the comment text itself, so every comment key above and the inline copy inside a rendered expression (such as `logic_blocks[].raw_expression`) all carry the same masked text; `task_meta.description` goes through it too, being free text a person wrote.
 

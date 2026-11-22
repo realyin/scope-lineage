@@ -35,7 +35,9 @@ patched table carries ``table_metadata.patch_applied: true``, so a reader can al
 a warehouse fact from an answer somebody wrote down. A key that matches nothing is
 reported as ``unmatched`` rather than dropped -- for the same reason
 ``glossary.overrides.json`` reports one: a typo in a reviewed file is exactly the thing
-the reviewer cannot see.
+the reviewer cannot see. An entry the loader refuses -- a column key that names no table,
+a table fact holding ``@`` -- is reported as ``rejected`` by key and reason, for the same
+reason, and without quoting the refused text.
 """
 
 from __future__ import annotations
@@ -46,9 +48,11 @@ from typing import Iterable, Iterator, Mapping, Sequence
 
 from ..redaction import redact
 from .schema_metadata import (
+    PRIVACY_REFUSED_REASON,
     _blank_to_none,
     _normalize_table_detail,
     normalize_table_name,
+    schema_table_key,
 )
 
 
@@ -90,15 +94,30 @@ class MetadataPatch:
         self._table_keys: dict[str, str] = {}
         self._column_keys: dict[tuple, str] = {}
         self._matched: set = set()
+        # Entries the loader could not accept, as ``key (reason)`` -- the key as the file
+        # spelled it and why, never the refused text, which may be the address the
+        # privacy rule exists to keep out of every artifact and every log.
+        self.rejected: list[str] = []
 
     def __bool__(self) -> bool:
         return bool(self.tables or self.columns)
 
+    def key_for(self, table: str) -> str:
+        """The patch's own key for ``table``: the table identity's rule (WP5).
+
+        The normalized name when the patch spells it so; otherwise the one patch key it
+        differs from only by qualification (``lake.ods.t`` against a patch for
+        ``ods.t``), never one of two.
+        """
+        known = {key: None for key in self.tables}
+        known.update({table_key: None for table_key, _column in self.columns})
+        return schema_table_key(known, table)
+
     def table_detail(self, table: str) -> dict:
-        return self.tables.get(normalize_table_name(table)) or {}
+        return self.tables.get(self.key_for(table)) or {}
 
     def column_comment(self, table: str, column: str) -> str | None:
-        return self.columns.get((normalize_table_name(table), str(column).lower()))
+        return self.columns.get((self.key_for(table), str(column).lower()))
 
     def mark_matched(self, key) -> None:
         self._matched.add(key)
@@ -177,7 +196,11 @@ def _merge_document(
         key = normalize_table_name(str(name))
         if not key or not isinstance(detail, Mapping):
             continue
-        normalized = _normalize_table_detail(key, detail, include_table_name=False)
+        refused: list[str] = []
+        normalized = _normalize_table_detail(
+            key, detail, include_table_name=False, refused=refused
+        )
+        _reject(patch, [f"{name}.{field}" for field in refused], PRIVACY_REFUSED_REASON)
         if not normalized:
             continue
         normalized = _masked_table_detail(normalized, redact_comments)
@@ -186,10 +209,20 @@ def _merge_document(
     for reference, detail in (document.get("columns") or {}).items():
         key = _column_key(str(reference))
         comment = _comment_of(detail)
-        if key is None or comment is None:
+        if key is None:
+            _reject(patch, [str(reference)], "column key needs db.table.column")
+            continue
+        if comment is None:
             continue
         patch.columns[key] = redact(comment) if redact_comments else comment
         patch._column_keys[key] = str(reference)
+
+
+def _reject(patch: MetadataPatch, keys: Iterable[str], reason: str) -> None:
+    for key in keys:
+        entry = f"{key} ({reason})"
+        if entry not in patch.rejected:
+            patch.rejected.append(entry)
 
 
 def _masked_table_detail(detail: dict, redact_comments: bool) -> dict:
@@ -267,7 +300,7 @@ def _patch_column_detail(detail, table: str, patch: MetadataPatch) -> int:
         return 0
     detail["comment"] = comment
     detail["comment_source"] = COMMENT_SOURCE_PATCH
-    patch.mark_matched((normalize_table_name(table), name.lower()))
+    patch.mark_matched((patch.key_for(table), name.lower()))
     return 1
 
 
@@ -280,7 +313,7 @@ def _patch_table(item: dict, table: str, patch: MetadataPatch) -> int:
         **detail,
         TABLE_PATCH_MARKER: True,
     }
-    patch.mark_matched(normalize_table_name(table))
+    patch.mark_matched(patch.key_for(table))
     return 1
 
 
@@ -310,7 +343,7 @@ def _patch_field_usage(usage: dict, patch: MetadataPatch) -> None:
             **detail,
             TABLE_PATCH_MARKER: True,
         }
-        patch.mark_matched(normalize_table_name(table))
+        patch.mark_matched(patch.key_for(table))
 
 
 def statement_documents(document: Mapping) -> Iterator[Mapping]:

@@ -150,6 +150,10 @@ card and lists the target's downstream readers; `--glossary` fills
 somebody has confirmed a meaning for. Both are optional, and without them those blocks are
 simply empty.
 
+`semantic.*` is a view derived from the contract, like `mapping.md`: re-parsing a task
+replaces its directory as one generation and deletes the old `semantic.json` and
+`semantic.md` with it; run `describe` again when you need them.
+
 A third optional input, `--ontology`, reads the `ontology.json` the **next** step writes
 (`ontology-json/2` only): with it the task, its input tables, its fields and its grain all
 name the business objects the corpus concept layer placed them under —

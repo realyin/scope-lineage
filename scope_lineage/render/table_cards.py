@@ -36,6 +36,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
+from .. import table_identity as _identity
 from . import claims
 from .markdown_text import cell, expr_span, normalize_inline
 from .semantic_profile import (
@@ -252,31 +253,10 @@ class _Statement:
 # ------------------------------------------------------------------ name normalization
 
 
-def same_table(left: str, right: str) -> bool:
-    """The corpus-wide identity rule: a dotted suffix of the other name is the same table.
-
-    One corpus records ``dwd.t`` in a hive-style read and ``catalog.dwd.t`` at the
-    iceberg writer. Mirrors ``skills/scope-lineage/scripts/query.py::_same_table``; the
-    helper is re-implemented here because a packaged module may not import a script.
-    """
-    return left == right or left.endswith("." + right) or right.endswith("." + left)
-
-
-def table_key(name) -> str:
-    """Q6: the bucket one table spelling can ever be grouped in -- its last segment.
-
-    ``same_table`` only holds between names that end in the same unqualified name: the
-    rule is equality or "a dotted suffix of the other", and a dotted suffix ends where
-    the other name ends. So the grouping below never crosses two last segments, and a
-    caller that wants *the cards that could be this table* can select on this key alone
-    -- one dictionary lookup instead of a scan of every spelling in the corpus.
-
-    That is what makes a narrowed merge exact rather than approximate: taking the whole
-    bucket of every name a corpus asked for yields, for those buckets, the very groups
-    the full merge would have published -- including the bare name that stays ambiguous
-    because two qualified tables in the same bucket could be it.
-    """
-    return str(name or "").rpartition(".")[2]
+# The identity rule itself lives in ``scope_lineage.table_identity`` (audit WP5), which
+# every layer calls; the names below are this module's long-standing spellings of it.
+same_table = _identity.same_table
+table_key = _identity.table_bucket
 
 
 def table_groups(names: Iterable[str]) -> dict[str, list[str]]:
@@ -286,52 +266,30 @@ def table_groups(names: Iterable[str]) -> dict[str, list[str]]:
 
 
 def ambiguous_bare_names(names: Iterable[str]) -> set[str]:
-    """The unqualified names more than one qualified table in the corpus could be."""
+    """The less qualified names more than one table in the corpus could be.
+
+    Historically only a bare (one-segment) name could be ambiguous; since WP5 an
+    ``ods.t`` beside ``cat1.ods.t`` and ``cat2.ods.t`` is one too. The card finding keeps
+    its name, ``ambiguous_bare_name``.
+    """
     _groups, ambiguous = _group_spellings(names)
     return ambiguous
 
 
 def _group_spellings(names: Iterable[str]) -> tuple[list[list[str]], set[str]]:
-    """``(groups, ambiguous bare names)`` -- the suffix rule, with its one stop.
+    """``(groups, ambiguous names)`` -- :func:`scope_lineage.table_identity.group_spellings`.
 
-    Merging is transitive **between qualified names**: ``dwd.t`` and ``catalog.dwd.t``
-    are one table however many spellings sit between them. An unqualified name is not
-    allowed to be the bridge. ``ods.t`` and ``dwd.t`` are two tables, and a script that
-    once wrote a bare ``t`` used to merge them into one card -- publishing one table's
-    producer as the other's, which is the single worst thing a card can say.
-
-    A bare name is therefore resolved, not assumed: it joins the one qualified group it
-    could be, and when several could be it stays its own table and the card says so
+    A less qualified name is resolved, not assumed: it joins the one group it could be,
+    and when several could be it stays its own table and the card says so
     (``ambiguous_bare_name``). Silently picking one would be a guess at which warehouse
-    database the author meant, and this module does not guess.
+    database (or catalog) the author meant, and this module does not guess. Spellings
+    are normalized first (quotes, case, a configured catalog), so ``ODS.Orders`` written
+    by one task and ``ods.orders`` read by another are one card.
     """
-    ordered = sorted({str(name) for name in names})
-    groups: list[list[str]] = []
-    for name in [item for item in ordered if "." in item]:
-        merged = [name]
-        for group in list(groups):
-            if any(same_table(name, member) for member in group):
-                merged.extend(group)
-                groups.remove(group)
-        groups.append(sorted(set(merged)))
-    ambiguous: set[str] = set()
-    for name in [item for item in ordered if "." not in item]:
-        hosts = [
-            group for group in groups if any(same_table(name, item) for item in group)
-        ]
-        if len(hosts) == 1:
-            hosts[0].append(name)
-            hosts[0].sort()
-            continue
-        if hosts:
-            ambiguous.add(name)
-        groups.append([name])
-    return groups, ambiguous
+    return _identity.group_spellings(_identity.canonical_table_name(name) for name in names)
 
 
-def _primary_name(group: Sequence[str]) -> str:
-    """The most qualified spelling; ties break by name so the choice cannot drift."""
-    return min(group, key=lambda name: (-len(name), name))
+_primary_name = _identity.primary_name
 
 
 def table_card_filename(table: str) -> str:
@@ -430,9 +388,11 @@ def build_table_cards(
     consumed: dict[str, list[tuple[_Statement, dict]]] = {}
     for record in records:
         if record.target:
-            produced.setdefault(record.target, []).append(record)
+            produced.setdefault(_identity.canonical_table_name(record.target), []).append(record)
         for item in _consumed_inputs(record):
-            consumed.setdefault(str(item.get("table") or ""), []).append((record, item))
+            consumed.setdefault(
+                _identity.canonical_table_name(item.get("table")), []
+            ).append((record, item))
     grouped, ambiguous = _group_spellings([*produced, *consumed])
     groups = {_primary_name(group): group for group in grouped}
     tables = [
@@ -547,10 +507,7 @@ def _producer_entry(record: _Statement) -> dict:
         "statement_id": record.statement_id,
         "stmt_kind": task_block.get("stmt_kind"),
         "partition": _partition(task_block.get("partition")),
-        "grain": {
-            "basis": grain.get("basis"),
-            "keys": [str(key.get("name")) for key in grain.get("keys") or []],
-        },
+        "grain": _producer_grain(grain),
         "candidate_keys": [str(key) for key in shape.get("candidate_keys") or []],
         "key_confidence": shape.get("key_confidence"),
         # M4: the batch's key under target column names, for a window reading the table
@@ -569,6 +526,27 @@ def _producer_entry(record: _Statement) -> dict:
         for key in PRODUCER_KEY_ORDER
         if key not in ("batch_write_keys", "validity_window") or entry[key]
     }
+
+
+def _producer_grain(grain: dict) -> dict:
+    """The producer's grain as a card keeps it (4.5-a).
+
+    A logical key the SELECT never projected has no name; it is written as the
+    expression it groups by rather than as the string ``None``. ``evidence`` -- why the
+    producer's walk decided what it decided, or why it stopped -- is kept when there is
+    any, so a reader's 「未能判定粒度（…）」 can say the producer's own reason.
+    """
+    entry = {
+        "basis": grain.get("basis"),
+        "keys": [
+            str(key.get("name") or key.get("expression") or key.get("scope_id"))
+            for key in grain.get("keys") or []
+        ],
+    }
+    evidence = [str(item) for item in grain.get("evidence") or [] if str(item)]
+    if evidence:
+        entry["evidence"] = evidence
+    return entry
 
 
 def _producer_field(field: dict) -> dict:
@@ -678,7 +656,8 @@ def _columns(
             _fill(entry, "comment", column.get("comment"))
             for usage in column.get("usages") or []:
                 entry["consumer_usage_counts"][usage] += 1
-    _fill_produced_types(columns, produced_by)
+    # 4.5-a: no producer-side type pass. A producer entry carries no field type: a written
+    # column's type comes from the target's metadata, which `declared` already read above.
     return [_ordered_column(entry) for entry in columns.values()]
 
 
@@ -713,15 +692,6 @@ def _fill(entry: dict, key: str, value) -> None:
     """First non-null wins: producers are read before consumers, tasks in name order."""
     if entry.get(key) is None and value is not None:
         entry[key] = value
-
-
-def _fill_produced_types(columns: dict[str, dict], produced_by: Sequence[dict]) -> None:
-    """A written column's declared type, used only where no consumer supplied one."""
-    for producer in produced_by:
-        for field in producer["fields"]:
-            entry = columns.get(str(field["column"]))
-            if entry is not None:
-                _fill(entry, "type", field.get("type"))
 
 
 def _ordered_column(entry: dict) -> dict:
@@ -1163,7 +1133,9 @@ def _merged_card(
     bare_name_candidates: Sequence[str] = (),
 ) -> dict:
     group = set(spellings)
-    cards = [pair for pair in members if str(pair[1].get("table")) in group]
+    cards = [pair for pair in members if group & set(_card_spellings(pair[1]))]
+    if not cards:
+        return _finding_only_card(primary, spellings, bare_name_candidates)
     produced_by = _merged_entries(cards, "produced_by")
     consumed_by = _merged_entries(cards, "consumed_by")
     columns = _merged_columns(cards)
@@ -1186,6 +1158,35 @@ def _merged_card(
             any("columns_sampled" in (item.get("coverage") or {}) for _label, item in cards),
         ),
         "findings": _findings(produced_by, consumed_by, bare_name_candidates),
+    }
+    return _with_key_claim(card)
+
+
+def _card_spellings(card: Mapping) -> list[str]:
+    """Every name a card answers for: its table and the aliases its corpus folded in.
+
+    A bare alias one corpus resolved can become ambiguous once another corpus brings a
+    second qualified table of that name; the group it then forms is answered by the
+    cards that carried it as an alias.
+    """
+    return [str(card.get("table")), *(str(name) for name in card.get("aliases") or [])]
+
+
+def _finding_only_card(
+    primary: str, spellings: Sequence[str], bare_name_candidates: Sequence[str]
+) -> dict:
+    """A group no document answers for: an empty card that only carries the ambiguity."""
+    card = {
+        "table": primary,
+        "aliases": [name for name in spellings if name != primary],
+        "comment": None,
+        **{name: None for name in ("domain", "project", "owner", "layer")},
+        "kind": TABLE_KIND_PHYSICAL,
+        "produced_by": [],
+        "consumed_by": [],
+        "columns": [],
+        "coverage": _coverage(None, [], [], [], None, False),
+        "findings": _findings([], [], bare_name_candidates),
     }
     return _with_key_claim(card)
 
@@ -1344,10 +1345,8 @@ def _card_index(cards: dict) -> list[dict]:
 
 
 def _lookup(index: Sequence[dict], table: str) -> dict | None:
-    for card in index:
-        if any(same_table(table, name) for name in [card["table"], *card["aliases"]]):
-            return card
-    return None
+    """The card for ``table``: :func:`scope_lineage.table_identity.find_card` (WP2d, WP5)."""
+    return _identity.find_card(index, table)
 
 
 def _apply_statement(profile: dict, index: Sequence[dict]) -> dict:

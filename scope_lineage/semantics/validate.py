@@ -9,6 +9,7 @@ the model as a rewrite prompt as it stands.
 from __future__ import annotations
 
 from collections import Counter
+from functools import partial
 
 from .checks import (
     CHECKS,
@@ -25,7 +26,7 @@ from .checks_context import (
     check_time,
     missing_packet,
 )
-from .checks_documented import check_documented_meaning, check_header_facts
+from .checks_documented import QUALIFIER_TERMS, check_documented_meaning, check_header_facts
 from .checks_meaning import check_derived_codes, check_fan_out
 from .schema import DOC_FORMAT, schema_errors
 
@@ -49,17 +50,25 @@ _CHECK_FUNCTIONS = (
 _STATUSES = ("pass", "warn", "fail")
 
 
-def validate_document(document: dict, packet: dict | None) -> dict:
+def validate_document(
+    document: dict, packet: dict | None, *, qualifier_terms: tuple[str, ...] = QUALIFIER_TERMS
+) -> dict:
     """The cross-check report of one schema-valid document against its packet (or None).
 
     Every failure carries its check's ``number`` (1-13, as the text summary prints it);
     ``not_reported`` lists the checks that ran and found nothing to check -- they have no
     key in ``checks``. Without a packet no check runs but the digest one, so none is listed.
+    ``qualifier_terms`` are the qualifiers check 12 looks for: the generic ones, plus any a
+    caller's domain profile adds.
     """
     if packet is None:
         results = [missing_packet(document)]
     else:
-        results = [item for check in _CHECK_FUNCTIONS for item in check(document, packet)]
+        checks = [
+            partial(check, terms=qualifier_terms) if check is check_documented_meaning else check
+            for check in _CHECK_FUNCTIONS
+        ]
+        results = [item for check in checks for item in check(document, packet)]
     counts = Counter(item["status"] for item in results)
     checks: dict[str, dict[str, int]] = {}
     for item in results:
@@ -82,7 +91,8 @@ def validate_document(document: dict, packet: dict | None) -> dict:
 
 
 def check_file(
-    document, packet: dict | None, file: str, *, unreadable: str | None = None
+    document, packet: dict | None, file: str, *, unreadable: str | None = None,
+    qualifier_terms: tuple[str, ...] = QUALIFIER_TERMS,
 ) -> dict:
     """One file's entry in the report: its schema errors, or its cross-check report."""
     errors = [{"at": "", "message": unreadable}] if unreadable else schema_errors(document, DOC_FORMAT)
@@ -91,7 +101,7 @@ def check_file(
         return {"table": table, "file": file, "schema_errors": errors,
                 "counts": dict.fromkeys(_STATUSES, 0), "pass_rate": None, "checks": {},
                 "not_reported": [], "failures": []}
-    report = validate_document(document, packet)
+    report = validate_document(document, packet, qualifier_terms=qualifier_terms)
     return {"table": table, "file": file, "schema_errors": [],
             **{key: value for key, value in report.items() if key != "table"}}
 
@@ -122,7 +132,9 @@ def report_flags(report: dict) -> dict[str, list[str]]:
 
     The flags of ``semantic status``, read from the report instead of the packets: a
     digest failure is ``no_packet`` when the report found no packet, else
-    ``packet_stale``; any other failure, or a schema error, is ``invalid``.
+    ``packet_stale``; any other failure, or a schema error, is ``invalid``. The digest
+    failure's ``reason_code`` decides; a report written before that field existed is read
+    by its message's ``no packet`` prefix.
     """
     found: dict[str, list[str]] = {}
     for entry in report.get("tables") or []:
@@ -130,13 +142,19 @@ def report_flags(report: dict) -> dict[str, list[str]]:
         flags = []
         for item in failures:
             if item.get("check") == "digest":
-                no_packet = str(item.get("message", "")).startswith("no packet")
-                flags.append("no_packet" if no_packet else "packet_stale")
+                flags.append("no_packet" if _digest_reason(item) == "no_packet" else "packet_stale")
         if entry.get("schema_errors") or any(item.get("check") != "digest" for item in failures):
             flags.append("invalid")
         if flags and entry.get("table"):
             found[entry["table"]] = flags
     return found
+
+
+def _digest_reason(item: dict) -> str:
+    reason = item.get("reason_code")
+    if reason in ("no_packet", "stale"):
+        return reason
+    return "no_packet" if str(item.get("message", "")).startswith("no packet") else "stale"
 
 
 def render_validation_text(report: dict) -> str:

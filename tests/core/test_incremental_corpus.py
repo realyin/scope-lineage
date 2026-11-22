@@ -695,3 +695,169 @@ def test_describe_re_describes_a_task_whose_borrowed_documents_are_unusable(
     full_out = tmp_path / "full"
     assert _run("describe", corpus_b, full_out) == 0
     assert _published(out_b) == _published(full_out)
+
+
+# ------------------------------------------- borrowing across layouts (WP9, 3.3-1)
+
+
+def _nested_corpus(root: Path) -> Path:
+    """Two domains, one task each: a subset run walks one domain, the superset both."""
+    _write_task(root / "domain_a", "task_a", TASK_SQL["task_a"])
+    _write_task(root / "domain_b", "task_b", TASK_SQL["task_b"])
+    return root
+
+
+@pytest.mark.parametrize("command", ("tables", "ontology", "describe"))
+def test_a_superset_corpus_borrows_what_a_subset_run_derived(
+    tmp_path: Path, capsys, command: str
+) -> None:
+    """The same task is `task_a` under the subset's root and `domain_a/task_a` under the
+    superset's: borrowing has to find it by what it is, not where it sat."""
+    corpus = _nested_corpus(tmp_path / "corpus")
+    subset = tmp_path / "subset"
+    assert _run(command, corpus / "domain_a", subset, "--incremental") == 0
+    capsys.readouterr()
+
+    out = tmp_path / "out"
+    assert _run(command, corpus, out, "--cache-from", str(subset)) == 0
+    assert "reused=1 (borrowed=1), recomputed=1, removed=0" in capsys.readouterr().out
+
+    full_out = tmp_path / "full"
+    assert _run(command, corpus, full_out) == 0
+    assert _published(out) == _published(full_out)
+
+
+def test_a_single_file_run_lends_its_facts_and_names_them_visibly(
+    tmp_path: Path, capsys
+) -> None:
+    corpus = _nested_corpus(tmp_path / "corpus")
+    single = tmp_path / "single"
+    lineage = corpus / "domain_a" / "task_a" / "lineage.json"
+    assert _run("tables", lineage, single, "--incremental") == 0
+    capsys.readouterr()
+
+    names = [path.name for path in (single / CACHE_DIR_NAME).iterdir() if path.is_file()]
+    assert len(names) == 1
+    assert not any(name.startswith(".") for name in names), names
+
+    out = tmp_path / "out"
+    assert _run("tables", corpus, out, "--cache-from", str(single)) == 0
+    assert "reused=1 (borrowed=1), recomputed=1, removed=0" in capsys.readouterr().out
+
+
+def test_a_lookup_by_content_is_still_proved_by_the_file_s_header(
+    tmp_path: Path, capsys
+) -> None:
+    """Sentinel: finding a file by content still reads its own header, so a run under
+    other options borrows nothing even when the bytes match."""
+    corpus = _nested_corpus(tmp_path / "corpus")
+    subset = tmp_path / "subset"
+    assert _run("tables", corpus / "domain_a", subset, "--incremental") == 0
+    capsys.readouterr()
+
+    out = tmp_path / "out"
+    assert _run("tables", corpus, out, "--format", "json", "--cache-from", str(subset)) == 0
+    assert "reused=0 (borrowed=0), recomputed=2, removed=0" in capsys.readouterr().out
+
+
+# ----------------------------------------- stale published files (WP9, 3.3-2)
+
+
+@pytest.mark.parametrize("command", ("tables", "ontology"))
+@pytest.mark.parametrize("incremental", (True, False))
+def test_a_card_for_a_table_no_task_touches_any_more_is_removed(
+    tmp_path: Path, capsys, command: str, incremental: bool
+) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    flags = ("--incremental",) if incremental else ()
+    assert _run(command, corpus, out, *flags) == 0
+    stale = out / "tables" / "mart.user_daily.md"
+    assert stale.is_file()
+    # Files the command never wrote are not its to remove.
+    (out / "tables" / "hand_written.md").write_text("mine\n", encoding="utf-8")
+    (out / "tables" / "notes.txt").write_text("mine\n", encoding="utf-8")
+
+    shutil.rmtree(corpus / "task_b")
+    assert _run(command, corpus, out, *flags) == 0
+    capsys.readouterr()
+
+    assert not stale.exists()
+    assert (out / "tables" / "mart.order_daily.md").is_file()
+    assert (out / "tables" / "hand_written.md").is_file()
+    assert (out / "tables" / "notes.txt").is_file()
+    full_out = tmp_path / "full"
+    assert _run(command, corpus, full_out) == 0
+    published = _published(out)
+    published.pop("tables/hand_written.md")
+    published.pop("tables/notes.txt")
+    assert published == _published(full_out)
+
+
+@pytest.mark.parametrize("command", ("tables", "ontology"))
+def test_an_incremental_run_without_json_prunes_by_the_index_it_wrote(
+    tmp_path: Path, capsys, command: str
+) -> None:
+    """With no JSON document beside the cards, the index's `written` is the record."""
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    assert _run(command, corpus, out, "--incremental", "--format", "md") == 0
+    stale = out / "tables" / "mart.user_daily.md"
+    assert stale.is_file()
+
+    shutil.rmtree(corpus / "task_b")
+    assert _run(command, corpus, out, "--incremental", "--format", "md") == 0
+    capsys.readouterr()
+
+    assert not stale.exists()
+    assert (out / "tables" / "mart.order_daily.md").is_file()
+
+
+def test_a_json_only_run_leaves_the_markdown_alone(tmp_path: Path, capsys) -> None:
+    """Sentinel: a run that does not publish the card directory does not prune it."""
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    assert _run("tables", corpus, out) == 0
+    assert _run("tables", corpus, out, "--format", "json") == 0
+    capsys.readouterr()
+
+    assert (out / "tables" / "mart.user_daily.md").is_file()
+
+
+def test_a_concept_page_no_run_publishes_any_more_is_removed(tmp_path: Path, capsys) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    assert _run("ontology", corpus, out) == 0
+    stale = out / "concepts" / "retired_concept.md"
+    # A page an earlier run published: recorded in the ontology it wrote beside it.
+    ontology = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
+    ontology["concepts"].append({"id": "concept:retired_concept", "tier": "confirmed"})
+    (out / "ontology.json").write_text(json.dumps(ontology), encoding="utf-8")
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("old\n", encoding="utf-8")
+
+    assert _run("ontology", corpus, out) == 0
+    capsys.readouterr()
+
+    assert not stale.exists()
+
+
+def test_ontology_leaves_the_cards_tables_wrote_into_the_same_directory(
+    tmp_path: Path, capsys
+) -> None:
+    """The workflow runs `tables` and `ontology` into one `--out`. A card `tables`
+    published and `ontology` never did is not `ontology`'s to remove."""
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    assert _run("tables", corpus, out) == 0
+    (out / "tables" / "other.corpus_table.md").write_text("from tables\n", encoding="utf-8")
+    tables = json.loads((out / "tables.json").read_text(encoding="utf-8"))
+    tables["tables"].append({"table": "other.corpus_table"})
+    (out / "tables.json").write_text(json.dumps(tables), encoding="utf-8")
+    before = {path.name for path in (out / "tables").glob("*.md")}
+
+    assert _run("ontology", corpus, out) == 0
+    assert _run("ontology", corpus, out) == 0
+    capsys.readouterr()
+
+    assert before <= {path.name for path in (out / "tables").glob("*.md")}

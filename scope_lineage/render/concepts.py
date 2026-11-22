@@ -44,7 +44,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 #: The three kinds a concept can be. ``event`` and ``entity`` are deliberately siblings.
@@ -149,6 +151,11 @@ TABLE_ID_DIGEST = 6
 
 #: Whole name segments that say "this column is a key", not what the key is *of*.
 KEY_AFFIXES = ("no", "id", "code", "cd", "num", "key")
+#: 4.4-1: the affixes that are a key marker only at the *end* of a name. At the front they
+#: are part of what is named: ``id_card_no`` is an identity-card number, and taking the
+#: ``id`` off as well folded it into one concept with a bank card's ``card_no``.
+TRAILING_ONLY_AFFIXES = frozenset({"no", "id"})
+LEADING_AFFIXES = tuple(a for a in KEY_AFFIXES if a not in TRAILING_ONLY_AFFIXES)
 
 #: Stems that identify a row without naming a thing. A table keyed only by one of these
 #: is not a concept, it is a table with a surrogate key.
@@ -225,11 +232,11 @@ VALIDITY_SEGMENTS = frozenset(
 )
 _TEMPORAL_TYPES = ("timestamp", "date", "datetime")
 
-#: Table-name suffixes, matched as whole segments (the same discipline `table_family`
-#: uses): a full snapshot, a period increment, and a build step.
-FULL_SNAPSHOT_SUFFIXES = ("df", "hf", "mf", "wf", "all")
-INCREMENT_SUFFIXES = ("di", "hi", "mi", "wi")
-PERIOD_SUFFIXES = FULL_SNAPSHOT_SUFFIXES + INCREMENT_SUFFIXES
+#: A build step's table-name suffix, matched as a whole segment (the same discipline
+#: `table_family` uses). Which suffixes mark a full snapshot or a period increment is a
+#: warehouse's convention, not the package's: it comes from the caller
+#: (``domain-profile/1``'s ``table_name_convention``, see :func:`name_convention`), and
+#: without one no suffix says which copy a table is.
 _STAGE_RE = re.compile(r"\A(?:tmp|bak|mid|step|stage)\d*\Z")
 
 #: Grain bases (``semantic_profile``'s vocabulary) that make a member a summary.
@@ -241,8 +248,9 @@ DRIVING_ROLE = "driving"
 #: own when a structural signal spoke, and it is always published as its own vote.
 #:
 #: Chinese matches as a substring, because the language writes no word boundaries.
+#: Generic words only; a business's own words come from the caller (``concept_words``).
 WORD_HINTS = (
-    (CONCEPT_EVENT, ("发送", "回款", "交易", "日志", "记录", "流水", "事件")),
+    (CONCEPT_EVENT, ("发送", "交易", "日志", "记录", "流水", "事件")),
     (CONCEPT_ENTITY, ("信息", "档案", "主数据", "维")),
     (CONCEPT_SUMMARY, ("汇总", "日报", "统计")),
 )
@@ -368,15 +376,96 @@ NAME_PERIOD_PREFIXES = (
     "本月", "当月", "上月", "本年", "当年", "本期", "当期", "当日", "昨日", "今日",
 )
 #: A candidate that ends in one of these is a number *about* the concept.
-NAME_MEASURE_SUFFIXES = ("欠款", "金额", "目标", "分数据", "统计", "数量", "次数", "率")
-#: A candidate carrying one of these names a *slice* of the concept -- 已到期合同欠款 is
-#: not what 合同 is called, it is which 合同 this table kept.
-NAME_FILTER_WORDS = (
-    "已到期", "未到期", "已还", "未还", "已结清", "未结清", "首期", "当日", "本月",
-)
+NAME_MEASURE_SUFFIXES = ("金额", "目标", "分数据", "统计", "数量", "次数", "率")
+#: A candidate carrying one of these names a *slice* of the concept -- 当日合同 is not
+#: what 合同 is called, it is which 合同 this table kept. Generic words only: a
+#: business's lifecycle states (which of its records are open, settled, due ...) come
+#: from the caller (``concept_words``).
+NAME_FILTER_WORDS = ("当日", "本月")
+
+
+@dataclass(frozen=True)
+class _Words:
+    """The word lists one build reads: the generic ones plus the caller's."""
+
+    hints: tuple = WORD_HINTS
+    latin_hints: tuple = LATIN_WORD_HINTS
+    measure_suffixes: tuple[str, ...] = NAME_MEASURE_SUFFIXES
+    filter_words: tuple[str, ...] = NAME_FILTER_WORDS
+
+
+#: The lists in force. A context variable rather than a parameter: the words are read
+#: six calls deep, by helpers every rule shares, and one build sets them once
+#: (``concept_words``) for exactly as long as it runs.
+_WORDS: ContextVar[_Words] = ContextVar("concept_words", default=_Words())
+
+
+@contextmanager
+def concept_words(extra: Mapping[str, Sequence[str]] | None) -> Iterator[None]:
+    """Add a caller's words -- ``domain-profile/1``'s ``concept_words`` -- to the generic
+    lists while the block runs: ``event`` / ``entity`` / ``summary`` votes,
+    ``measure_suffixes`` and ``filter_words``."""
+    extra = extra or {}
+    added = {kind: [str(word) for word in extra.get(kind, ())] for kind, _ in WORD_HINTS}
+    words = _Words(
+        # A word written in latin votes as a whole word, like the built-in latin ones.
+        hints=tuple(
+            (kind, tuple(dict.fromkeys((*chinese, *(w for w in added[kind] if not w.isascii())))))
+            for kind, chinese in WORD_HINTS
+        ),
+        latin_hints=tuple(
+            (kind, latin | {w.lower() for w in added[kind] if w.isascii()})
+            for kind, latin in LATIN_WORD_HINTS
+        ),
+        measure_suffixes=tuple(
+            dict.fromkeys((*NAME_MEASURE_SUFFIXES, *extra.get("measure_suffixes", ())))
+        ),
+        filter_words=tuple(
+            dict.fromkeys((*NAME_FILTER_WORDS, *extra.get("filter_words", ())))
+        ),
+    )
+    token = _WORDS.set(words)
+    try:
+        yield
+    finally:
+        _WORDS.reset(token)
+
+
+@dataclass(frozen=True)
+class _Convention:
+    """The table-name suffixes one build reads: a full snapshot, a period increment."""
+
+    full: tuple[str, ...] = ()
+    incremental: tuple[str, ...] = ()
+
+    @property
+    def period(self) -> tuple[str, ...]:
+        return self.full + self.incremental
+
+
+#: The convention in force: none by default (WP11, D2), set for one build like the words.
+_CONVENTION: ContextVar[_Convention] = ContextVar("concept_name_convention", default=_Convention())
+
+
+@contextmanager
+def name_convention(convention: Mapping[str, Sequence[str]] | None) -> Iterator[None]:
+    """Read table-name suffixes while the block runs -- ``domain-profile/1``'s
+    ``table_name_convention``: ``full`` marks a full snapshot, ``incremental`` a period
+    increment, each written without its ``_``. ``None`` or an empty mapping reads none."""
+    convention = convention or {}
+    token = _CONVENTION.set(_Convention(
+        full=tuple(str(item).lower() for item in convention.get("full", ())),
+        incremental=tuple(str(item).lower() for item in convention.get("incremental", ())),
+    ))
+    try:
+        yield
+    finally:
+        _CONVENTION.reset(token)
+
+
 #: K2c: the period a junk candidate opens with, as much of it as there is. What is left
 #: after it -- and after the filters and the measure -- is the phrase the comment was
-#: naming all along: 「2月时段合同欠款」 was never about 2月, it was about 合同.
+#: naming all along: 「2月时段合同金额」 was never about 2月, it was about 合同.
 _PERIOD_HEAD_RE = re.compile(
     r"\A(?:\d+[年月日号周]?|本月|当月|上月|本年|当年|本期|当期|当日|昨日|今日|时段|期间)+"
 )
@@ -434,9 +523,10 @@ class _Seed:
 def key_stem(column, synonyms: Mapping[str, str] | None = None) -> str:
     """The business word one key column reduces to -- ``cust_no`` and ``cust_id`` → ``cust``.
 
-    Mechanical and lossy on purpose: lowercase, then drop whole leading and trailing
-    segments that only say "this is a key" (``_no`` / ``_id`` / ``_code`` / ``_cd`` /
-    ``_num`` / ``_key``), never the last segment left. ``synonyms`` is the corpus's own
+    Mechanical and lossy on purpose: lowercase, then drop whole trailing segments that
+    only say "this is a key" (``_no`` / ``_id`` / ``_code`` / ``_cd`` / ``_num`` /
+    ``_key``) and the leading ones of those except ``id`` / ``no`` (4.4-1: ``id_card_no``
+    is ``id_card``, not ``card``), never the last segment left. ``synonyms`` is the corpus's own
     O5 evidence folded to one spelling per synonym group, so ``customer_id`` reaches
     ``cust`` only because some task proved the two columns hold the same value -- never
     because the two words look alike.
@@ -446,7 +536,7 @@ def key_stem(column, synonyms: Mapping[str, str] | None = None) -> str:
     parts = [part for part in name.split("_") if part]
     while len(parts) > 1 and parts[-1] in KEY_AFFIXES:
         parts.pop()
-    while len(parts) > 1 and parts[0] in KEY_AFFIXES:
+    while len(parts) > 1 and parts[0] in LEADING_AFFIXES:
         parts.pop(0)
     return "_".join(parts)
 
@@ -462,6 +552,11 @@ def is_generic_stem(stem: str, comments: Iterable = ()) -> bool:
     The fragments are looked for *after* 编号/编码/代码 are taken off, because every
     comment on a key column ends in one of those and a shared suffix is not a shared
     subject: 渠道编码 / 省份编码 / 状态编码 agree on nothing that matters.
+
+    Only comments containing Chinese take part (4.4-2): a comment in English has no
+    two-character fragment at all, so letting it in emptied every intersection and one
+    ``Customer ID`` retired ``customer``. With no Chinese comment the rule has nothing
+    to read and does not apply.
     """
     if str(stem) in GENERIC_STEMS:
         return True
@@ -469,6 +564,9 @@ def is_generic_stem(stem: str, comments: Iterable = ()) -> bool:
     if len(texts) < 3:
         return False
     subjects = [key_comment_name(text) or text for text in texts]
+    subjects = [text for text in subjects if _CJK_RE.search(text)]
+    if not subjects:
+        return False
     shared = set.intersection(*[_cjk_bigrams(text) for text in subjects])
     return not shared
 
@@ -527,12 +625,18 @@ def _table_stem(table: str) -> str:
     ``name_tier: "stem_only"`` says about it.
     """
     parts = [part for part in str(table or "").lower().rpartition(".")[2].split("_") if part]
-    while len(parts) > 1 and parts[-1] in PERIOD_SUFFIXES:
+    while len(parts) > 1 and parts[-1] in _CONVENTION.get().period:
         parts.pop()
     return "_".join(parts)
 
 
-def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
+def build_concepts(
+    ontology: Mapping,
+    cards: Mapping,
+    words: Mapping[str, Sequence[str]] | None = None,
+    *,
+    convention: Mapping[str, Sequence[str]] | None = None,
+) -> dict:
     """``{"concepts": [...], "provisional_count": N, ...}`` for one corpus's ontology.
 
     ``ontology`` is the document being built -- entities, their identities, and the
@@ -544,7 +648,23 @@ def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
     edge. M2 dropped the ``unassigned_tables[]`` this replaced: every table is in a
     concept now, and a key that is empty by construction only invites a consumer to keep
     reading it.
+
+    ``words`` is the caller's ``concept_words`` (``domain-profile/1``), added to the
+    generic word lists for this build; without them the lists in force are read (the
+    generic ones, unless a ``concept_words`` block around the call added some).
+    ``convention`` is the caller's ``table_name_convention`` (``domain-profile/1``), read
+    the same way: given, it is the convention for this build; ``None`` reads the one in
+    force (none, unless a ``name_convention`` block around the call set one).
     """
+    with ExitStack() as stack:
+        if words is not None:
+            stack.enter_context(concept_words(words))
+        if convention is not None:
+            stack.enter_context(name_convention(convention))
+        return _build_concepts(ontology, cards)
+
+
+def _build_concepts(ontology: Mapping, cards: Mapping) -> dict:
     entities = list(ontology.get("tables") or [])
     index = {str(card.get("table")): card for card in cards.get("tables") or []}
     synonyms = synonym_folding(entities)
@@ -1106,6 +1226,7 @@ def _role(seed: _Seed, card: Mapping, grain: str | None, text: str = "") -> str:
     table is a report **of**, which is the 机构 either way.
     """
     suffix = _name_suffix(seed.table)
+    convention = _CONVENTION.get()
     outside = [column for column in seed.extra_columns if column not in seed.partitions]
     events = [column for column in outside if _is_event_time(column, seed.types)]
     if _STAGE_RE.match(suffix) or _task_internal(card):
@@ -1114,11 +1235,11 @@ def _role(seed: _Seed, card: Mapping, grain: str | None, text: str = "") -> str:
         return ROLE_DETAIL
     if CONCEPT_SUMMARY in _word_votes(text):
         return ROLE_SUMMARY
-    if not outside and (suffix in FULL_SNAPSHOT_SUFFIXES or suffix not in PERIOD_SUFFIXES):
+    if not outside and (suffix in convention.full or suffix not in convention.period):
         return ROLE_PRIMARY
     if grain in AGGREGATED_BASES:
         return ROLE_SUMMARY
-    if not outside and suffix in INCREMENT_SUFFIXES:
+    if not outside and suffix in convention.incremental:
         return ROLE_SNAPSHOT
     return ROLE_DETAIL if outside else ROLE_PRIMARY
 
@@ -1181,7 +1302,7 @@ def _structural_signals(
                 votes.append(_vote(SIGNAL_KEY_EVENT_COLUMN, CONCEPT_EVENT, seed.table, column))
         for source in [] if dimension else _driving_log_sources(card, index):
             votes.append(_vote(SIGNAL_DRIVING_LOG_SOURCE, CONCEPT_EVENT, seed.table, source))
-        if _name_suffix(seed.table) in INCREMENT_SUFFIXES:
+        if _name_suffix(seed.table) in _CONVENTION.get().incremental:
             for column in _event_times(card, seed):
                 votes.append(
                     _vote(SIGNAL_INCREMENT_EVENT_TIME, CONCEPT_EVENT, seed.table, column)
@@ -1235,7 +1356,7 @@ def _dimension_members(members: Sequence[_Seed], index: Mapping[str, Mapping]) -
     if not any(CONCEPT_ENTITY in vote for vote in words):
         return False
     return all(
-        _name_suffix(seed.table) not in INCREMENT_SUFFIXES
+        _name_suffix(seed.table) not in _CONVENTION.get().incremental
         and not any(
             column not in seed.partitions and _is_event_column(column, seed.types)
             for column in seed.key_columns
@@ -1306,10 +1427,10 @@ def _member_text(seed: _Seed, index: Mapping[str, Mapping]) -> str:
 
 def _word_votes(text: str) -> list[str]:
     lowered = str(text or "").lower()
-    words = set(_LATIN_WORD_RE.findall(lowered))
+    words, lists = set(_LATIN_WORD_RE.findall(lowered)), _WORDS.get()
     return [
         kind
-        for (kind, chinese), (_, latin) in zip(WORD_HINTS, LATIN_WORD_HINTS)
+        for (kind, chinese), (_, latin) in zip(lists.hints, lists.latin_hints)
         if any(word in lowered for word in chinese) or words & latin
     ]
 
@@ -1387,7 +1508,7 @@ def _recovered_name(ranked: Sequence[dict]) -> dict | None:
     """The Chinese phrase hiding inside a junk candidate, when the stem would win (K2c).
 
     Only when every candidate but the stem was ranked junk, because otherwise a real
-    name already won. 「2月时段合同欠款」 was never about 2月 and never about the 欠款: take
+    name already won. 「2月时段合同金额」 was never about 2月 and never about the 金额: take
     the period, the filters and the measure off and 合同 is what the comment was naming.
     The shortest one wins -- the least this layer can claim the comment said -- and the
     comment it came out of keeps its own place in the evidence, junk reason and all.
@@ -1415,11 +1536,12 @@ def _recovered_name(ranked: Sequence[dict]) -> dict | None:
 
 def _without_junk(text: str) -> str:
     """A candidate with its period, its filters and its measure taken off (K2c)."""
+    words = _WORDS.get()
     current = _PERIOD_HEAD_RE.sub("", str(text))
-    for word in NAME_FILTER_WORDS:
+    for word in words.filter_words:
         current = current.replace(word, "")
-    while current.endswith(NAME_MEASURE_SUFFIXES):
-        suffix = next(item for item in NAME_MEASURE_SUFFIXES if current.endswith(item))
+    while current.endswith(words.measure_suffixes):
+        suffix = next(item for item in words.measure_suffixes if current.endswith(item))
         current = current[: -len(suffix)]
     return _trim_edges(_PERIOD_HEAD_RE.sub("", current))
 
@@ -1434,16 +1556,17 @@ def _junk_reason(text: str) -> str | None:
 
     Three shapes a wide corpus put at the head of the ranking, because several tables
     agreed on them and ``count`` is read before the source: a period (2月时段…), a
-    measure (…欠款, …目标), and a filter (已到期…, 未到期…首期…) -- which is *which* 合同 a
-    table kept, not what 合同 is called. Published rather than dropped: the comment is
-    still evidence about that member, it is only not a name.
+    measure (…金额, …目标), and a filter (当日…, or a lifecycle state the caller's
+    ``concept_words`` lists) -- which is *which* 合同 a table kept, not what 合同 is
+    called. Published rather than dropped: the comment is still evidence about that
+    member, it is only not a name.
     """
-    current = str(text)
+    current, words = str(text), _WORDS.get()
     if current[:1].isdigit() or current.startswith(NAME_PERIOD_PREFIXES):
         return JUNK_PERIOD
-    if any(word in current for word in NAME_FILTER_WORDS):
+    if any(word in current for word in words.filter_words):
         return JUNK_FILTER
-    if current.endswith(NAME_MEASURE_SUFFIXES):
+    if current.endswith(words.measure_suffixes):
         return JUNK_MEASURE
     return None
 
@@ -1534,7 +1657,7 @@ def key_column_name(column) -> str:
     parts = [part for part in text.split("_") if part]
     while len(parts) > 1 and parts[-1].lower() in KEY_AFFIXES:
         parts.pop()
-    while len(parts) > 1 and parts[0].lower() in KEY_AFFIXES:
+    while len(parts) > 1 and parts[0].lower() in LEADING_AFFIXES:
         parts.pop(0)
     return " ".join(
         word for part in parts for word in _CAMEL_RE.sub(" ", part).lower().split()
@@ -2826,7 +2949,7 @@ def _demoted_role(member: Mapping) -> str:
     suffix = _name_suffix(str(member.get("table")))
     if _STAGE_RE.match(suffix):
         return ROLE_INTERMEDIATE
-    if suffix in PERIOD_SUFFIXES:
+    if suffix in _CONVENTION.get().period:
         return ROLE_SNAPSHOT
     if str(member.get("grain")) in AGGREGATED_BASES:
         return ROLE_SUMMARY

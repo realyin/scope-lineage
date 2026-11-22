@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -85,6 +86,7 @@ from .concepts import (
     key_stem,
     synonym_folding,
 )
+from .concepts import name_convention as concept_name_convention
 from .glossary import build_glossary
 from .markdown_text import cell, normalize_inline
 from .semantic_profile import (
@@ -99,6 +101,7 @@ from .semantic_profile import (
     driving_table,
     grouped_uniqueness,
     join_blocks,
+    join_pair_right_is_bare,
     join_side_columns,
     ranking_partition_keys,
     ranking_uniqueness,
@@ -113,9 +116,9 @@ from .table_cards import (
     build_table_cards,
     considered_table_count,
     render_table_card_markdown,
-    same_table,
     table_card_filename,
 )
+from ..table_identity import same_table
 
 DOC_FORMAT = "ontology-json/2"
 INDEX_DOC_FORMAT = "ontology-index-md/2"
@@ -686,6 +689,8 @@ def build_ontology(
     concept_override_files: Sequence[str] | None = None,
     artifact_root: str | None = None,
     legacy_keys: bool = False,
+    concept_words: Mapping[str, Sequence[str]] | None = None,
+    name_convention: Mapping[str, Sequence[str]] | None = None,
 ) -> dict:
     """Build one corpus's ontology candidate.
 
@@ -702,6 +707,10 @@ def build_ontology(
     order given with ``concept_override_files`` naming them.
     ``legacy_keys`` additionally publishes the deprecated ``ontology-json/1`` spellings
     of the renamed keys (``LEGACY_KEY_ALIASES``), for consumers mid-migration.
+    ``concept_words`` is the caller's ``domain-profile/1`` ``concept_words``, added to
+    the concept layer's generic word lists. ``name_convention`` is its
+    ``table_name_convention``: the table-name suffixes the concept layer reads as a full
+    snapshot or a period increment; without it no suffix says which copy a table is.
     """
     documents = [dict(document) for document in documents]
     profiles = (
@@ -756,12 +765,18 @@ def build_ontology(
     _apply_overrides(ontology, overrides or {})
     # After the confirmations, never before: an override that raises a candidate key to
     # `confirmed` is exactly the evidence K1 seeds a concept on.
-    ontology.update(build_concepts(ontology, cards))
-    # K4b before K3, deliberately: a reviewed merge moves one concept's tables onto
-    # another, and folding the edges first would leave them on an id nothing publishes.
-    apply_concept_overrides(
-        ontology, concept_overrides or {}, files=concept_override_files
-    )
+    # The convention holds for the merges too: a folded member is re-roled by its suffix.
+    with (
+        concept_name_convention(name_convention)
+        if name_convention is not None
+        else nullcontext()
+    ):
+        ontology.update(build_concepts(ontology, cards, concept_words))
+        # K4b before K3, deliberately: a reviewed merge moves one concept's tables onto
+        # another, and folding the edges first would leave them on an id nothing publishes.
+        apply_concept_overrides(
+            ontology, concept_overrides or {}, files=concept_override_files
+        )
     # K3 reads the concepts the two lines above published, so it runs after them.
     ontology.update(build_concept_relations(ontology))
     # N3: the concept-level half of `ontology.overrides.json`, which can only run here --
@@ -1571,9 +1586,14 @@ def _key_pairs_by_table(
     product of both sides' fields, and each product member belongs to exactly one table
     pair. A pierced pair that degenerates to ``t.c = t.c`` is dropped, exactly as the
     mapping document drops it.
+
+    Audit WP2g: a pair whose right side is not a bare column (``t.region =
+    substr(u.user_id, 1, 2)``) relates no key of the right table, so it is left out.
     """
     grouped: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for pair in detail.get("join_key_pairs") or []:
+        if not join_pair_right_is_bare(pair):
+            continue
         left = _pair_endpoints(document, pair, "left", sides["left"][0])
         right = _pair_endpoints(document, pair, "right", sides["right"][0])
         for left_table, left_column in left:

@@ -146,7 +146,8 @@ output's values. On an append (INSERT INTO) the new batch's conditions stand bes
 the previous state. A condition field computed only from literals or system values (`'2026' AS y`,
 `CURRENT_DATE() AS d`) names nothing and is no gap: no source row decides it. A condition field that
 cannot be traced to a physical field gets no name; it is recorded as a row_condition_source_unresolved
-fact gap. Its `scope_id` / `column` are the field read; `condition_scope_id`, `logic_block_id`,
+fact gap. That includes a bare column two joined tables both have: the gap's `scope_id` is then
+`AMBIGUOUS`, and no `{"table": "AMBIGUOUS"}` entry is written. Its `scope_id` / `column` are the field read; `condition_scope_id`, `logic_block_id`,
 `logic_type` and `expression` name the WHERE / JOIN / HAVING / QUALIFY that read it.
 
 Read the two together for an aggregate column: a `COUNT(*)`'s value comes from the row set it counts
@@ -385,6 +386,12 @@ spelling cannot make it slip through**: a global temporary view is declared with
 read with a `global_temp.`-qualified name, so comparing by name would miss it; the marker on the
 edge would not.
 
+The same two optional keys (`source_state`, and `session_scoped` when the relation lives only in the
+session) are stamped on every entry that names a relation the script wrote: `value_sources`,
+`row_membership_sources`, `window_context_sources` (beside `role`), and the MERGE condition entries
+(`value_condition_sources` and `effect.rowset_effect.membership_sources` on a MERGE statement).
+Entries naming a table the script never wrote carry neither.
+
 ### If you only want to exclude, not fold
 
 Reconciling against a catalog usually only requires removing these relations from the table list,
@@ -433,11 +440,18 @@ Each hop's `transform` is composed by the same rule as the statement-level end-t
 (the stronger of the two on the path), so `v * 2` read through a pass-through view is still
 `EXPRESSION`; two sources merge only when their content is identical, so distinct constants
 behind one view column and different participation paths to one physical column all stay.
+A value read through a temp view also passes through the view's own row conditions: a view
+`WHERE amt > 0` puts `amt` into the folded row's `row_membership_sources`, at every hop of a chain of
+views -- the same answer the equivalent CTE gives.
 Row conditions and row sets fold the same way: a `row_membership_sources` entry reading a temp view
 (it carries `session_scoped`) resolves to the physical fields behind the view column, plus the view's
 own row conditions; a `rowset` source such as a `COUNT(*)` over a temp view expands to one entry per
-physical table the view reads, and the view's row conditions join the target row's
-`row_membership_sources`. These composition rules (identity, merging, transform composition) are the
+physical table the view reads (recursing through a view that reads another view, into the state it
+read), and each view's row conditions join the target row's `row_membership_sources`.
+`value_condition_sources` folds like a row condition, and `window_context_sources` entries resolve to
+the physical fields behind the view column, keeping their `role`.
+A temp view no statement reads is dropped as well: the session-scoped relations are taken from
+`statement_sequence[].is_session_scoped_relation`, not only from the edges that name them. These composition rules (identity, merging, transform composition) are the
 ones the statement and task levels use, in `scope/composition.py`.
 
 **What cannot be folded is not quietly dropped.** Such a row keeps its original edges and reports:
@@ -447,7 +461,7 @@ ones the statement and task levels use, in `scope/composition.py`.
 | `value_sources_folded` | `true` = every hop in this row folded successfully; `false` = some hop could not be folded |
 | `fold_incomplete_reasons` | Why folding stopped, present only when `false` |
 
-There are five reasons, each corresponding to a situation that really occurs:
+There are six reasons, each corresponding to a situation that really occurs:
 
 - `source_state_not_in_document` — the read happened **before** that relation was redefined.
   `end_to_end_lineage` is a final-state view, and that state has no row; substituting the surviving
@@ -456,7 +470,10 @@ There are five reasons, each corresponding to a situation that really occurs:
   unexpanded `SELECT *` with only a single `*` row).
 - `source_column_has_no_sources` — the column has no sources at all in the document.
 - `fold_depth_exceeded` — the relations form a cycle.
-- `rowset_relation_unresolved` — a row set read through a temp view whose statement's physical tables cannot be found (or are themselves another session relation).
+- `rowset_relation_unresolved` — a row set read through a temp view whose statement's physical tables cannot be found, or that reads another session relation in a state the document has no row for (it was redefined after the read).
+- `session_scoped_reference_unmarked` — an entry names a session-scoped relation without the
+  `session_scoped` marker (a document written before window and MERGE condition entries were
+  stamped), so the fold cannot tell which state it read.
 
 **Empty sources after folding ≠ this column has no lineage**, which is why this implementation never
 returns empty — when it cannot fold, it keeps the original edge and says so. That is exactly what
@@ -662,6 +679,30 @@ USING relation does not output, and a condition using a qualifier that is neithe
 nor the USING alias. A USING column computed only from literals or system values names nothing
 and is no gap. This gap has root_impact=true, so it sets analysis_status=partial and makes the
 strict gate return non-zero.
+
+In a DELETE, UPDATE or MERGE condition, an unqualified column in a subquery over several tables
+is first assigned by schema: when exactly one table has the column and every other is known not
+to, it is recorded on that table. When every table of the subquery is known not to have it (one
+table or several), it is looked up the way Spark resolves an outer reference: in each enclosing
+query in turn, then the written table (a query in FROM is not correlated and does not look
+outward). Without metadata, a one-table subquery keeps the column as before. When that cannot be
+decided (several tables have it, or one
+lacks metadata), the field gets no name -- no `{"table": "UNKNOWN", ...}` entry is written in
+row_membership_sources or value_condition_sources -- and row_condition_source_unresolved is
+recorded, with the fields statement_id, target_table, column (when there is one), columns,
+root_impact=true, and needed_fact. This is the same rule as for an INSERT condition:
+`trace_complete` still answers only whether the values were traced, and the gap is what
+`conditions_closed` reads (see "When a row may be used as a complete fact"). An UPDATE
+assignment is different, because there the column is a value: when its value expression reads a
+column no table can be proven to own, that column keeps the `{"table": "UNKNOWN", ...}` value
+source, has `trace_complete` false and row_condition_source_unresolved among its missing_reasons,
+and the same gap is recorded.
+
+A qualified column in such a condition is looked up the way Spark resolves it: the query it sits
+in, then each enclosing query (a correlated reference), then the written table, by its alias or,
+without one, by its name. A correlated `t.id` against `DELETE FROM mart.t t` is recorded on
+`mart.t`. A qualifier none of them declares is treated like an unqualified column no table can be
+proven to own: no name in a condition, `UNKNOWN` in an UPDATE value, and the gap either way.
 
 diagnostics.json.metadata_coverage records referenced tables, covered tables, missing tables, the
 number of schema sources, and metadata conflicts.

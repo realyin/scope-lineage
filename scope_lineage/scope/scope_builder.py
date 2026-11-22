@@ -6,6 +6,7 @@ Entry point: parse_scope_lineage(sql, task_name, schema=None) -> ScopeLineageRes
 from __future__ import annotations
 
 import re
+import warnings
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
@@ -17,13 +18,14 @@ from .session_settings import (
     quoted_regex_column_names_setting,
 )
 from .keyword_identifiers import repair_keyword_identifiers
+from .spliced_parameters import quote_spliced_parameters
 from sqlglot.optimizer.qualify import qualify as sg_qualify
 from sqlglot.optimizer.scope import traverse_scope, walk_in_scope, Scope
 
 from .parser import (
     _ORIGINALLY_ANONYMOUS_PROJECTION_META,
-    _normalize_table_name,
     _qualified_table,
+    _schema_key,
     _unwrap_target,
 )
 from .related_metadata import build_related_metadata
@@ -40,6 +42,7 @@ from .merge_spec import build_merge_spec
 from .select_scope import _star_modifiers
 from .scope_warnings import detect_warnings
 from .scope_role_inferrer import infer_roles
+from .named_windows import inline_named_windows
 from ..sqlglot_config import suppress_invalid_json_path_warnings
 from ._constants import DIALECT, PARSE_OPTS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR
 from .expression_refs import _inside_nested_subquery
@@ -49,6 +52,7 @@ from .sqlglot_walk import _find_alias_in_parent, render_sql_or_none
 # this module instead of through ._shared. Nothing in this module uses them.
 from .sqlglot_walk import _source_item_from_ast_node
 from .lineage_fact_gaps import _mark_gaps_from_recovered_syntax
+from .multi_insert import split_multi_table_inserts
 from .sql_comments import (
     merge_comments,
     node_comments,
@@ -202,12 +206,20 @@ def _collect_insert_trees(
 
 
 def _normalize_directory_insert_sql(sql: str) -> str:
-    """Normalize Spark directory writes into a form sqlglot keeps with SELECT."""
+    """Normalize Spark/Hive write forms sqlglot cannot parse into forms it keeps.
+
+    Directory writes get ``STORED AS`` in place of ``USING``; a FROM-first multi-table
+    insert is split into one ``INSERT ... SELECT ... FROM`` per target (audit 1.2, see
+    :mod:`.multi_insert`); a name with a run parameter spliced into it is quoted whole
+    (:mod:`.spliced_parameters`). Every parse path calls this one function, so all of them
+    see the same statements.
+    """
     pattern = re.compile(
         r"(INSERT\s+OVERWRITE\s+(?:LOCAL\s+)?DIRECTORY\s+('[^']+'|\"[^\"]+\"))\s+USING\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?=SELECT|WITH)",
         re.IGNORECASE,
     )
-    return pattern.sub(r"\1 STORED AS \3 ", sql)
+    sql = quote_spliced_parameters(sql)[0]
+    return split_multi_table_inserts(pattern.sub(r"\1 STORED AS \3 ", sql))[0]
 
 
 def _is_ctas(tree: exp.Expression) -> bool:
@@ -286,7 +298,7 @@ def script_local_schema(
     """
     if result.stmt_kind != "CTAS" or result.parse_status != "ok":
         return
-    table = _normalize_table_name(result.target_table)
+    table = _schema_key(schema, result.target_table)
     if not table or (schema is not None and table in schema):
         return
     root = result.scopes.get("ROOT")
@@ -845,6 +857,9 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
     and qualified it a second time to learn what the first call already knew
     (QUALIFY-001).
     """
+    # A named window's columns live in the WINDOW clause, not under ``OVER w``; inline
+    # them first so every window rule downstream sees one self-contained node (1.6).
+    inline_named_windows(ast)
     # ``qualify`` assigns generated aliases (usually ``_col_N``) to anonymous
     # expressions. Preserve whether an alias existed in the source SQL so the
     # projection resolver can recover a sole referenced field without confusing
@@ -860,8 +875,22 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
     for column in ast.find_all(exp.Column):
         if not column.table:
             column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
-    shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(ast, schema)
+            if isinstance(column.this, exp.Identifier):
+                column.this.meta[_BARE_IDENTIFIER_META] = True
+        elif isinstance(column.this, exp.Identifier):
+            column.this.meta[_AUTHORED_QUALIFIER_META] = column.table.lower()
+    lateral_candidates: list[tuple[exp.Select, exp.Column]] = []
+    shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(
+        ast, schema, lateral_candidates,
+    )
     outer_refs = _protect_deep_outer_refs(ast, schema)
+    using_joins = _record_using_joins(ast)
+    # ``qualify`` rewrites the tree in place before it can still raise -- a PIVOT alias on
+    # a physical table becomes ``tbl.p.col FROM (SELECT * FROM tbl PIVOT ...) AS p`` and
+    # then fails on ``Unknown column: p`` -- so the fallback is a copy taken beforehand,
+    # not the half-rewritten tree. Every restore below scans for its placeholders, so it
+    # applies to the copy as it would to the original.
+    pristine = ast.copy()
     try:
         qualified = sg_qualify(
             ast,
@@ -871,12 +900,143 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
             expand_stars=False,
         )
     except Exception:  # noqa: BLE001 - qualify is an enhancement; the unqualified AST is a valid answer
-        _restore_where_alias_collisions(shielded, qualify_sole_source=False)
-        _restore_sentinels(ast, outer_refs, strict=False)
-        return ast, False
-    _restore_where_alias_collisions(shielded, qualify_sole_source=True)
+        _restore_shielded_columns(pristine, shielded, qualify_sole_source=False)
+        _restore_sentinels(pristine, outer_refs, strict=False)
+        _check_no_shield_placeholder(pristine)
+        return pristine, False
+    _restore_shielded_columns(qualified, shielded, qualify_sole_source=True)
+    _undo_outer_struct_reading(qualified)
+    _restore_using_join_keys(using_joins)
+    _record_lateral_alias_ambiguity(qualified, lateral_candidates)
     _restore_sentinels(qualified, outer_refs)
+    _check_no_shield_placeholder(qualified)
     return qualified, True
+
+
+_BARE_IDENTIFIER_META = "lineage_bare_column_identifier"
+# The qualifier the author wrote before a column's name (``p`` of ``p.dept``).
+_AUTHORED_QUALIFIER_META = "lineage_authored_column_qualifier"
+
+
+def _undo_outer_struct_reading(tree: exp.Expression) -> None:
+    """Turn a bare column sqlglot read as an outer query's struct field back into a column.
+
+    In a correlated subquery, sqlglot 30.0 qualifies a bare ``flag`` to the subquery's own
+    source ``i`` and then, in the outer scope, reads ``i.flag`` as the struct field
+    ``flag`` of a column ``i`` of the outer ``o``: ``o.i.flag``, a column that does not
+    exist (``MAX(k)`` in a scalar subquery became ``MAX(o.i.k)``). Later versions leave it
+    ``i.flag``. The author's identifier survives inside the ``Dot``, so the reference is
+    put back as the later versions produce it, still marked originally unqualified, and
+    the resolver decides between the subquery's sources and the enclosing query's.
+
+    The same reading hits a qualified reference to a PIVOT written on a physical table:
+    ``FROM s.sales PIVOT (...) p`` becomes the table aliased ``sales`` carrying the pivot
+    ``p``, and the author's ``p.dept`` becomes ``sales.p.dept`` (30.0 returns it, later
+    versions raise). The author's qualifier, kept on the field's identifier, names that
+    pivot, so ``p.dept`` is put back as written.
+    """
+    for dot in list(tree.find_all(exp.Dot)):
+        field, base = dot.expression, dot.this
+        if not (isinstance(field, exp.Identifier) and isinstance(base, exp.Column) and base.table):
+            continue
+        bare = bool(field.meta.get(_BARE_IDENTIFIER_META))
+        if not bare and field.meta.get(_AUTHORED_QUALIFIER_META) != base.name.lower():
+            continue
+        select = dot.find_ancestor(exp.Select)
+        names = _select_source_names(select) if select is not None else set()
+        if not bare and select is not None:
+            names |= _select_pivot_aliases(select)
+        if base.name.lower() not in names:
+            continue
+        column = exp.column(field.copy(), table=exp.to_identifier(base.name))
+        if bare:
+            column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
+        dot.replace(column)
+
+
+_AUTHORED_COALESCE_META = "lineage_authored_coalesce"
+
+# One USING join of a SELECT: its position in ``joins``, its side, and its column names.
+_UsingStep = tuple[int, str, list[str]]
+
+
+def _record_using_joins(ast: exp.Expression) -> list[tuple[exp.Select, list[_UsingStep]]]:
+    """Note every ``JOIN ... USING`` before ``qualify`` turns it into ``ON``.
+
+    ``qualify`` reads a merged USING column as ``COALESCE(left, right)``; the generated
+    node differs from one the author wrote only in its metadata, so the author's are
+    marked here and the join kinds kept, rather than recognised by shape afterwards.
+    """
+    for node in ast.find_all(exp.Coalesce):
+        node.meta[_AUTHORED_COALESCE_META] = True
+    recorded = []
+    for select in ast.find_all(exp.Select):
+        steps = [
+            (index, (join.side or "").upper(), [item.name.lower() for item in join.args["using"]])
+            for index, join in enumerate(select.args.get("joins") or [])
+            if join.args.get("using")
+        ]
+        if steps:
+            recorded.append((select, steps))
+    return recorded
+
+
+def _restore_using_join_keys(recorded: list[tuple[exp.Select, list[_UsingStep]]]) -> None:
+    """Give each merged USING column the side Spark outputs (WP3j, 1.8).
+
+    Spark keeps the left key for INNER, LEFT, SEMI and ANTI joins, the right key for a
+    RIGHT join, and coalesces only for FULL OUTER. A later USING join of the same column
+    matches that carried key, so its ON is rewritten to it as well; ``qualify`` picked a
+    side there by schema availability, not by join kind.
+    """
+    for select, steps in recorded:
+        joins = select.args.get("joins") or []
+        keys: dict[str, exp.Expression] = {}
+        for index, side, names in steps:
+            if index >= len(joins):
+                continue
+            join = joins[index]
+            right_alias = join.this.alias_or_name if join.this is not None else ""
+            for name in names:
+                pair = _using_key_equality(join.args.get("on"), name, right_alias)
+                if pair is None:
+                    continue
+                if name in keys:
+                    pair.set("this", keys[name].copy())
+                left, right = pair.this.copy(), pair.expression.copy()
+                if side == "RIGHT":
+                    keys[name] = right
+                elif side == "FULL":
+                    keys[name] = exp.Coalesce(this=left, expressions=[right])
+                else:
+                    keys[name] = left
+        _replace_generated_coalesce(select, keys)
+
+
+def _using_key_equality(on: exp.Expression | None, name: str, right_alias: str) -> exp.EQ | None:
+    """The ``<left> = <right_alias>.<name>`` conjunct ``qualify`` generated for one column."""
+    if on is None:
+        return None
+    for node in on.flatten() if isinstance(on, exp.And) else [on]:
+        right = node.expression if isinstance(node, exp.EQ) else None
+        if isinstance(right, exp.Column) and right.name.lower() == name \
+                and right.table.lower() == right_alias.lower():
+            return node
+    return None
+
+
+def _replace_generated_coalesce(select: exp.Select, keys: dict[str, exp.Expression]) -> None:
+    if not keys:
+        return
+    for node in list(walk_in_scope(select)):
+        if not isinstance(node, exp.Coalesce) or node.meta.get(_AUTHORED_COALESCE_META):
+            continue
+        operands = [node.this, *(node.expressions or [])]
+        names = {operand.name.lower() for operand in operands if isinstance(operand, exp.Column)}
+        if len(names) == 1 and all(isinstance(operand, exp.Column) for operand in operands):
+            key = keys.get(names.pop())
+            if key is not None:
+                node.replace(key.copy())
 
 
 _OUTER_REF_SENTINEL = "__scope_lineage_outer_ref_{}__"
@@ -916,6 +1076,19 @@ def _protect_deep_outer_refs(ast: exp.Expression, schema: dict | None) -> dict[s
     return protected
 
 
+def _select_pivot_aliases(select: exp.Select) -> set[str]:
+    """Aliases of the PIVOT / UNPIVOT clauses written on a SELECT's FROM and JOIN items."""
+    from_ = select.args.get("from_")
+    items = ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]
+    return {
+        str(pivot.alias).lower()
+        for item in items
+        if item is not None
+        for pivot in item.args.get("pivots") or []
+        if pivot.alias
+    }
+
+
 def _select_source_names(select: exp.Select) -> set[str]:
     from_ = select.args.get("from_")
     items = ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]
@@ -950,6 +1123,7 @@ def _restore_sentinels(
 
 
 _WHERE_SHIELD_PREFIX = "__lineage_where_column__"
+_LATERAL_ALIAS_AMBIGUOUS_META = "lineage_lateral_alias_ambiguous"
 
 
 def _shield_where_alias_collisions(ast: exp.Expression) -> list[tuple[exp.Select, exp.Identifier, str]]:
@@ -960,52 +1134,122 @@ def _shield_where_alias_collisions(ast: exp.Expression) -> list[tuple[exp.Select
     ``SELECT 'ALL' AS biz ... WHERE biz IN ('A')`` into ``WHERE 'ALL' IN ('A')``; a schema
     does not prevent it once a join or an unlisted column leaves the name unresolved
     (QUALIFY-002). Renaming the column for the duration of ``qualify`` leaves GROUP BY,
-    HAVING and lateral projection aliases, which Spark does resolve, to sqlglot.
+    HAVING and lateral projection aliases, which Spark does resolve, to sqlglot
+    (``_shield_group_by_source_columns`` keeps a source column those would hide).
     """
     shielded = []
     for select in ast.find_all(exp.Select):
         where = select.args.get("where")
-        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
+        aliases = {projection.alias.lower() for projection in select.expressions if isinstance(projection, exp.Alias)}
         if not where or not aliases:
             continue
-        for column in walk_in_scope(where):
-            if isinstance(column, exp.Column) and not column.table and column.name in aliases:
-                identifier = column.this
-                shielded.append((select, identifier, identifier.this))
-                identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+        for column in _bare_columns_named(where, aliases):
+            _shield_column(select, column, shielded)
     return shielded
 
 
 def _shield_group_by_source_columns(
     ast: exp.Expression, schema: dict | None,
+    lateral_candidates: list[tuple[exp.Select, exp.Column]] | None = None,
 ) -> list[tuple[exp.Select, exp.Identifier, str]]:
-    """Hide a GROUP BY name from alias expansion when a source of its SELECT has that column.
+    """Hide a GROUP BY or SELECT-list name from alias expansion when a source of its SELECT
+    has that column.
 
     Spark resolves a grouping key against the input's columns and falls back to a SELECT
     alias only for a name no input has. ``qualify`` without a schema expanded every
     matching name, so ``SELECT UPPER(a) AS k ... GROUP BY k`` grouped by ``UPPER(a)`` even
-    when the source has its own ``k``. A source whose columns are unknown leaves the name
-    to the alias, as before.
+    when the source has its own ``k``. The SELECT list follows the same rule for an alias
+    defined earlier in it: "A local column reference takes precedence, over a lateral
+    column alias" (Databricks name resolution; SPARK-27561), so in
+    ``SELECT fee AS amt, amt AS fee`` the second ``amt`` is the source column (X1).
+    HAVING and QUALIFY follow it too: "HAVING prefers the table column over the SELECT
+    list alias", and QUALIFY does the same (same page); ORDER BY, which prefers the alias,
+    is left to sqlglot.
+
+    A source whose columns are unknown leaves the name to the alias, as before; such a
+    SELECT-list column is added to ``lateral_candidates`` so that, if ``qualify`` does
+    expand it, the reading is reported as ``lateral_alias_ambiguous``.
     """
     ctes = {cte.alias_or_name.lower(): cte.this for cte in ast.find_all(exp.CTE)}
-    shielded = []
+    shielded: list[tuple[exp.Select, exp.Identifier, str]] = []
     for select in ast.find_all(exp.Select):
-        group = select.args.get("group")
-        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
-        if not group or not aliases:
+        aliases = {projection.alias.lower() for projection in select.expressions if isinstance(projection, exp.Alias)}
+        if not aliases:
             continue
-        for column in walk_in_scope(group):
-            if (isinstance(column, exp.Column) and not column.table and column.name in aliases
-                    and _a_source_has_column(select, column.name, schema, ctes)):
-                identifier = column.this
-                shielded.append((select, identifier, identifier.this))
-                identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+        for clause in ("group", "having", "qualify"):
+            node = select.args.get(clause)
+            if not node:
+                continue
+            for column in _bare_columns_named(node, aliases):
+                if _source_column_presence(select, column.name, schema, ctes):
+                    _shield_column(select, column, shielded)
+        _shield_projection_source_columns(select, schema, ctes, shielded, lateral_candidates)
     return shielded
 
 
+def _shield_projection_source_columns(
+    select: exp.Select, schema: dict | None, ctes: dict,
+    shielded: list[tuple[exp.Select, exp.Identifier, str]],
+    lateral_candidates: list[tuple[exp.Select, exp.Column]] | None,
+) -> None:
+    earlier: set[str] = set()
+    for projection in select.expressions:
+        for column in _bare_columns_named(projection, earlier):
+            presence = _source_column_presence(select, column.name, schema, ctes)
+            if presence:
+                _shield_column(select, column, shielded)
+            elif presence is None and lateral_candidates is not None:
+                lateral_candidates.append((select, column))
+        if isinstance(projection, exp.Alias):
+            earlier.add(projection.alias.lower())
+
+
+def _record_lateral_alias_ambiguity(
+    tree: exp.Expression, lateral_candidates: list[tuple[exp.Select, exp.Column]],
+) -> None:
+    """Mark each SELECT whose possibly-source column ``qualify`` replaced by an alias.
+
+    sqlglot does not expand every match (an alias over an aggregate stays out of another
+    aggregate, for one), and an unexpanded column already reads the source, so only a
+    column that left the tree is an alias reading worth reporting.
+    """
+    for select, column in lateral_candidates:
+        if column.root() is tree or select.root() is not tree:
+            continue
+        names = select.meta.setdefault(_LATERAL_ALIAS_AMBIGUOUS_META, [])
+        if column.name not in names:
+            names.append(column.name)
+
+
+def _bare_columns_named(node: exp.Expression, names: set[str]) -> list[exp.Column]:
+    if not names:
+        return []
+    return [
+        column for column in walk_in_scope(node)
+        if isinstance(column, exp.Column) and not column.table and column.name.lower() in names
+    ]
+
+
+def _shield_column(
+    select: exp.Select, column: exp.Column, shielded: list[tuple[exp.Select, exp.Identifier, str]],
+) -> None:
+    identifier = column.this
+    shielded.append((select, identifier, identifier.this))
+    identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+
+
 def _a_source_has_column(select: exp.Select, name: str, schema: dict | None, ctes: dict) -> bool:
+    return _source_column_presence(select, name, schema, ctes) is True
+
+
+def _source_column_presence(
+    select: exp.Select, name: str, schema: dict | None, ctes: dict,
+) -> bool | None:
+    """True when a source of ``select`` has the column, False when every source's columns
+    are known and none has it, None when an unknown source might."""
     from_ = select.args.get("from_")
     items = ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]
+    known = True
     for item in items:
         if isinstance(item, exp.Table) and item.name.lower() in ctes and not item.db:
             columns = ctes[item.name.lower()].named_selects
@@ -1015,28 +1259,100 @@ def _a_source_has_column(select: exp.Select, name: str, schema: dict | None, cte
             columns = item.this.named_selects
         else:
             columns = []
-        if name.lower() in {str(column).lower() for column in columns}:
+        names = {str(column).lower() for column in columns}
+        if name.lower() in names:
             return True
-    return False
+        if not names or "*" in names:
+            known = False
+    for lateral in select.args.get("laterals") or []:
+        alias = lateral.args.get("alias")
+        columns = {column.name.lower() for column in alias.columns} if alias is not None else set()
+        if name.lower() in columns:
+            return True
+        if not columns:
+            known = False
+    return False if known else None
 
 
-def _restore_where_alias_collisions(
-    shielded: list[tuple[exp.Select, exp.Identifier, str]], *, qualify_sole_source: bool,
+class ShieldPlaceholderLeak(UserWarning):
+    """A shield placeholder survived ``_qualify_ast``; the test suite turns this into an error."""
+
+
+def _restore_shielded_columns(
+    tree: exp.Expression,
+    shielded: list[tuple[exp.Select, exp.Identifier, str]],
+    *,
+    qualify_sole_source: bool,
 ) -> None:
-    """Undo the shield and, after a successful qualify, qualify a still-bare column when its
-    SELECT reads one source.
+    """Undo the shields everywhere in ``tree`` and, after a successful qualify, qualify a
+    still-bare restored column when its SELECT reads one source.
+
+    The scan covers the whole tree rather than the identifiers saved before ``qualify``:
+    expanding a lateral, GROUP BY or HAVING alias copies the aliased expression, and a copy
+    carries the placeholder without being one of the saved nodes (1.13-b). A copy may sit
+    in another SELECT than the original, so the sole source is read off the nearest SELECT
+    ancestor of each restored column.
 
     sqlglot leaves the shielded name bare when the sole source is a derived table, because
     the placeholder is not among that table's columns; the original name is, and a SELECT
     with one source has nowhere else to bind it.
     """
-    for select, identifier, name in shielded:
-        identifier.set("this", name)
+    if not shielded:
+        return
+    for identifier in list(tree.find_all(exp.Identifier)):
+        name = identifier.this
+        if not isinstance(name, str) or not name.startswith(_WHERE_SHIELD_PREFIX):
+            continue
+        identifier.set("this", name[len(_WHERE_SHIELD_PREFIX):])
         column = identifier.parent
-        if qualify_sole_source and isinstance(column, exp.Column) and not column.table:
-            source = _sole_source_name(select)
+        if qualify_sole_source and isinstance(column, exp.Column) and column.this is identifier \
+                and not column.table:
+            select = column.find_ancestor(exp.Select)
+            source = _sole_source_name(select) if select is not None else None
             if source:
                 column.set("table", exp.to_identifier(source, quoted=True))
+
+
+def _check_no_shield_placeholder(tree: exp.Expression) -> None:
+    """Fail loudly if a placeholder outlived the restore, then remove it anyway.
+
+    A placeholder that reaches the output is published as a physical column, which is
+    worse than any lineage gap, so production strips it after warning.
+    """
+    for node in tree.walk():
+        for key, value in node.args.items():
+            if isinstance(value, str) and _WHERE_SHIELD_PREFIX in value:
+                warnings.warn(
+                    f"shield placeholder left in the qualified tree: {value!r}",
+                    ShieldPlaceholderLeak,
+                    stacklevel=2,
+                )
+                node.set(key, value.replace(_WHERE_SHIELD_PREFIX, ""))
+
+
+def _warn_lateral_alias_ambiguity(all_scopes: list[Scope], result: ScopeLineageResult) -> None:
+    """Report each SELECT-list name read as a lateral alias that a source might also have.
+
+    The record is made after ``qualify``, so a SELECT copied by alias expansion does not
+    repeat it.
+    """
+    seen = set()
+    for sg_scope in all_scopes:
+        names = sg_scope.expression.meta.get(_LATERAL_ALIAS_AMBIGUOUS_META) if sg_scope.expression else None
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        for name in names or []:
+            if scope_id is None or (scope_id, name) in seen:
+                continue
+            seen.add((scope_id, name))
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="lateral_alias_ambiguous",
+                scope=scope_id,
+                msg=(
+                    f"Column '{name}' in the SELECT list matches an earlier alias, and a source "
+                    "whose columns are unknown may also have it; read as the lateral alias. "
+                    "Spark reads a source column first, so supply that source's schema."
+                ),
+            ))
 
 
 def _sole_source_name(select: exp.Select) -> str | None:
@@ -1331,27 +1647,14 @@ def _looks_schema_expanded_from_physical(scope_data) -> bool:
     coverage gap, which is actionable ("supply the column"). Rewriting those refs to UNKNOWN
     would destroy that signal, so the sweep below leaves them alone; the audit still reports
     them, as `schema_incomplete_column_ref` rather than a structural break.
+
+    The star expansion records the tables whose schema it enumerated
+    (``star_schema_sources``), and that marker is the answer. The expression text used to
+    stand in for it (`expression in (None, "", name)`), but a real expansion writes `a.x`,
+    so the exemption never applied to one and applied instead to bare columns no star had
+    produced (audit 1.13-g).
     """
-    columns = scope_data.columns or []
-    if not columns:
-        return False
-    physical_sources = set()
-    direct_from_physical = 0
-    for col in columns:
-        for source in col.sources or []:
-            scope_name = source.scope or ""
-            if scope_name.startswith(("cte:", "subq:", "union:", "udtf:", "ROOT", "UNKNOWN")):
-                continue
-            physical_sources.add(scope_name)
-            if (
-                col.transform == "DIRECT"
-                and col.name == source.column
-                and col.expression in (None, "", col.name)
-            ):
-                direct_from_physical += 1
-    if not physical_sources:
-        return False
-    return direct_from_physical >= max(3, len(columns) // 2)
+    return bool(scope_data.star_schema_sources)
 
 
 def _drop_dangling_column_refs(result: ScopeLineageResult) -> None:
@@ -1490,7 +1793,7 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
     for sg_scope in all_scopes:
         if (
             not sg_scope.is_union
-            and isinstance(sg_scope.expression, exp.Union)
+            and isinstance(sg_scope.expression, exp.SetOperation)
             and sg_scope.union_scopes
         ):
             union_scope_id = _union_scope_id_for_container(
@@ -1535,6 +1838,7 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
     if using_node is not None:
         result.scopes["ROOT"].raw_sql = using_node.sql(dialect=DIALECT)
         result.scopes["ROOT"].raw_sql_available = bool(result.scopes["ROOT"].raw_sql)
+    _warn_lateral_alias_ambiguity(all_scopes, result)
 
     # Step 4: Collect physical tables from each scope's resolved bindings. CTE names
     # are lexical: an inner ``WITH staging`` must not make a physical ``staging`` in a
@@ -1682,7 +1986,7 @@ def _build_source_expression(
 
     if isinstance(src, exp.Subquery):
         inner = src.this
-        if isinstance(inner, (exp.Select, exp.Union)):
+        if isinstance(inner, (exp.Select, exp.SetOperation)):
             src = inner.copy()
             sw = src.args.get("with_")
             if sw is None and w is not None:
@@ -1693,7 +1997,7 @@ def _build_source_expression(
         from_ = src.args.get("from_")
         if from_ is not None:
             from_this = getattr(from_, "this", None)
-            if isinstance(from_this, exp.Subquery) and isinstance(from_this.this, exp.Union):
+            if isinstance(from_this, exp.Subquery) and isinstance(from_this.this, exp.SetOperation):
                 all_passthrough = all(
                     (
                         isinstance(p, (exp.Column, exp.Star)) or
@@ -1721,7 +2025,7 @@ def _build_source_expression(
                         union.set("with_", w.copy())
                     return union
 
-    if w is not None and isinstance(src, (exp.Select, exp.Union)):
+    if w is not None and isinstance(src, (exp.Select, exp.SetOperation)):
         src.set("with_", w.copy())
     return src
 
@@ -1838,15 +2142,15 @@ def _compute_scope_id(sg_scope: Scope) -> str:
 
 
 def _create_union_scopes_recursive(sg_scope: Scope, result: ScopeLineageResult) -> None:
-    """Walk the scope tree and create synthetic UNION scopes wherever a scope has
-    Union expression + union_scopes children.
+    """Walk the scope tree and create synthetic set-operation scopes wherever a scope has
+    a set-operation expression (UNION / EXCEPT / INTERSECT) + union_scopes children.
 
-    Handles both top-level UNION and UNION inside CTEs.
-    UNION chains (A UNION ALL B UNION ALL C) are flattened into a single union scope
-    with N branches, not nested union scopes.
+    Handles both top-level set operations and set operations inside CTEs.
+    Chains that share one operator (A UNION ALL B UNION ALL C) are flattened into a single
+    union scope with N branches; a nested chain with a different operator keeps its own
+    scope (see `_flattens_into`).
     """
-    # Check if this scope has UNION children
-    if sg_scope.union_scopes and isinstance(sg_scope.expression, exp.Union):
+    if sg_scope.union_scopes and isinstance(sg_scope.expression, exp.SetOperation):
         _create_union_scope(sg_scope, result)
 
     # Recurse into child scopes
@@ -1863,73 +2167,119 @@ def _create_union_scopes_recursive(sg_scope: Scope, result: ScopeLineageResult) 
         _create_union_scopes_recursive(child, result)
 
 
-def _flatten_union_branches(sg_scope: Scope) -> list[Scope]:
-    """Flatten a left-deep Union tree into a flat list of leaf SELECT scopes.
+def _set_op_label(expression: exp.Expression) -> str:
+    """The contract label of one set operation.
 
-    sqlglot parses `A UNION ALL B UNION ALL C` as Union(Union(A, B), C),
-    producing a nested scope tree. We want a single flat union scope with 3 branches.
-    A branch that is itself a Union scope is recursively flattened.
+    sqlglot keeps UNION's de-duplication in ``args["distinct"]``; ``args["kind"]`` is
+    always None, so reading it labelled every UNION as UNION_ALL (audit 1.3). EXCEPT and
+    INTERSECT are labelled by operator only: Spark's default form of both is DISTINCT, and
+    their value lineage does not depend on it.
+    """
+    if isinstance(expression, exp.Except):
+        return "EXCEPT"
+    if isinstance(expression, exp.Intersect):
+        return "INTERSECT"
+    return "UNION" if expression.args.get("distinct") else "UNION_ALL"
+
+
+def _is_set_operation_scope(sg_scope: Scope) -> bool:
+    return isinstance(sg_scope.expression, exp.SetOperation) and bool(sg_scope.union_scopes)
+
+
+def _flattens_into(container: Scope, branch: Scope, position: int) -> bool:
+    """Whether a nested set-operation branch merges into its container's flat branch list.
+
+    Flattening is exact only when the merged list means the same thing:
+    - UNION over UNION: a DISTINCT container de-duplicates everything beneath it, so any
+      inner UNION folds in; under a UNION ALL container only an inner UNION ALL does --
+      an inner DISTINCT chain de-duplicates only its own branches and keeps its scope.
+    - EXCEPT / INTERSECT: only the left-deep chain of the same operator folds in
+      ((A - B) - C keeps A as the value input). Anything else keeps its own scope.
+    """
+    outer = _set_op_label(container.expression)
+    inner = _set_op_label(branch.expression)
+    if outer in ("UNION", "UNION_ALL"):
+        return inner == outer or (outer == "UNION" and inner == "UNION_ALL")
+    return inner == outer and position == 0
+
+
+def _flatten_union_branches(sg_scope: Scope) -> list[Scope]:
+    """Flatten a left-deep set-operation tree into a flat list of branch scopes.
+
+    sqlglot parses `A UNION ALL B UNION ALL C` as Union(Union(A, B), C), producing a
+    nested scope tree. We want a single flat union scope with 3 branches. A branch that is
+    itself a set operation is flattened only when `_flattens_into` says the flat list
+    keeps its meaning; otherwise it stays one branch and gets its own nested scope.
     """
     leaves = []
-    for branch in sg_scope.union_scopes:
-        if isinstance(branch.expression, exp.Union) and branch.union_scopes:
-            # Nested union — flatten it
+    for position, branch in enumerate(sg_scope.union_scopes):
+        if _is_set_operation_scope(branch) and _flattens_into(sg_scope, branch, position):
             leaves.extend(_flatten_union_branches(branch))
         else:
             leaves.append(branch)
     return leaves
 
 
-def _create_union_scope(container_scope: Scope, result: ScopeLineageResult) -> None:
-    """Create a synthetic UNION scope for a scope that has Union expression + union_scopes.
+def _mark_flattened_intermediates(sg_scope: Scope, union_scope_id: str) -> None:
+    """Point every set-operation scope flattened away under ``sg_scope`` at the union scope.
 
-    Flattens UNION chains so A UNION ALL B UNION ALL C produces one union scope
-    with 3 branches, not nested union scopes.
+    They do not appear as separate scopes in the result; aliasing them to the union scope
+    keeps any lookup by scope ID on the scope that now carries their branches.
     """
-    # Flatten the left-deep union tree into leaf branches
+    for position, branch in enumerate(sg_scope.union_scopes):
+        if _is_set_operation_scope(branch) and _flattens_into(sg_scope, branch, position):
+            setattr(branch, _SCOPE_ID_ATTR, union_scope_id)
+            _mark_flattened_intermediates(branch, union_scope_id)
+
+
+def _create_union_scope(
+    container_scope: Scope,
+    result: ScopeLineageResult,
+    union_scope_id: str | None = None,
+    branch_index: int | None = None,
+) -> None:
+    """Create a synthetic set-operation scope for a scope whose expression is a set operation.
+
+    Flattens same-operator chains so A UNION ALL B UNION ALL C produces one union scope with
+    3 branches. A nested chain that cannot be flattened (a DISTINCT chain under UNION ALL, a
+    UNION on the left of an EXCEPT) becomes a branch that is itself a ``kind="union"`` scope
+    -- ``union_scope_id`` and ``branch_index`` name it inside its parent.
+    """
     flat_branches = _flatten_union_branches(container_scope)
     if not flat_branches:
         return
 
     container_id = getattr(container_scope, _SCOPE_ID_ATTR, None)
-    union_scope_id = _union_scope_id_for_container(container_id)
-    context = union_scope_id.split(":", 1)[1]
+    if union_scope_id is None:
+        union_scope_id = _union_scope_id_for_container(container_id)
 
-    # Assign branch IDs to the flattened leaf branches
     branch_ids = []
+    nested: list[tuple[Scope, str, int]] = []
     for i, branch in enumerate(flat_branches):
-        branch_id = f"union:{context}:b{i + 1:02d}"
+        branch_id = f"{union_scope_id}:b{i + 1:02d}"
         setattr(branch, _SCOPE_ID_ATTR, branch_id)
         branch_ids.append(branch_id)
+        if _is_set_operation_scope(branch):
+            nested.append((branch, branch_id, i))
 
-    # Also fix the _lineage_scope_id on intermediate Union scopes that we
-    # flattened away — they should NOT appear as separate scopes in the result.
-    # Point them to the union scope so they're treated as aliases.
-    for branch in container_scope.union_scopes:
-        if isinstance(branch.expression, exp.Union) and branch.union_scopes:
-            setattr(branch, _SCOPE_ID_ATTR, union_scope_id)
-
-    # Determine set_op type
-    union_expr = container_scope.expression
-    set_op = "UNION_ALL"
-    if hasattr(union_expr, "args"):
-        kind = union_expr.args.get("kind", "")
-        if kind and "ALL" not in str(kind).upper():
-            set_op = "UNION"
+    _mark_flattened_intermediates(container_scope, union_scope_id)
 
     result.scopes[union_scope_id] = ScopeData(
         kind="union",
-        set_op=set_op,
+        set_op=_set_op_label(container_scope.expression),
         branches=branch_ids,
+        branch_index=branch_index,
     )
 
-    # Create branch stubs
     for i, branch_id in enumerate(branch_ids):
         if branch_id not in result.scopes:
             result.scopes[branch_id] = ScopeData(
                 kind="union_branch",
                 branch_index=i,
             )
+    for branch, branch_id, i in nested:
+        result.scopes.pop(branch_id, None)
+        _create_union_scope(branch, result, union_scope_id=branch_id, branch_index=i)
 
     # If container is ROOT, also create the ROOT stub
     if container_id == "ROOT":

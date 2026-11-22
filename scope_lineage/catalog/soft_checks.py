@@ -45,9 +45,31 @@ def soft_checks(catalog: Catalog) -> list[Finding]:
         *_code_sets_missing_the_attributes(catalog),
         *_held_forms_the_code_sets_lack(catalog),
         *_unmapped_bindings(catalog),
+        *_grain_identifiers_unbound(catalog),
         *_self_references_without_relation_named(catalog),
         *semantic_checks(catalog),
     ]
+
+
+def _grain_identifiers_unbound(catalog: Catalog) -> list[Finding]:
+    """6.3-a: a grain identifier no column of the table binds. A grain may well be made of
+    another concept's identifiers (a summary keyed by loan number and period), so whose
+    identifier it is is not checked -- only that the table holds it somewhere."""
+    findings = []
+    for file, representation in catalog.records("mapping"):
+        bound = {
+            binding.get("ref")
+            for binding in representation.get("bindings") or []
+            if binding.get("to") in ("identifier", "foreign_identifier")
+        }
+        for identifier in representation["grain"]["identifiers"]:
+            if identifier not in bound:
+                findings.append(Finding(
+                    "grain_identifier_unbound", file, representation["table"],
+                    f"grain identifier {identifier!r} is bound by no column of this table, "
+                    "so the grain cannot be compared with the table's keys",
+                ))
+    return findings
 
 
 # --- semantic completeness: what the catalog leaves unsaid ------------------------------

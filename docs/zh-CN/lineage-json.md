@@ -211,10 +211,12 @@ GROUP BY c.customer_id;
 | `outputs[]` | array<object> | 当前 scope 的详细输出字段事实。 |
 | `field_usage[]` | array<object> | 每个输入来源有哪些字段被逻辑块或输出字段使用。 |
 | `columns[]` | array<object> | 兼容性投影视图；新消费者优先读取信息更完整的 `outputs[]`。 |
+| `set_op` / `branches[]` | string / array<string> | 出现在 `kind=union` 的 scope 上：集合运算符和按顺序排列的输入分支。`set_op` 取 `UNION_ALL`、`UNION`（去重）、`EXCEPT` 或 `INTERSECT`。同一运算符的链合成一个 scope；运算符不同的嵌套链（`UNION ALL` 下的 `UNION` 链、`EXCEPT` 左侧的 `UNION`）自身是一个 `kind=union` 的分支，带自己的 `set_op` 和 `branches[]`。`EXCEPT` / `INTERSECT` 只有第一个分支提供列值，其余分支只决定哪些行留下，由 `set_operation_semantics_partial` 事实缺口报告。 |
 | `union_branch_alignment` | object | UNION 分支、字段位置和对齐状态。仅相关 scope 输出。 |
 | `joins[]` | array<object> | 兼容性 JOIN 结构，保留左右输入、类型、ON 表达式和字段。精确关系优先读 `logic_blocks[].join_relation_detail`。 |
 | `filters[]` | array<object> | 兼容性 WHERE 条件和引用字段。精确条件拆分优先读 `filter_predicate_detail`。 |
 | `group_by[]` / `having[]` | array | 分组和聚合后过滤的结构化子句事实。 |
+| `grouping_kind` | string | 只在 GROUP BY 不是普通分组时出现：`cube`、`rollup`、`grouping_sets`、`with_cube`、`with_rollup`，几种写法同时出现时为 `mixed`。此时 `group_by[]` 列出子句里写到的全部键，包括 CUBE / ROLLUP / GROUPING SETS 里面的。这几种写法会加出小计行，小计行的汇总键为 NULL，所以语义画像把它们的键给成 `candidate`，不给 `proven`。没有这个键表示普通 GROUP BY 或没有 GROUP BY。 |
 | `order_by[]` | array<object> | 排序表达式、字段和方向。窗口内部排序同时位于 `window_specification`。 |
 | `distinct` | boolean | 当前 SELECT 是否使用 DISTINCT。 |
 | `lateral_views[]` | array<object> | LATERAL VIEW/UDTF 的结构化事实。 |
@@ -310,7 +312,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `output_fields[]` | array<string> | 该逻辑生成或影响的 scope 输出字段。 |
 | `input_sources[]` | array<string> | 逻辑涉及的输入 scope/物理表。 |
 | `field_usage[]` | array<object> | 字段被哪个逻辑块、哪个输出使用。 |
-| `expression_features` | object | 函数、运算符及 CASE/CAST/window/aggregate/UDF 等布尔特征。`functions` 只收**函数调用名**，不收 `IN` / `NOT` / `AND` 这类后面也跟括号的 SQL 关键字，字符串字面量里的内容同样不算；`has_udf` 为真仅当其中有一个名字函数目录放不进去。 |
+| `expression_features` | object | 函数、运算符及 CASE/CAST/window/aggregate/UDF 等布尔特征。`functions` 只收**函数调用名**，不收 `IN` / `NOT` / `AND` 这类后面也跟括号的 SQL 关键字，字符串字面量和注释里的内容同样不算，写在类型位置的名字（`CAST(x AS DECIMAL(18, 2))` 的 `DECIMAL`）也不算；`has_udf` 为真仅当其中有一个名字函数目录放不进去。函数目录是固定名单（手写的 Spark/Hive 内置函数，加上从 `constraints-dev.txt` 锁定的 sqlglot 版本冻结下来的语法注册名），不随安装的 sqlglot 版本变化，所以同一条 SQL 在支持的各 sqlglot 版本上 `has_udf` 相同。`operators` 同样不看字符串字面量和注释（`/* rate * 100 */` 里的 `*`、`'2024-01-01'` 里的 `-` 都不算）。 |
 | `final_target_columns[]` | array<string> | 该逻辑最终影响的目标字段。 |
 | `comments[]` | array<string> | 该逻辑块**自身表达式内**的 SQL 注释原文。无注释时不发本键。别名注释不在块表达式内，发布在对应 `outputs[].comments` 上。 |
 
@@ -318,10 +320,10 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 
 | Detail key | 内容 |
 | --- | --- |
-| `join_relation_detail` | `join_type`、`left_input`、`right_input`、`left_alias`、`right_alias`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。`right_input` / `right_alias` 是本次 JOIN 加入的来源及它在这次 JOIN 里的别名——同一来源被关联多次时，每次 JOIN 各是各的别名。`left_input` / `left_alias` 是本 scope 的第一个 FROM 来源及其别名，不一定是 ON 条件实际引用的那一侧（链式自关联时 `left_alias` 取紧挨着的上一跳）；每个关联 key 真正的左右两侧以 `join_key_pairs[].left` / `.right` 为准。当该 JOIN 读取本语句自己的目标表时，另带 `target_self_reference`——引用别名，且当目标分区与引用侧分区谓词都是字面日期时给出可证明的天数偏移（`partition_offset_days`、`offset_proven: true`）；无法证明时保持 `offset_proven: false` 而不猜测。负偏移即典型的"取昨日兜底"形态——工具只陈述偏移，语义命名留给消费方。 |
-| `filter_predicate_detail` | WHERE/HAVING 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。每个合取项带 `comments[]`，只收属于这一条的注释：它自己 `expression` 里的注释，前面再加上独占一行写在连接它的 `AND` 上方（或紧跟在这个 `AND` 后面）的注释——sqlglot 把这种注释挂在 `AND` 节点上，任何合取项的原文里都没有它，因此交给它下面那一条。行尾注释挂在该行最后一条谓词上。写在 `WHERE` / `HAVING` 本身上的注释（第一条谓词上方的 `WHERE -- 说明`）不属于任何合取项，只留在块的 `comments[]` 里。没有注释时不发该键；新增键，`schema_version` 不变。 |
+| `join_relation_detail` | `join_type`、`left_input`、`right_input`、`left_alias`、`right_alias`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。`right_input` / `right_alias` 是本次 JOIN 加入的来源及它在这次 JOIN 里的别名——同一来源被关联多次时，每次 JOIN 各是各的别名。`left_input` / `left_alias` 是本 scope 的第一个 FROM 来源及其别名，不一定是 ON 条件实际引用的那一侧（链式自关联时 `left_alias` 取紧挨着的上一跳）；每个关联 key 真正的左右两侧以 `join_key_pairs[].left` / `.right` 为准；两侧各带 `bare`（布尔，可选）：这一侧在等式里是否就是一个裸列（`t.region = substr(u.user_id,1,2)` 的右侧是 `false`）。非裸列的等式照样记为键对，`trace_status` 与 warning 不受影响；但唯一性判定（fan-out、本体的表关系）只认右侧 `bare: true` 的键对。旧版产出没有这个字段时，读取方按键对的 `expression` 自行判断，解析不了按 `false` 处理。当该 JOIN 读取本语句自己的目标表时，另带 `target_self_reference`——引用别名，且当目标分区与引用侧分区谓词都是字面日期时给出可证明的天数偏移（`partition_offset_days`、`offset_proven: true`）；无法证明时保持 `offset_proven: false` 而不猜测。负偏移即典型的"取昨日兜底"形态——工具只陈述偏移，语义命名留给消费方。 |
+| `filter_predicate_detail` | WHERE/HAVING/QUALIFY 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。`predicate_type` 说明是哪个子句：`logic_type=filter` 的块上是 `where` 或 `qualify`，`logic_type=having` 的块上是 `having`。QUALIFY 块（id 为 `logic:<scope>:qualify:<n>`）在窗口函数算完之后过滤行；只列 WHERE 条件的消费者要跳过它。每个合取项带 `comments[]`，只收属于这一条的注释：它自己 `expression` 里的注释，前面再加上独占一行写在连接它的 `AND` 上方（或紧跟在这个 `AND` 后面）的注释——sqlglot 把这种注释挂在 `AND` 节点上，任何合取项的原文里都没有它，因此交给它下面那一条。行尾注释挂在该行最后一条谓词上。写在 `WHERE` / `HAVING` 本身上的注释（第一条谓词上方的 `WHERE -- 说明`）不属于任何合取项，只留在块的 `comments[]` 里。没有注释时不发该键；新增键，`schema_version` 不变。MERGE ROOT 上每个 `WHEN ... AND <条件>` 记成一个过滤块，`predicate_type` 为 `merge_when`（MERGE 的 ON 条件记在 `scopes.ROOT.joins[]`，`join_type` 为 `MERGE`，不生成 `join` 逻辑块）。 |
 | `aggregation_detail` | `group_by_items[]`、`aggregate_items[]`、`having` 及每项的表达式来源。 |
-| `window_specification` | 窗口函数、`partition_by[]`、`order_by[]`、窗口后过滤和 trace 状态。 |
+| `window_specification` | 窗口函数、`partition_by[]`、`order_by[]`、窗口后过滤和 trace 状态。写在 QUALIFY 里的窗口函数单独成一个窗口块：`output_field` 为 null（它不是输出列），`filter_after_window[]` 里是检验它的那条 QUALIFY 合取项。命名窗口（`OVER w` 加 `WINDOW w AS (...)`）先被内联，所以这里的分区和排序与直接写在 `OVER` 里相同。 |
 
 例如，同样出现 `customer_id`，JOIN key、WHERE filter 和 SELECT 输出的用途不同；`logic_blocks` 会保留这种上下文，而不是把它们压成一个无语义字段集合。
 
@@ -374,6 +376,22 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `merge_branch` / `merge_when_index` | MERGE 场景中字段属于哪个 WHEN 分支。`merge_branch` 在 `WHEN NOT MATCHED BY SOURCE` 上**缺席**（见 §7），`merge_when_index` 始终给出。 |
 | `merge_branch_qualifier` | 枚举无法命名的 WHEN 子句种类，目前只有 `not_matched_by_source`。被枚举命名的两种分支上不出现。 |
 | `comments[]` | 写在该投影上的 SQL 注释原文：别名节点自身的在前，表达式子树内其余按遍历序。无注释时不发本键。自由文本，不参与任何标识符解析——见 §18。 |
+
+### 投影里的名字既是源列、又是前面的别名
+
+`SELECT fee AS amt, amt AS fee FROM ods.x` 里第二个 `amt` 既可能是列 `ods.x.amt`，也可能是紧挨着前面定义的别名。
+Spark 先匹配来源的列，只有没有任何输入有这个名字时才退回同层别名（原文「A local column reference takes
+precedence, over a lateral column alias」，见
+[Databricks 名字解析](https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html)；SPARK-27561）。
+工具按同一规则：Schema（或派生表、CTE 列出的列）能证明某个来源有这一列时，输出读的是这一列（`fee` ← `ods.x.amt`）。
+没有任何来源有这个名字时仍然是同层别名（`SELECT a + 1 AS b, b + 1 AS c`，源表没有 `b`，`c` = `a + 1 + 1`）。
+来源的列未知时（该表没有 Schema、`SELECT *` 的 CTE），照旧按别名读，同时语句带一条 `lateral_alias_ambiguous`
+警告，写明是哪个名字。此前一律按别名读，所以这种形态的输出来源会变化，见 CHANGELOG 的 **Breaking** 条目。
+
+HAVING 和 QUALIFY 按同一规则（同页原文「HAVING prefers the table column over the SELECT list alias」，QUALIFY 相同）：
+`SELECT g, MAX(fee) AS amt FROM ods.x GROUP BY g HAVING amt > 0` 里，若能证明 `ods.x` 有 `amt` 列，过滤块读作
+`x.amt > 0`，而不是 `MAX(x.fee) > 0`。没有任何来源有这个名字、或元数据定不下来时，仍按别名读（这里不加警告）。
+ORDER BY 优先别名，不变。
 
 ### `SELECT * EXCEPT (...)`
 
@@ -776,7 +794,7 @@ additive 且**带标记**的——被补丁写过的列多一个 `comment_source
 | `operations[]` | 该 scope 出现的操作，如 `join`、`filter`、`aggregate`、`window`。 |
 | `direct_inputs[]` | 直接输入的 scope 或物理表。 |
 | `direct_source_tables[]` | 当前 scope 直接读取的物理表。 |
-| `physical_source_tables[]` | 穿透上游 scope 后涉及的全部物理表。 |
+| `physical_source_tables[]` | 穿透上游 scope 后涉及的全部物理表。两个列表用同一个判定：不是本语句 scope 的名字就是表，带不带库名都算；在任务级文档里，同一脚本中更早的语句定义的临时视图或缓存关系是会话关系，两个列表都不收（它仍在 `direct_inputs` 里）。 |
 | `output_columns` | 输出字段数。 |
 | `logic` | joins、filters、aggregations、window functions、CASE、DISTINCT、UNION 等简明结构。 |
 | `business_summary` | 基于结构模板生成的确定性摘要；不应当作完整业务定义。 |
@@ -859,10 +877,19 @@ for field in document["end_to_end_lineage"]:
 
 除 JSON Schema 形状校验外还有两层校验，回答不同的问题：
 
-- `validate_cross_references(document)`：引用的每个 id 是否都存在（返回违例列表）；
+- `validate_cross_references(document)`：引用的每个 id 是否都存在（返回违例列表）。语句文档里检查
+  `scope_graph.edges`、`columns[].sources[].scope`、每个 scope 的 `depends_on` 和 `joins[].left_scope` /
+  `right_scope`（须是 scope 或 scope_graph 节点；MERGE 的目标表可以作 join 的一侧）、
+  `source_type` 为 `scope` 的 `input_edges[].source_id`（须是 scope），以及
+  `outputs[].source_logic_blocks`（须是同一 scope `logic_blocks` 里的 id）。任务文档另外检查
+  `end_to_end_lineage` 的 `value_sources`、`row_membership_sources`、`value_condition_sources`、
+  `window_context_sources` 里每个 `source_state` 都是 `table_state_graph` 的节点；
 - `validate_contract_invariants(document)`：**多路径推导的同一事实是否互相一致**——
   链层与 e2e 层的追溯完整性、物理来源与 `source_tables` 的包含关系、哨兵值语义等。
   各层单独看都合理但合取矛盾的缺陷（如 AMBIGUOUS 根链声明 complete）只有这层能抓住。
+  任务文档除了逐个检查内嵌的语句文档，还检查自己的 `end_to_end_lineage`：`trace_complete: true`
+  的行，其 value / row_membership / value_condition 来源里不能出现 `table` 为 `UNKNOWN` 或
+  `AMBIGUOUS` 的条目——占位名只能出现在声明追溯不完整的行里。
 
 命令行一次跑全三层（对已有产物做存量体检）：
 
@@ -921,8 +948,8 @@ scope-lineage validate --lineage /path/to/corpus
 | 形态 | 替换为 | 说明 |
 | --- | --- | --- |
 | 邮箱地址 | `<email>` | 按地址本身可用的字符界定，不吞掉紧邻的中文或标点 |
-| 手机号 | `<phone>` | 中国大陆 `1[3-9]` 开头的 11 位号码，以及 `+86 138...` 这类国际写法 |
-| 身份证号 | `<id>` | 18 位（末位可为 `X`）或 15 位形态，且中间的出生日期须是真实日期 |
+| 手机号 | `<phone>` | 中国大陆 `1[3-9]` 开头的 11 位号码，以及 `+86 138...` 这类国际写法：国家码加号码共 9–15 位，后面不能紧跟数字；号码段正好是 8 位日期（`T+1 20260802`、`UTC+8 20260802`）不遮 |
+| 身份证号 | `<id>` | 18 位（末位可为 `X`）或 15 位形态，且中间的出生日期须是真实日期、出生年在 1900 到当前年之间；第 18 位校验码不校验 |
 
 遮蔽发生在**采集时**，作用于注释文本本身，因此上述各个注释键和渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份得到的是同一份已遮蔽文本；`task_meta.description` 同样过一遍——它也是人写的自由文本。
 

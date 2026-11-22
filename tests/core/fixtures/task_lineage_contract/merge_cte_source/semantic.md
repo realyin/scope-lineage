@@ -10,7 +10,7 @@ schema_version: "1.0"
 task_name: "golden_merge_cte_source#0"
 target_table: "mart.event_target"
 stmt_kind: "MERGE"
-lineage_digest: "600911913756e92a"
+lineage_digest: "ee2cc35cc94350ea"
 ---
 
 # 任务语义描述 mart.event_target
@@ -57,7 +57,7 @@ lineage_digest: "600911913756e92a"
 - 动作：无（该 scope 只做投影）。（SQL事实）
 - 输出：3 列（`id`、`event_type`、`account_key`）（SQL事实）
 
-### 阶段 3：ROOT（`ROOT`，角色 pass_through）
+### 阶段 3：ROOT（`ROOT`，角色 join）
 
 - 直接输入：`subq:source`（SQL事实）
 - 直接读取物理表：无（仅读上游 scope）（SQL事实）

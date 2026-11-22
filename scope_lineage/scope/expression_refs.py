@@ -6,11 +6,13 @@ Extracted from _shared.py (WI-02): this is the home of the public
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 import sqlglot
 from sqlglot import exp
 
 from ._constants import DIALECT, PARSE_OPTS
+from .sql_text_spans import blank_comments, blank_string_literals
 
 # Patterns here are built from identifier names, so their number grows with the statement's
 # column count rather than with the code. Python's own re cache holds 512 entries, and a
@@ -18,15 +20,17 @@ from ._constants import DIALECT, PARSE_OPTS
 # lookups, a sixth of them recompiling — about half the run spent in re's parser
 # alone. Caching the compiled objects here removes that without changing a single match
 # (PERF-002).
-_COMPILED_PATTERNS: dict[str, "re.Pattern[str]"] = {}
+#
+# Every cache in this layer is an LRU with a fixed size. The repeats PERF-002 measured are
+# within one parse, and the largest real statements need a few hundred keys per cache, so a
+# size an order of magnitude above that keeps every hit while a process that parses many
+# statements no longer keeps every key it ever saw (audit 2.2).
+PARSE_CACHE_SIZE = 4096
 
 
+@lru_cache(maxsize=PARSE_CACHE_SIZE)
 def _cached_pattern(pattern: str) -> "re.Pattern[str]":
-    compiled = _COMPILED_PATTERNS.get(pattern)
-    if compiled is None:
-        compiled = re.compile(pattern)
-        _COMPILED_PATTERNS[pattern] = compiled
-    return compiled
+    return re.compile(pattern)
 
 
 # Field extraction re-parses the expression into an AST every time it is asked, and the
@@ -34,22 +38,19 @@ def _cached_pattern(pattern: str) -> "re.Pattern[str]":
 # statement made far more sqlglot.parse_one calls than it had distinct questions, and the
 # difference was pure repetition.
 # The answer depends only on the expression text, so it is remembered (PERF-002).
-_FIELD_REFS_CACHE: dict[str, tuple[tuple[str, str], ...]] = {}
-
-
 def _qualified_field_refs(expression_sql: str) -> list[tuple[str, str]]:
-    key = expression_sql or ""
-    cached = _FIELD_REFS_CACHE.get(key)
-    if cached is None:
-        cached = tuple(_qualified_field_refs_uncached(key))
-        _FIELD_REFS_CACHE[key] = cached
     # A fresh list each time: callers treat the result as their own to filter and extend.
-    return list(cached)
+    return list(_qualified_field_refs_cached(expression_sql or ""))
+
+
+@lru_cache(maxsize=PARSE_CACHE_SIZE)
+def _qualified_field_refs_cached(expression_sql: str) -> tuple[tuple[str, str], ...]:
+    return tuple(_qualified_field_refs_uncached(expression_sql))
 
 
 def _qualified_field_refs_uncached(expression_sql: str) -> list[tuple[str, str]]:
-    expression_sql = _strip_sql_comments(expression_sql or "")
-    scan_sql = _strip_sql_string_literals(expression_sql)
+    expression_sql = blank_comments(expression_sql or "")
+    scan_sql = blank_string_literals(expression_sql)
     lambda_qualifiers = _lambda_qualifiers(scan_sql)
     # Keep string literals for the AST parse. Replacing them with blanks can make otherwise
     # valid calls (for example named_struct('x', c.value)) malformed, and newer sqlglot
@@ -57,7 +58,10 @@ def _qualified_field_refs_uncached(expression_sql: str) -> list[tuple[str, str]]
     ast_ref_keys = _qualified_field_ref_keys_from_ast(expression_sql, lambda_qualifiers)
     refs: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    for match in re.finditer(r"`([^`]+)`\.`([^`]+)`", scan_sql):
+    # A pair never starts after a `.`: in `u`.`profile`.`u`.`name` the second `u`.`name` is
+    # the STRUCT path's tail, not the alias `u`'s column (the unquoted scan below already
+    # refuses a `.` on either side).
+    for match in re.finditer(r"(?<![.`\w])`([^`]+)`\.`([^`]+)`", scan_sql):
         qualifier, field = match.group(1), match.group(2)
         if qualifier in lambda_qualifiers:
             continue
@@ -171,10 +175,3 @@ def _lambda_qualifiers(expression_sql: str) -> set[str]:
             if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
                 qualifiers.add(name)
     return qualifiers
-
-def _strip_sql_string_literals(expression_sql: str) -> str:
-    return re.sub(r"'(?:''|\\'|[^'])*'", " ", expression_sql or "")
-
-def _strip_sql_comments(expression_sql: str) -> str:
-    without_block_comments = re.sub(r"/\*.*?\*/", " ", expression_sql or "", flags=re.DOTALL)
-    return re.sub(r"--[^\n\r]*", " ", without_block_comments)

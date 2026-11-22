@@ -75,7 +75,8 @@ def add_glossary_parser(subcommands) -> None:
             "same-named .json: the corpus's most-used unexplained values, with an empty "
             "meaning each. Fill it in and pass the .json back as --overrides. Needs "
             "--out as well -- the form is a ranking OF the dictionary, not a "
-            "replacement for it"
+            "replacement for it. A path ending in .json names the data file and the "
+            "form goes beside it as .md"
         ),
     )
     glossary_cmd.add_argument(
@@ -134,6 +135,8 @@ def run_glossary(args: argparse.Namespace) -> int:
             "and --template ranks its form from that dictionary",
             file=sys.stderr,
         )
+        return 2
+    if _template_over_the_dictionary(args):
         return 2
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
@@ -241,7 +244,7 @@ def _write_template(glossary: dict, args: argparse.Namespace) -> dict | None:
     path = getattr(args, "template", None)
     if not path:
         return None
-    markdown = Path(path)
+    markdown, data = _template_paths(Path(path))
     template = build_overrides_template(
         glossary, top=getattr(args, "template_top", TEMPLATE_TOP_DEFAULT)
     )
@@ -249,10 +252,46 @@ def _write_template(glossary: dict, args: argparse.Namespace) -> dict | None:
     markdown.write_text(
         render_overrides_template_markdown(template, glossary), encoding="utf-8"
     )
-    markdown.with_suffix(".json").write_text(
+    data.write_text(
         json.dumps(template, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return template
+
+
+def _template_over_the_dictionary(args: argparse.Namespace) -> bool:
+    """Refuse a ``--template`` whose files are the dictionary's own (exit 2, nothing written).
+
+    ``--template <out>/glossary.md`` wrote the form's data over ``<out>/glossary.json``, and
+    ``<out>/glossary.json`` the form over ``glossary.md``. Compared resolved and without
+    case, since a case-insensitive disk holds ``GLOSSARY.JSON`` and ``glossary.json`` as one.
+    """
+    path = getattr(args, "template", None)
+    if not path:
+        return False
+    out_dir = Path(args.out).resolve()
+    own = {str(out_dir / name).lower() for name in ("glossary.json", "glossary.md")}
+    clash = [
+        str(item) for item in _template_paths(Path(path)) if str(item.resolve()).lower() in own
+    ]
+    if clash:
+        print(
+            f"--template {path} would overwrite the dictionary's own {', '.join(clash)}; "
+            "name the form something else",
+            file=sys.stderr,
+        )
+    return bool(clash)
+
+
+def _template_paths(path: Path) -> tuple[Path, Path]:
+    """``(markdown, json)`` for a ``--template`` path; the two are never the same file.
+
+    A path ending in ``.json`` names the data file, so the form goes beside it as ``.md``;
+    writing the form to the path first let the JSON overwrite it. The suffix is compared
+    without case, since ``T.JSON`` and ``T.json`` are one file on a case-insensitive disk.
+    """
+    if path.suffix.lower() == ".json":
+        return path.with_suffix(".md"), path.with_suffix(".json")
+    return path, path.with_suffix(".json")
 
 
 def _write(out_dir: Path, glossary: dict, selected: set) -> None:

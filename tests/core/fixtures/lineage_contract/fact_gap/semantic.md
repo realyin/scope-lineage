@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_fact_gap"
 target_table: "mart.amounts"
 stmt_kind: "INSERT"
-lineage_digest: "ab3330b352f0a01e"
+lineage_digest: "0bf3e3493edf2a75"
 ---
 
 # 任务语义描述 mart.amounts
@@ -20,8 +20,8 @@ lineage_digest: "ab3330b352f0a01e"
 
 | 输入表 | 表注释 | 角色 | 使用列 / 全宽 | 元数据 | 读取 scope |
 | --- | --- | --- | --- | --- | --- |
-| `ods.ledger_a` | 注释未知 | 主表（driving） | 1 / 未知 | ⚠ 不完整 | `ROOT` |
-| `ods.ledger_b` | 注释未知 | 关联筛选（filter_partner） | 1 / 未知 | ⚠ 不完整 | `ROOT` |
+| `ods.ledger_a` | 注释未知 | 主表（driving） | 2 / 未知 | ⚠ 不完整 | `ROOT` |
+| `ods.ledger_b` | 注释未知 | 关联筛选（filter_partner） | 2 / 未知 | ⚠ 不完整 | `ROOT` |
 
 ## 2. 输出表形态与粒度
 

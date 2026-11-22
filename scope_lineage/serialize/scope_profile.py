@@ -77,7 +77,7 @@ def _scope_step(
     scope_data: ScopeData,
 ) -> dict[str, Any]:
     operations = _operations(scope_data)
-    direct_tables = _direct_source_tables(scope_data)
+    direct_tables = _direct_source_tables(result, scope_data)
     physical_tables = _physical_source_tables(result, scope_id)
     return {
         "scope_id": scope_id,
@@ -85,7 +85,14 @@ def _scope_step(
         "kind": scope_data.kind,
         "role": _profile_role(scope_data),
         "operations": operations,
-        "business_summary": _business_summary(scope_data, operations, direct_tables, physical_tables),
+        "business_summary": _business_summary(
+            list(scope_data.depends_on),
+            len(scope_data.branches or []),
+            len(scope_data.joins),
+            operations,
+            direct_tables,
+            physical_tables,
+        ),
         "direct_inputs": list(scope_data.depends_on),
         "direct_source_tables": direct_tables,
         "physical_source_tables": physical_tables,
@@ -132,7 +139,7 @@ def _fallback_role(scope_data: ScopeData) -> str:
         return "aggregate"
     if scope_data.joins:
         return "join"
-    if scope_data.filters:
+    if scope_data.filters or scope_data.qualify:
         return "filter"
     if scope_data.distinct:
         return "dedup"
@@ -151,7 +158,7 @@ def _operations(scope_data: ScopeData) -> list[str]:
         operations.append("lateral_view")
     if scope_data.joins:
         operations.append("join")
-    if scope_data.filters or scope_data.having:
+    if scope_data.filters or scope_data.having or scope_data.qualify:
         operations.append("filter")
     if any(c.transform == "AGGREGATE" for c in scope_data.columns) or scope_data.group_by:
         operations.append("aggregate")
@@ -169,7 +176,9 @@ def _operations(scope_data: ScopeData) -> list[str]:
 
 
 def _business_summary(
-    scope_data: ScopeData,
+    depends_on: list[str],
+    branch_count: int,
+    join_count: int,
     operations: list[str],
     direct_tables: list[str],
     physical_tables: list[str],
@@ -179,17 +188,16 @@ def _business_summary(
         shown = "、".join(direct_tables[:3])
         suffix = f" 等 {len(direct_tables)} 张物理表" if len(direct_tables) > 3 else ""
         parts.append(f"读取 {shown}{suffix}")
-    elif scope_data.depends_on:
-        parts.append(f"基于 {'、'.join(scope_data.depends_on[:3])}")
+    elif depends_on:
+        parts.append(f"基于 {'、'.join(depends_on[:3])}")
 
     if "union" in operations:
-        branch_count = len(scope_data.branches or [])
         if branch_count:
             parts.append(f"合并 {branch_count} 个分支")
         else:
             parts.append("合并多路数据")
     if "join" in operations:
-        parts.append(f"关联 {len(scope_data.joins)} 个上游")
+        parts.append(f"关联 {join_count} 个上游")
     if "filter" in operations:
         parts.append("按过滤条件保留记录")
     if "aggregate" in operations:
@@ -217,7 +225,7 @@ def _business_summary(
 def _filter_expressions(scope_data: ScopeData) -> list[str]:
     return [f.expression for f in scope_data.filters] + [
         f"HAVING {h.expression}" for h in scope_data.having
-    ]
+    ] + [q.expression for q in scope_data.qualify]
 
 
 def _join_summary(join: Any) -> dict[str, str]:
@@ -268,19 +276,62 @@ def _key_renames(scope_data: ScopeData) -> list[dict[str, str]]:
     return renames
 
 
+def _is_physical(result: ScopeLineageResult, name: str) -> bool:
+    """C2.5-1: the one test both table lists use -- not a scope of this statement and not
+    a placeholder source. A bare name is a table as much as a qualified one is; whether it
+    is a session relation instead is known only to the script (`apply_session_relations`).
+    """
+    return name not in result.scopes and name not in NON_PHYSICAL_SOURCE_SCOPES
+
+
 def _physical_source_tables(result: ScopeLineageResult, scope_id: str) -> list[str]:
     tables = _collect_physical_sources(result, scope_id, set())
-    non_physical = NON_PHYSICAL_SOURCE_SCOPES
-    return sorted(t for t in tables if t not in non_physical)
+    return sorted(t for t in tables if _is_physical(result, t))
 
 
-def _direct_source_tables(scope_data: ScopeData) -> list[str]:
-    non_physical = NON_PHYSICAL_SOURCE_SCOPES
-    return sorted(
-        dep
-        for dep in scope_data.depends_on
-        if dep not in non_physical and not dep.startswith(("cte:", "subq:", "union:")) and "." in dep
-    )
+def _direct_source_tables(result: ScopeLineageResult, scope_data: ScopeData) -> list[str]:
+    return sorted({dep for dep in scope_data.depends_on if _is_physical(result, dep)})
+
+
+def apply_session_relations(task_document: dict) -> None:
+    """Take the script's session relations out of every statement's table lists, in place.
+
+    A ``CREATE TEMPORARY VIEW`` (or ``CACHE TABLE``) earlier in the script defines a
+    relation that lives for the session; a later statement reading it reads no table of
+    the warehouse. One statement's scope graph cannot know that, so the task document
+    corrects each profile step after the fact and re-renders its summary from the step's
+    own facts. Only names defined by an *earlier* statement count: before the definition,
+    the same name can only be a table.
+    """
+    lineage = task_document.get("statement_lineage") or {}
+    session: set[str] = set()
+    for statement in task_document.get("statement_sequence") or []:
+        document = lineage.get(statement.get("statement_id"))
+        if isinstance(document, dict) and session:
+            _drop_session_relations(document, session)
+        if statement.get("is_session_scoped_relation") and statement.get("target_table"):
+            session.add(str(statement["target_table"]))
+
+
+def _drop_session_relations(document: dict, session: set[str]) -> None:
+    for step in (document.get("scope_profile") or {}).get("steps") or []:
+        direct = [t for t in step.get("direct_source_tables") or [] if t not in session]
+        physical = [t for t in step.get("physical_source_tables") or [] if t not in session]
+        if direct == step.get("direct_source_tables") and physical == step.get(
+            "physical_source_tables"
+        ):
+            continue
+        logic = step.get("logic") or {}
+        step["direct_source_tables"] = direct
+        step["physical_source_tables"] = physical
+        step["business_summary"] = _business_summary(
+            list(step.get("direct_inputs") or []),
+            int(logic.get("union_branches") or 0),
+            len(logic.get("joins") or []),
+            list(step.get("operations") or []),
+            direct,
+            physical,
+        )
 
 
 def _collect_physical_sources(

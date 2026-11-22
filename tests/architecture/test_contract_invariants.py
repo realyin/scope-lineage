@@ -23,6 +23,7 @@ from scope_lineage import (
     parse_all_scope_lineage,
     parse_task_lineage,
     validate_contract_invariants,
+    validate_cross_references,
 )
 from scope_lineage.contract import to_lineage_dict, to_task_lineage_dict
 
@@ -44,7 +45,10 @@ def test_corpus_documents_satisfy_contract_invariants(key: str) -> None:
         document = to_lineage_dict(result)
         violations.extend(
             f"statement_docs[{index}]: {error}"
-            for error in validate_contract_invariants(document)
+            for error in [
+                *validate_contract_invariants(document),
+                *validate_cross_references(document),
+            ]
         )
 
     task = parse_task_lineage(
@@ -53,7 +57,10 @@ def test_corpus_documents_satisfy_contract_invariants(key: str) -> None:
     task_document = to_task_lineage_dict(task)
     violations.extend(
         f"task_doc: {error}"
-        for error in validate_contract_invariants(task_document)
+        for error in [
+            *validate_contract_invariants(task_document),
+            *validate_cross_references(task_document),
+        ]
     )
 
     assert not violations, "\n".join(violations)

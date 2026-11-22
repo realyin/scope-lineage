@@ -31,6 +31,7 @@ from typing import Iterable, Mapping, Sequence
 
 from sqlglot import exp
 
+from .. import table_identity
 from . import claims, semantic_text
 
 
@@ -201,26 +202,61 @@ _TABLE_COMMENT_KEYS = ("comment", "table_comment", "description")
 
 
 def table_key(name) -> tuple[str, ...]:
-    """The last two dotted segments: what makes ``hive.ods.t`` and ``ods.t`` one table.
+    """The normalized name's segments: the key one table's values are filed under.
 
-    A corpus records the same table under several qualification levels (``ods.t`` in a
-    hive-style read, ``catalog.ods.t`` at the iceberg writer). This mirrors the suffix
-    rule ``skills/scope-lineage/scripts/query.py`` uses; it is re-implemented here rather
-    than imported because a package may not depend on a skill script.
+    WP5: the table identity's normalization (:func:`canonical_table_name` -- quotes, case,
+    a configured catalog), kept whole. It used to be the last two segments, which filed
+    ``cat2.ods.t``'s codes under ``cat1.ods.t``. Two qualification levels of one table
+    (``ods.t`` at a hive-style read, ``catalog.ods.t`` at the iceberg writer) are joined
+    by grouping instead -- :func:`canonical_tables` over a corpus, :func:`owner_key`
+    against an index -- where a less qualified name joins only the one host it could be.
     """
-    parts = [part for part in str(name or "").split(".") if part]
-    return tuple(parts[-2:])
+    return tuple(part for part in table_identity.canonical_table_name(name).split(".") if part)
 
 
-def same_table(left, right) -> bool:
-    """True when one name is a dotted suffix of the other -- i.e. the same table."""
-    left, right = str(left), str(right)
-    return left == right or left.endswith("." + right) or right.endswith("." + left)
+same_table = table_identity.same_table
 
 
-def canonical_name(names) -> str:
-    """The most qualified spelling of one table, chosen stably."""
-    return max(sorted(str(name) for name in names), key=len)
+def canonical_tables(names: Iterable) -> dict[tuple, str]:
+    """``table_key(spelling) -> the primary spelling of its group``, over a corpus's names.
+
+    The groups are the table identity's: the most qualified spelling is the primary; an
+    ``orders`` read beside an ``ods.orders`` write joins it; an ``ods.t`` beside both
+    ``cat1.ods.t`` and ``cat2.ods.t`` joins neither and stays its own owner.
+    """
+    resolver = table_identity.TableResolver(names)
+    return CanonicalTables(
+        {
+            table_key(member): primary
+            for primary, members in resolver.groups().items()
+            for member in members
+        },
+        resolver,
+    )
+
+
+class CanonicalTables(dict):
+    """``table_key -> primary spelling``, which also resolves a spelling it never saw.
+
+    A concept attribute's source may be spelled ``ods.t`` while the corpus only ever
+    wrote ``lake.ods.t``: :func:`canonical_owner` asks the resolver for the one group it
+    could be, as the identity's suffix rule allows.
+    """
+
+    def __init__(self, items: Mapping, resolver: "table_identity.TableResolver") -> None:
+        super().__init__(items)
+        self.resolver = resolver
+
+
+def owner_key(index: Mapping, name) -> tuple:
+    """The key ``index`` files ``name``'s table under: its resolved owner, else its own.
+
+    ``index`` is a :func:`value_domain_index`; a statement's ``ods.t`` finds the entries
+    the corpus filed under ``hive.ods.t``, and only when no other owner could be it.
+    """
+    resolver = index.get("owners")
+    resolved = resolver.primary(name) if resolver is not None else None
+    return table_key(resolved if resolved is not None else name)
 
 
 # ------------------------------------------------------------- statement collection
@@ -1263,15 +1299,26 @@ def _glued_meanings(tokens: Sequence[str]) -> dict[str, str]:
         found = _GLUED_DIGIT_PAIR.findall(token)
         if found and "".join(code + label for code, label in found) == token:
             pairs += found
+    if not glued_pairs_hold(pairs):
+        return {}
+    return dict(zip((code.lower() for code, _label in pairs), (label for _c, label in pairs)))
+
+
+def glued_pairs_hold(pairs: Sequence[tuple[str, str]]) -> bool:
+    """Whether ``(code, label)`` pairs read straight off the text are a code list.
+
+    Two or more pairs, the codes distinct (case ignored) and of one width, the labels
+    distinct and none running into a conjunction. Shared with check 12 of table semantics
+    (``semantics.comment_values``), so the glossary and the validator read a glued comment
+    the same way.
+    """
     codes = [code.lower() for code, _label in pairs]
     labels = [label for _code, label in pairs]
     # Codes of one table share a width: ``2023年12月`` is a date, not codes 2023 and 12.
-    if (len(pairs) < _MINIMUM_ADJACENT_PAIRS or len(set(codes)) < len(codes)
-            or len({len(code) for code in codes}) > 1
-            or len(set(labels)) < len(labels)
-            or any(label.endswith(_GLUED_CONJUNCTIONS) for label in labels)):
-        return {}
-    return dict(zip(codes, labels))
+    return not (len(pairs) < _MINIMUM_ADJACENT_PAIRS or len(set(codes)) < len(codes)
+                or len({len(code) for code in codes}) > 1
+                or len(set(labels)) < len(labels)
+                or any(label.endswith(_GLUED_CONJUNCTIONS) for label in labels))
 
 
 def _pair_at(tokens: Sequence[str], index: int) -> tuple[str, str, int]:
@@ -1328,7 +1375,10 @@ def canonical_owner(owner: str, logical: bool, canonical: Mapping) -> str:
     """The corpus's chosen spelling for one value's owner; a scope id is left alone."""
     if logical:
         return owner
-    return canonical.get(table_key(owner), owner)
+    found = canonical.get(table_key(owner))
+    if found is None and isinstance(canonical, CanonicalTables):
+        found = canonical.resolver.primary(owner)
+    return found if found is not None else owner
 
 
 _VALUE_KEYS = (
@@ -1391,7 +1441,7 @@ def _owner_key(item: Mapping, canonical: Mapping) -> tuple:
     owner = str(item["column_ref"]).rsplit(".", 1)[0]
     if item.get("logical"):
         return ("scope", owner)
-    return table_key(owner)
+    return table_key(canonical_owner(owner, False, canonical))
 
 
 def _value_sort_key(key: tuple) -> tuple:
@@ -1728,16 +1778,25 @@ def value_domain_index(entries: Sequence[Mapping]) -> dict:
     the column a projection *produces*, and its owner is the target table that
     projection writes -- because ``status`` is the most reused column name a warehouse
     has, and a CASE label written into ``mart.orders.status`` says nothing whatever
-    about ``mart.tickets.status``. Owners are normalized by :func:`table_key`, so the
-    two qualification levels one corpus records (``mart.t`` at a read,
-    ``catalog.mart.t`` at the writer) are one owner.
+    about ``mart.tickets.status``. Owners are filed by :func:`table_key` and looked up
+    through :func:`owner_key`, so the two qualification levels one corpus records
+    (``mart.t`` at a read, ``catalog.mart.t`` at the writer) are one owner.
 
     A scope-level output -- a CASE inside a CTE whose column never reaches a named
     target column -- names no table at all, so it is filed under ``_LOGICAL_OWNER``: it
     keeps speaking to the column it produces in its own statement, which is the only
     place its observations came from.
     """
-    index: dict[str, dict] = {"by_column": {}, "by_output": {}}
+    index: dict = {
+        "by_column": {},
+        "by_output": {},
+        # WP5: resolves a reader's spelling to the owner the entries were filed under.
+        "owners": table_identity.TableResolver(
+            str(entry["column_ref"]).rsplit(".", 1)[0]
+            for entry in entries
+            if not entry.get("logical")
+        ),
+    }
     for entry in entries:
         owner = str(entry["column_ref"]).rsplit(".", 1)[0]
         logical = bool(entry.get("logical"))
@@ -1774,7 +1833,7 @@ def apply_value_domains(
     taken to be this statement's own observations.
     """
     index = value_domain_index(entries)
-    owner = table_key(target_table)
+    owner = owner_key(index, target_table)
     for field in fields:
         domain = _field_domain(field, index, owner, reader)
         _set_domain(field, domain)
@@ -1859,7 +1918,7 @@ def _matched_entries(
         (entry, _VIA_SOURCE)
         for source in _pass_through_sources(field)
         for entry in index["by_column"].get(
-            (table_key(source.get("table")), str(source.get("column")))
+            (owner_key(index, source.get("table")), str(source.get("column")))
         )
         or []
         if _has_context(entry, SOURCE_VALUE_CONTEXTS)
@@ -2089,7 +2148,7 @@ def _rule_value_meaning(
     bucket = (
         scoped.get((owner, column))
         if logical
-        else index["by_column"].get((table_key(owner), column))
+        else index["by_column"].get((owner_key(index, owner), column))
     )
     value = strip_quotes(literal)
     entry = next(

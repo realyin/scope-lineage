@@ -559,14 +559,16 @@
                   "column": "parent_id",
                   "qualifier": "a",
                   "binding_scope_id": "ROOT",
-                  "input_ref_id": "input:ROOT:001"
+                  "input_ref_id": "input:ROOT:001",
+                  "bare": true
                 },
                 "right": {
                   "scope": "ods.nodes",
                   "column": "id",
                   "qualifier": "b",
                   "binding_scope_id": "ROOT",
-                  "input_ref_id": "input:ROOT:002"
+                  "input_ref_id": "input:ROOT:002",
+                  "bare": true
                 },
                 "left_fields": [
                   {
@@ -589,14 +591,16 @@
                   "column": "batch_id",
                   "qualifier": "a",
                   "binding_scope_id": "ROOT",
-                  "input_ref_id": "input:ROOT:001"
+                  "input_ref_id": "input:ROOT:001",
+                  "bare": true
                 },
                 "right": {
                   "scope": "ods.nodes",
                   "column": "batch_id",
                   "qualifier": "b",
                   "binding_scope_id": "ROOT",
-                  "input_ref_id": "input:ROOT:002"
+                  "input_ref_id": "input:ROOT:002",
+                  "bare": true
                 },
                 "left_fields": [
                   {

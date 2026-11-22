@@ -8,6 +8,7 @@ from ..metadata.schema_metadata import column_details_for_table, normalize_table
 from ..metadata.target_table_metadata import TargetTableMetadata
 from .sql_comments import redact
 from .scope_types import (
+    AMBIGUOUS_SCOPE_ID,
     CONSTANT_SCOPE_ID,
     SYSTEM_SCOPE_ID,
     ScopeLineageResult,
@@ -325,7 +326,7 @@ def _collect_usage(result: ScopeLineageResult) -> _Usage:
             _add_sources(join.condition_columns, usage)
         for scope_filter in scope_data.filters:
             _add_sources(scope_filter.columns, usage)
-        for scope_filter in scope_data.having:
+        for scope_filter in [*scope_data.having, *scope_data.qualify]:
             _add_sources(scope_filter.columns, usage)
         _add_sources(scope_data.group_by, usage)
         for item in scope_data.order_by:
@@ -343,6 +344,16 @@ def _add_source_ref(source: SourceRef, usage: _Usage) -> None:
         return
     if source.scope == "UNKNOWN":
         usage.keep_all_source_tables = True
+        return
+    if source.scope == AMBIGUOUS_SCOPE_ID:
+        # Not a table: each candidate is an input the statement reads, and the column
+        # is used on each of them as far as anyone can tell (1.13-k).
+        for candidate in source.candidates or []:
+            scope = str(candidate.get("scope") or "")
+            if scope and scope != AMBIGUOUS_SCOPE_ID:
+                _add_source_ref(SourceRef(scope, str(candidate.get("column") or source.column)), usage)
+        if not source.candidates:
+            usage.keep_all_source_tables = True
         return
     if source.rowset:
         # A row-set dependency reads no columns: it must not inflate the used-column

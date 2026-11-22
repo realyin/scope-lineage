@@ -12,7 +12,7 @@ from .parser import (
     _ORIGINALLY_ANONYMOUS_PROJECTION_META,
     _qualified_table,
     _extract_name_inner,
-    _normalize_table_name,
+    _schema_key,
 )
 from .scope_types import (
     SourceRef,
@@ -24,23 +24,27 @@ from .scope_types import (
     DiagnosticWarning,
 )
 from ._constants import DIALECT, _SCOPE_ID_ATTR
-from ..function_catalog import _KNOWN_UDAFS
+from ..function_catalog import KNOWN_FUNCTION_NAMES, _KNOWN_UDAFS
 from .sequences import _unique_ordered
 from .source_refs import _constant_sources, _source_ref_binding_key
+from .grouping import group_by_item_expressions, grouping_kind
 from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node
 from .column_ref_resolver import (
     _bound_source_ref,
+    _pivoted_relation,
     _input_ref_id_for_source_alias,
+    _pivot_value_column_of_ref,
     _resolve_column_refs_in_expr,
 )
 from .sql_comments import subtree_comments
+from .pivot_columns import GROUP as PIVOT_GROUP, NAME as PIVOT_NAME, PivotColumn, pivot_columns
 
 
 def _resolve_select_scope(
     sg_scope: Scope, scope_id: str, scope_data: ScopeData,
     result: ScopeLineageResult, schema: dict | None = None,
 ) -> None:
-    """Resolve projections, joins, filters, group_by, having, order_by for a Select scope."""
+    """Resolve projections, joins, filters, group_by, having, qualify, order_by for a Select scope."""
     sel = sg_scope.expression
 
     # Resolve projections
@@ -69,15 +73,24 @@ def _resolve_select_scope(
     # Resolve GROUP BY
     group = sel.args.get("group")
     if group:
-        scope_data.group_by = _resolve_expr_list(
-            group.expressions if hasattr(group, "expressions") else [group],
+        scope_data.group_by_item_refs = _resolve_expr_items(
+            group_by_item_expressions(group),
             sg_scope, result, schema,
         )
+        scope_data.group_by = _unique_refs(scope_data.group_by_item_refs)
+        scope_data.grouping_kind = grouping_kind(group)
+    else:
+        _record_pivot_grouping(sg_scope, scope_data, result, schema)
 
     # Resolve HAVING
     having = sel.args.get("having")
     if having:
         scope_data.having = _resolve_filter(having, sg_scope, result, schema)
+
+    # Resolve QUALIFY: a filter on the rows after the window functions (D5)
+    qualify = sel.args.get("qualify")
+    if qualify:
+        scope_data.qualify = _resolve_filter(qualify, sg_scope, result, schema)
 
     # Resolve ORDER BY
     order = sel.args.get("order")
@@ -220,6 +233,9 @@ def _resolve_projection(
     sources = _resolve_column_refs_in_expr(inner, sg_scope, result, schema)
     if not sources:
         sources = _fallback_sources_for_source_free_expr(inner, transform, expression, sg_scope, result)
+    pivoted = _pivot_value_projection(inner, name, name_is_generated, sources, sg_scope, result, schema)
+    if pivoted is not None:
+        return [pivoted]
 
     col = ScopeColumn(
         name=name,
@@ -235,12 +251,47 @@ def _resolve_projection(
         col.case_branches = _extract_case_branches(inner)
 
     if transform == "WINDOW":
-        col.window = _extract_window_info(inner, sg_scope, result, schema)
+        col.window, col.window_item_refs = _extract_window_info(inner, sg_scope, result, schema)
 
     if transform == "AGGREGATE":
         col.agg_function = _extract_agg_function(inner)
 
     return [col]
+
+
+def _pivot_value_projection(
+    inner: exp.Expression,
+    name: str,
+    name_is_generated: bool,
+    sources: List[SourceRef],
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> ScopeColumn | None:
+    """``p.q1`` naming a PIVOT / UNPIVOT value column is that column, as ``SELECT *`` gives it.
+
+    The reference reads the aggregate's inputs and the FOR column (an UNPIVOT's value
+    column: every IN column), and like the starred column it is an aggregate (a pick), not
+    a direct copy of one input. Taken only when the reference resolved to exactly the
+    modelled column's sources, i.e. through the pivot rather than some other binding.
+    """
+    if not isinstance(inner, exp.Column):
+        return None
+    column = _pivot_value_column_of_ref(inner, sg_scope, result, schema)
+    if column is None:
+        return None
+    modelled = _pivot_scope_column(column, None, sg_scope, result, schema)
+    if {_source_ref_binding_key(ref) for ref in modelled.sources} != {
+        _source_ref_binding_key(ref) for ref in sources
+    }:
+        return None
+    return ScopeColumn(
+        name=name,
+        transform=modelled.transform,
+        name_is_generated=name_is_generated,
+        expression=modelled.expression,
+        sources=sources,
+    )
 
 
 def _fallback_sources_for_source_free_expr(
@@ -418,7 +469,7 @@ def _star_not_expanded_message(
         if isinstance(source, exp.Table):
             table_name = _qualified_table(source)
             sources.append(table_name)
-            if not schema or _normalize_table_name(table_name) not in schema:
+            if not schema or _schema_key(schema, table_name) not in schema:
                 missing_schema_sources.append(table_name)
 
     details: list[str] = []
@@ -463,12 +514,15 @@ def _pivot_star_columns(
     result: ScopeLineageResult,
     schema: dict | None,
 ) -> List[ScopeColumn]:
-    """Columns a `SELECT *` sees over a pivoted relation.
+    """Columns a `SELECT *` sees over a pivoted (or unpivoted) relation.
 
-    Each name in the PIVOT's IN list becomes a column whose value comes from the aggregate,
-    so that is where its lineage points. A non-literal IN list leaves the set unknowable and
-    yields nothing, keeping the caller on its EXPAND_ALL fallback rather than inventing
-    names.
+    The column set is Spark's (audit 1.7, see ``pivot_columns``): the relation's
+    implicit grouping columns pass through, and each pivoted column is an AGGREGATE of
+    the aggregate's columns and the FOR column; an UNPIVOT keeps the columns outside its
+    IN list, writes the name column, and reads the value column from the IN columns.
+    When the relation's own columns are unknown, only the IN-list columns are produced,
+    as before. A non-literal IN list leaves the set unknowable and yields nothing,
+    keeping the caller on its EXPAND_ALL fallback rather than inventing names.
     """
     from_ = sg_scope.expression.args.get("from_") if isinstance(sg_scope.expression, exp.Select) else None
     if from_ is None or getattr(from_, "this", None) is None:
@@ -476,6 +530,55 @@ def _pivot_star_columns(
     pivot = _pivot_of_source_node(from_.this)
     if pivot is None:
         return []
+    relation = _pivoted_relation(from_.this, sg_scope, result, schema)
+    modelled = pivot_columns(pivot, relation[2] if relation else None)
+    if modelled is not None:
+        return [
+            _pivot_scope_column(column, relation, sg_scope, result, schema)
+            for column in modelled
+        ]
+    if pivot.args.get("unpivot"):
+        return []
+    return _pivot_value_columns_only(pivot, sg_scope, result, schema)
+
+
+def _record_pivot_grouping(
+    sg_scope: Scope,
+    scope_data: ScopeData,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> None:
+    """A PIVOT groups by the relation columns it neither aggregates nor pivots on.
+
+    That implicit GROUP BY is the pivoted relation's grain: one output row per grouping
+    key. Recorded as this scope's GROUP BY so the pivoted aggregates are not read as a
+    whole-table aggregate (one row), which a pivot with grouping columns is not.
+    """
+    from_ = sg_scope.expression.args.get("from_")
+    node = getattr(from_, "this", None) if from_ is not None else None
+    pivot = _pivot_of_source_node(node) if node is not None else None
+    if pivot is None or pivot.args.get("unpivot"):
+        return
+    relation = _pivoted_relation(node, sg_scope, result, schema)
+    modelled = pivot_columns(pivot, relation[2] if relation else None)
+    if relation is None or modelled is None:
+        return
+    alias, source, _names = relation
+    scope_data.group_by_item_refs = [
+        [_bound_source_ref(alias, source, column.relation_column, sg_scope, result)]
+        for column in modelled
+        if column.kind == PIVOT_GROUP
+    ]
+    scope_data.group_by = _unique_refs(scope_data.group_by_item_refs)
+
+
+def _pivot_value_columns_only(
+    pivot: exp.Expression,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> List[ScopeColumn]:
+    """The IN-list columns alone: the answer when the pivoted relation's columns are unknown."""
     names = _pivot_output_names(pivot)
     if not names:
         return []
@@ -494,6 +597,45 @@ def _pivot_star_columns(
         )
         for name in names
     ]
+
+
+def _pivot_scope_column(
+    column: PivotColumn,
+    relation: tuple[str, Scope | exp.Table, list[str]] | None,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> ScopeColumn:
+    expression = exp.column(column.name).sql(dialect=DIALECT)
+    if column.kind == PIVOT_GROUP and relation is not None:
+        alias, source, _names = relation
+        return ScopeColumn(
+            name=column.name,
+            transform="DIRECT",
+            expression=exp.column(column.relation_column, table=alias).sql(dialect=DIALECT),
+            sources=[_bound_source_ref(alias, source, column.relation_column, sg_scope, result)],
+        )
+    if column.kind == PIVOT_NAME:
+        return ScopeColumn(
+            name=column.name,
+            transform="CONSTANT",
+            expression=expression,
+            sources=[
+                ref
+                for constant in column.constants
+                for ref in _constant_sources(exp.Literal.string(constant).sql(dialect=DIALECT))
+            ],
+        )
+    sources: list[SourceRef] = []
+    for node in column.reads:
+        sources.extend(_resolve_column_refs_in_expr(node, sg_scope, result, schema))
+    return ScopeColumn(
+        name=column.name,
+        # A PIVOT column aggregates; an UNPIVOT value column picks one IN column per row.
+        transform="AGGREGATE" if column.aggregated else "EXPRESSION",
+        expression=expression,
+        sources=_unique_refs([sources]),
+    )
 
 
 # Spark's grammar allows exactly one star modifier: `ASTERISK exceptClause?` and
@@ -567,7 +709,7 @@ def _expand_star_into_columns(
                     return columns
         elif isinstance(src, exp.Table) and schema:
             fq = _qualified_table(src)
-            short = _normalize_table_name(fq)
+            short = _schema_key(schema, fq)
             col_names = schema.get(short, [])
             if col_names:
                 _record_star_schema_source(sg_scope, result, fq)
@@ -637,7 +779,7 @@ def _expand_star_into_columns(
             elif isinstance(source, exp.Table):
                 if schema:
                     fq = _qualified_table(source)
-                    short = _normalize_table_name(fq)
+                    short = _schema_key(schema, fq)
                     col_names = schema.get(short, [])
                     if col_names:
                         _record_star_schema_source(sg_scope, result, fq)
@@ -711,7 +853,7 @@ def _scope_local_column_refs(sg_scope: Scope) -> list[exp.Column]:
             roots.append(node)
     group = expr.args.get("group")
     if group is not None:
-        roots.extend(group.expressions if hasattr(group, "expressions") else [group])
+        roots.extend(group_by_item_expressions(group))
     order = expr.args.get("order")
     if order is not None:
         roots.extend(order.expressions if hasattr(order, "expressions") else [order])
@@ -801,20 +943,25 @@ def _resolve_filter(
     clause: exp.Expression, sg_scope: Scope,
     result: ScopeLineageResult, schema: dict | None = None,
 ) -> List[ScopeFilter]:
-    """Resolve a WHERE or HAVING clause into ScopeFilter(s)."""
+    """Resolve a WHERE, HAVING or QUALIFY clause into ScopeFilter(s)."""
     columns = _resolve_column_refs_in_expr(clause, sg_scope, result, schema)
     return [ScopeFilter(expression=clause.sql(dialect=DIALECT), columns=columns)]
 
 
-def _resolve_expr_list(
+def _resolve_expr_items(
     exprs: list, sg_scope: Scope,
     result: ScopeLineageResult, schema: dict | None = None,
-) -> List[SourceRef]:
-    """Resolve a list of expressions (e.g. GROUP BY) to SourceRefs."""
+) -> List[List[SourceRef]]:
+    """Resolve each expression of a list (e.g. GROUP BY) to its own SourceRefs, in order."""
+    return [_resolve_column_refs_in_expr(expr, sg_scope, result, schema) for expr in exprs]
+
+
+def _unique_refs(item_refs: List[List[SourceRef]]) -> List[SourceRef]:
+    """The items' references as one list, de-duplicated across items, first occurrence kept."""
     all_refs = []
     seen = set()
-    for expr in exprs:
-        for ref in _resolve_column_refs_in_expr(expr, sg_scope, result, schema):
+    for refs in item_refs:
+        for ref in refs:
             ref_key = _source_ref_binding_key(ref)
             if ref_key not in seen:
                 seen.add(ref_key)
@@ -829,7 +976,9 @@ def _transform_subkind(node: exp.Expression, transform: str) -> str | None:
         return "case_when"
     if transform == "EXPRESSION" and isinstance(node, exp.Cast):
         return "cast"
-    if transform == "EXPRESSION" and isinstance(node, exp.Anonymous):
+    if transform == "EXPRESSION" and isinstance(node, exp.Anonymous) \
+            and node.name.lower() not in KNOWN_FUNCTION_NAMES:
+        # sqlglot leaves some Spark builtins anonymous (``now()``); the catalog knows them.
         return "udf"
     return None
 
@@ -846,12 +995,6 @@ def _extract_case_branches(node: exp.Expression) -> List[dict]:
                     "when_expr": if_clause.this.sql(dialect=DIALECT) if if_clause.this else "",
                     "then_value": if_clause.args.get("true").sql(dialect=DIALECT) if if_clause.args.get("true") else "",
                 })
-        # Also handle exp.When nodes (some dialects use these)
-        for when in node.find_all(exp.When):
-            branches.append({
-                "when_expr": when.this.sql(dialect=DIALECT) if when.this else "",
-                "then_value": when.expression.sql(dialect=DIALECT) if when.expression else "",
-            })
         # Default/ELSE
         default = node.args.get("default")
         if default:
@@ -876,24 +1019,30 @@ def _extract_case_branches(node: exp.Expression) -> List[dict]:
 def _extract_window_info(
     node: exp.Expression, sg_scope: Scope,
     result: ScopeLineageResult, schema: dict | None = None,
-) -> dict:
-    """Extract partition_by and order_by from a window function."""
-    info = {}
+) -> tuple[dict, dict[str, list[list]]]:
+    """Extract partition_by and order_by from a window function.
+
+    Returns the serialized ``window`` dict and the same entries grouped per item
+    (``ScopeColumn.window_item_refs``), since the flat lists cannot be cut back into items.
+    """
+    info: dict = {}
+    item_refs: dict[str, list[list]] = {}
     window = node if isinstance(node, exp.Window) else node.find(exp.Window)
     if window is None:
-        return info
+        return info, item_refs
 
     # sqlglot stores partition as "partition_by" key (a list of expressions)
     partition = window.args.get("partition_by")
     if partition:
-        partition_refs = []
-        for p in partition:
-            partition_refs.extend(_resolve_column_refs_in_expr(p, sg_scope, result, schema))
-        info["partition_by"] = partition_refs
+        partition_items = [
+            _resolve_column_refs_in_expr(p, sg_scope, result, schema) for p in partition
+        ]
+        info["partition_by"] = [ref for refs in partition_items for ref in refs]
+        item_refs["partition_by"] = partition_items
 
     order = window.args.get("order")
     if order:
-        order_refs = []
+        order_items = []
         for item in (order.expressions if hasattr(order, "expressions") else []):
             # item.args.get("desc") is True for DESC, None/False for ASC
             # (do NOT use item.desc — that's a method that generates a DESC node)
@@ -901,11 +1050,14 @@ def _extract_window_info(
             direction = "DESC" if is_desc else "ASC"
             # For Ordered, resolve the inner expression
             inner = item.this if isinstance(item, exp.Ordered) else item
-            for ref in _resolve_column_refs_in_expr(inner, sg_scope, result, schema):
-                order_refs.append({"scope": ref.scope, "column": ref.column, "direction": direction})
-        info["order_by"] = order_refs
+            order_items.append([
+                {"scope": ref.scope, "column": ref.column, "direction": direction}
+                for ref in _resolve_column_refs_in_expr(inner, sg_scope, result, schema)
+            ])
+        info["order_by"] = [ref for refs in order_items for ref in refs]
+        item_refs["order_by"] = order_items
 
-    return info
+    return info, item_refs
 
 
 def _extract_agg_function(node: exp.Expression) -> str | None:

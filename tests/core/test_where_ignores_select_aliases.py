@@ -77,7 +77,18 @@ def test_a_derived_table_column_is_qualified_to_its_sole_source():
     assert outer.raw_expression == "WHERE `a`.`rk` = 1"
 
 
-def test_a_lateral_alias_in_a_later_projection_is_still_expanded():
+def test_a_later_projection_reads_a_source_column_before_a_lateral_alias():
+    """A projection name that is also a source column reads the column, not the alias.
+
+    Formerly ``test_a_lateral_alias_in_a_later_projection_is_still_expanded``, which asserted
+    the alias reading (``o.a + 1``).
+
+    ``s.o`` has ``b``, so ``b + 1`` is ``o.b + 1``: "A local column reference takes
+    precedence, over a lateral column alias"
+    (https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html;
+    SPARK-27561). A name no source has still expands to the alias
+    (test_projection_prefers_source_columns).
+    """
     result = parse_scope_lineage(
         "INSERT OVERWRITE TABLE d.t SELECT o.a AS b, b + 1 AS c FROM s.o o WHERE b > 0",
         task_name="t",
@@ -87,7 +98,7 @@ def test_a_lateral_alias_in_a_later_projection_is_still_expanded():
     [where] = [block for block in root.logic_blocks if block.logic_type == "filter"]
     [c] = [output for output in root.outputs if output.name == "c"]
 
-    assert c.expression == "`o`.`a` + 1"
+    assert c.expression == "`o`.`b` + 1"
     assert where.raw_expression == "WHERE `o`.`b` > 0"
 
 

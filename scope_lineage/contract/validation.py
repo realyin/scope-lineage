@@ -84,6 +84,52 @@ def _validate_statement_cross_references(data: dict) -> list[str]:
                         f"scope={scope_id!r} col={column.get('name')!r} "
                         f"source scope={source_id!r} not in known scopes/nodes"
                     )
+        errors.extend(_scope_reference_errors(
+            scope_id, scope_data, known_scopes, valid_ids, data.get("target_table"),
+        ))
+    return errors
+
+
+def _scope_reference_errors(
+    scope_id: str,
+    scope_data: dict,
+    known_scopes: set[str],
+    valid_ids: set[str],
+    target_table: str | None,
+) -> list[str]:
+    """The scope ids one scope names besides its columns' sources (C2.4-2).
+
+    ``depends_on`` and a join's sides name either a scope or a physical table, and both
+    are graph nodes -- except a MERGE's target, which its ON joins as the left side but
+    the graph, holding what the statement reads from, does not list. An input edge names
+    a scope only when it says so; one from a physical table is a table name, not a
+    reference into this document. An output's logic blocks are this scope's own.
+    """
+    errors: list[str] = []
+    prefix = f"scope={scope_id!r}"
+    for dependency in scope_data.get("depends_on") or []:
+        if dependency not in valid_ids:
+            errors.append(f"{prefix} depends_on={dependency!r} not in known scopes/nodes")
+    join_sides = valid_ids | ({target_table} if target_table else set())
+    for join in scope_data.get("joins") or []:
+        for key in ("left_scope", "right_scope"):
+            side = join.get(key)
+            if side and side not in join_sides:
+                errors.append(f"{prefix} join {key}={side!r} not in known scopes/nodes")
+    for edge in scope_data.get("input_edges") or []:
+        source_id = edge.get("source_id")
+        if edge.get("source_type") == "scope" and source_id not in known_scopes:
+            errors.append(f"{prefix} input edge source_id={source_id!r} not in known scopes")
+    block_ids = {
+        block.get("logic_block_id") for block in scope_data.get("logic_blocks") or []
+    }
+    for output in scope_data.get("outputs") or []:
+        for block_id in output.get("source_logic_blocks") or []:
+            if block_id not in block_ids:
+                errors.append(
+                    f"{prefix} output={output.get('name')!r} source logic block "
+                    f"{block_id!r} not in this scope's logic_blocks"
+                )
     return errors
 
 
@@ -166,6 +212,31 @@ def _validate_task_cross_references(data: dict) -> list[str]:
                 errors.append(
                     "end_to_end_lineage prior source state_id="
                     f"{state_id!r} not in nodes"
+                )
+        errors.extend(_source_state_errors(item, state_ids))
+    return errors
+
+
+_STATE_STAMPED_SOURCE_FIELDS = (
+    "value_sources",
+    "row_membership_sources",
+    "value_condition_sources",
+    "window_context_sources",
+)
+
+
+def _source_state_errors(item: dict, state_ids: set[str]) -> list[str]:
+    """A source's ``source_state`` names the state it read, so it must be a node (C2.4-2)."""
+    errors: list[str] = []
+    for field in _STATE_STAMPED_SOURCE_FIELDS:
+        for source in item.get(field) or []:
+            if not isinstance(source, dict) or "source_state" not in source:
+                continue
+            state_id = source.get("source_state")
+            if state_id not in state_ids:
+                errors.append(
+                    f"end_to_end_lineage[{item.get('table')!r}.{item.get('column')!r}] "
+                    f"{field} source_state={state_id!r} not in nodes"
                 )
     return errors
 

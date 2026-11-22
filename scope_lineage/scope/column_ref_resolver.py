@@ -14,10 +14,12 @@ from sqlglot.optimizer.scope import Scope
 _SET_OPERATION = getattr(exp, 'SetOperation', exp.Union)
 from .parser import (
     _qualified_table,
-    _normalize_table_name,
+    _schema_key,
 )
+from .pivot_columns import GROUP as PIVOT_GROUP, NAME as PIVOT_NAME, VALUE as PIVOT_VALUE, PivotColumn, pivot_columns
 from .scope_types import (
     AMBIGUOUS_SCOPE_ID,
+    CONSTANT_SCOPE_ID,
     SourceRef,
     ScopeLineageResult,
     DiagnosticWarning,
@@ -25,7 +27,7 @@ from .scope_types import (
 # Leaf helpers come from `_shared`, never from the orchestrator: importing it back
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
-from ._constants import _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR
+from ._constants import DIALECT, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR
 from .source_refs import _source_ref_binding_key
 from .sqlglot_walk import _REGEX_COLUMN_METACHARACTERS, _compiled_column_pattern, _find_alias_in_parent, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_item_from_ast_node, _source_ref_for_source, _source_scope_id
 
@@ -49,11 +51,26 @@ def _resolve_column_refs_in_expr(expr: exp.Expression, sg_scope: Scope, result: 
             scope_for_ref = _nested_query_scope(col_ref, expr, sg_scope)
             if scope_for_ref is None:
                 continue
-        src = _resolve_column_ref(col_ref, scope_for_ref, result, schema)
-        if src and _source_ref_binding_key(src) not in seen:
-            seen.add(_source_ref_binding_key(src))
-            sources.append(src)
+        for src in _column_ref_sources(col_ref, scope_for_ref, result, schema):
+            if _source_ref_binding_key(src) not in seen:
+                seen.add(_source_ref_binding_key(src))
+                sources.append(src)
     return sources
+
+
+def _column_ref_sources(
+    col_ref: exp.Column, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None = None,
+) -> list[SourceRef]:
+    """Every SourceRef one column reference stands for.
+
+    Almost always one. A PIVOT / UNPIVOT output column named through the pivot's alias
+    reads several columns -- a pivoted column its aggregate's inputs and the FOR column,
+    an UNPIVOT value column every IN column -- exactly as ``SELECT *`` over it does.
+    """
+    found = _resolve_column_ref(col_ref, sg_scope, result, schema)
+    if isinstance(found, list):
+        return found
+    return [found] if found else []
 
 
 def _nested_query_scope(
@@ -65,7 +82,7 @@ def _nested_query_scope(
     node = col_ref.parent
     innermost = None
     while node is not None and node is not root_expr:
-        if isinstance(node, (exp.Select, exp.Union)):
+        if isinstance(node, (exp.Select, exp.SetOperation)):
             innermost = node
             break
         node = node.parent
@@ -96,8 +113,11 @@ def _child_scopes(sg_scope: Scope) -> list:
     return children
 
 
-def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef | None:
+def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef | list[SourceRef] | None:
     """Resolve a single exp.Column to a SourceRef(scope_id, column_name).
+
+    A PIVOT / UNPIVOT output column read through the pivot's alias answers with every
+    column it reads (a non-empty list); callers go through ``_column_ref_sources``.
 
     Decision tree:
       1. Qualified (col_ref.table set): look up in sg_scope.sources
@@ -110,7 +130,7 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
         else col_ref.table
     )
     col_name = col_ref.name
-    struct_ref = _resolve_struct_field_ref(col_ref, sg_scope, result)
+    struct_ref = _resolve_struct_field_ref(col_ref, sg_scope, result, schema)
     if struct_ref:
         return struct_ref
     if table_alias:
@@ -185,13 +205,15 @@ def _resolve_pivot_output_column(
     sg_scope: Scope,
     result: ScopeLineageResult,
     schema: dict | None,
-) -> SourceRef | None:
-    """Resolve ``pivot_alias.column`` to the columns the PIVOT aggregates.
+) -> SourceRef | list[SourceRef] | None:
+    """Resolve ``pivot_alias.column`` to what that PIVOT / UNPIVOT column reads.
 
     A PIVOT turns the values of its FOR key into column names, so `p.A` is not a column of
     anything sqlglot registered as a source — the alias belongs to the pivot, and the name
-    comes from the IN list. Its value comes from the aggregate, so that is where the lineage
-    points (PIVOT-001).
+    comes from the IN list (PIVOT-001). A grouping column (audit 1.7) passes the pivoted
+    relation's column through; a pivoted column reads its aggregate's columns and the FOR
+    column, and an UNPIVOT value column every IN column -- the same sources ``SELECT *``
+    over the pivot gives that column (``_pivot_scope_column``).
 
     A non-literal IN list leaves the column set unknowable; returning None keeps the caller
     on its unresolved path rather than binding a name nobody proved exists.
@@ -200,18 +222,102 @@ def _resolve_pivot_output_column(
         pivot = _pivot_of_source_node(node)
         if pivot is None or getattr(pivot, "alias", None) != table_alias:
             continue
+        relation = _pivoted_relation(node, sg_scope, result, schema)
+        modelled = pivot_columns(pivot, relation[2] if relation else None)
+        if modelled is not None:
+            return _modelled_pivot_ref(modelled, col_name, relation, sg_scope, result, schema)
         names = _pivot_output_names(pivot)
         # Case-insensitively: the IN list carries the literal as written, while qualify
         # normalizes the reference, so `IN ('A')` and `p.a` are the same column.
         if not names or col_name.lower() not in {name.lower() for name in names}:
             return None
-        for aggregate in pivot.expressions:
-            for column in aggregate.find_all(exp.Column):
-                resolved = _resolve_column_ref(column, sg_scope, result, schema)
-                if resolved is not None:
-                    return resolved
-        return None
+        return _column_refs(pivot.expressions, sg_scope, result, schema)
     return None
+
+
+def _pivot_value_column_of_ref(
+    col_ref: exp.Column,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> PivotColumn | None:
+    """The PIVOT / UNPIVOT value column ``pivot_alias.column`` names, if it names one.
+
+    Such a column has no expression to substitute for the reference -- it is the pivot's
+    own aggregate (or an UNPIVOT's pick among its IN columns) -- so a projection of it is
+    built the way ``SELECT *`` over the pivot builds it.
+    """
+    if col_ref.meta.get(_ORIGINALLY_UNQUALIFIED_META) or not col_ref.table:
+        return None
+    for node in _pivoted_source_nodes(sg_scope):
+        pivot = _pivot_of_source_node(node)
+        if pivot is None or getattr(pivot, "alias", None) != col_ref.table:
+            continue
+        relation = _pivoted_relation(node, sg_scope, result, schema)
+        modelled = pivot_columns(pivot, relation[2] if relation else None) or []
+        column = next((item for item in modelled if item.name == col_ref.name.lower()), None)
+        return column if column is not None and column.kind == PIVOT_VALUE else None
+    return None
+
+
+def _modelled_pivot_ref(
+    modelled: list,
+    col_name: str,
+    relation: tuple,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | list[SourceRef] | None:
+    column = next((item for item in modelled if item.name == col_name.lower()), None)
+    if column is None:
+        return None
+    if column.kind == PIVOT_GROUP:
+        alias, source, _names = relation
+        return _bound_source_ref(alias, source, column.relation_column, sg_scope, result)
+    if column.kind == PIVOT_NAME:
+        if not column.constants:
+            return None
+        literal = exp.Literal.string(column.constants[0]).sql(dialect=DIALECT)
+        return SourceRef(scope=CONSTANT_SCOPE_ID, column=literal)
+    return _column_refs(column.reads, sg_scope, result, schema)
+
+
+def _column_refs(
+    nodes: list,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> list[SourceRef] | None:
+    """The distinct SourceRefs the columns under ``nodes`` resolve to; None for none."""
+    seen: set = set()
+    refs: list[SourceRef] = []
+    for node in nodes:
+        for ref in _resolve_column_refs_in_expr(node, sg_scope, result, schema):
+            if _source_ref_binding_key(ref) not in seen:
+                seen.add(_source_ref_binding_key(ref))
+                refs.append(ref)
+    return refs or None
+
+
+def _pivoted_relation(
+    node: exp.Expression,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> tuple[str, Scope | exp.Table, list[str]] | None:
+    """``(alias, source, column names)`` of the relation a PIVOT is applied to, if known."""
+    item = _source_item_from_ast_node(node, sg_scope)
+    if not item:
+        return None
+    alias, source = item
+    if isinstance(source, Scope):
+        upstream = result.scopes.get(getattr(source, _SCOPE_ID_ATTR, None) or "")
+        names = [column.name for column in upstream.columns] if upstream else []
+    elif isinstance(source, exp.Table) and schema:
+        names = list(schema.get(_schema_key(schema, _qualified_table(source)), []))
+    else:
+        names = []
+    return (alias, source, names) if names else None
 
 
 def _pivoted_source_nodes(sg_scope: Scope):
@@ -262,8 +368,13 @@ def _resolve_struct_field_ref(
     col_ref: exp.Column,
     sg_scope: Scope,
     result: ScopeLineageResult,
+    schema: dict | None = None,
 ) -> SourceRef | None:
-    """Resolve ``alias.struct_col.field`` as lineage from ``alias.struct_col``."""
+    """Resolve ``alias.struct_col.field`` as lineage from ``alias.struct_col``.
+
+    Written without the alias (``struct_col.field.leaf``), the first part names no
+    source; it is then the struct column itself (1.13-h).
+    """
     parts = [p.name if hasattr(p, 'name') else str(p) for p in col_ref.parts or []]
     if len(parts) < 3:
         return None
@@ -279,13 +390,42 @@ def _resolve_struct_field_ref(
         if parent_binding:
             binding_scope, source = parent_binding
     if not isinstance(source, (Scope, exp.Table)):
-        return None
+        if base_column in sg_scope.sources:
+            return None  # ``db.table.column``: the middle part names a source.
+        return _resolve_unqualified_struct_column(source_alias, sg_scope, result, schema)
     return _bound_source_ref(
         source_alias,
         source,
         base_column,
         binding_scope,
         result,
+    )
+
+
+def _resolve_unqualified_struct_column(
+    struct_column: str,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    """Bind an unqualified struct column to the one source exposing it.
+
+    Several sources exposing it is the SQL's own ambiguity and is reported as such; no
+    source exposing it leaves the caller on its unresolved path.
+    """
+    matches = [
+        _bound_source_ref(alias, source, struct_column, sg_scope, result)
+        for alias, source in _selected_sources(sg_scope).items()
+        if isinstance(source, (Scope, exp.Table))
+        and _source_column_state(alias, source, struct_column, result, schema) == 'present'
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    return _ambiguous_ref(
+        struct_column, sg_scope, result,
+        [_source_ref_to_candidate(ref) for ref in matches], "sources",
     )
 
 
@@ -515,6 +655,11 @@ def _resolve_unqualified(col_name: str, sg_scope: Scope, result: ScopeLineageRes
             return _bound_source_ref(alias, source, col_name, sg_scope, result)
         return SourceRef(scope=candidate_id, column=col_name)
 
+    if selected and not viable:
+        outer_ref = _resolve_unqualified_in_outer_query(col_name, sg_scope, result, schema)
+        if outer_ref is not None:
+            return outer_ref
+
     # Preserve the existing last-resort scope fallback for scopes whose output cannot
     # be materialized at this build point. Dangling-ref validation decides later whether
     # the field really exists (LINEAGE-001).
@@ -533,6 +678,44 @@ def _resolve_unqualified(col_name: str, sg_scope: Scope, result: ScopeLineageRes
             return _bound_source_ref(alias, source, col_name, sg_scope, result)
     result.diagnostics.warnings.append(DiagnosticWarning(type='column_not_found', scope=getattr(sg_scope, _SCOPE_ID_ATTR, 'UNKNOWN'), msg=f"Column '{col_name}' not found in any source"))
     return SourceRef(scope='UNKNOWN', column=col_name)
+
+
+def _resolve_unqualified_in_outer_query(
+    col_name: str,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    """Resolve a bare column a subquery's own sources are known not to have, Spark's way.
+
+    Spark looks a column up in the subquery first and, finding nothing, in each enclosing
+    query in turn (an outer reference). Searching only the subquery made such a column
+    ``UNKNOWN`` whenever metadata proved the subquery's tables lack it. Only a subquery in
+    an expression (``EXISTS``, ``IN``, a scalar subquery) is correlated; a derived table in
+    FROM cannot see the query around it. A level is decided only when exactly one of its
+    sources is known to have the column and none could; anything less is left to the
+    caller's ``column_not_found``.
+    """
+    scope = sg_scope
+    while scope.is_subquery and scope.parent is not None:
+        scope = scope.parent
+        selected = [
+            (alias, source)
+            for alias, source in _selected_sources(scope).items()
+            if isinstance(source, (Scope, exp.Table))
+        ]
+        states = [
+            (alias, source, _source_column_state(alias, source, col_name, result, schema))
+            for alias, source in selected
+        ]
+        open_states = [item for item in states if item[2] != "absent"]
+        if not open_states:
+            continue
+        if len(open_states) == 1 and open_states[0][2] == "present":
+            alias, source, _state = open_states[0]
+            return _bound_source_ref(alias, source, col_name, scope, result)
+        return None
+    return None
 
 
 def _resolve_duplicate_alias_ref(table_alias: str, col_name: str, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef | None:
@@ -627,7 +810,7 @@ def _source_column_state(alias: str, source: Scope | exp.Table, col_name: str, r
         return 'unknown'
     fq = _qualified_table(source)
     if schema is not None:
-        norm = _normalize_table_name(fq)
+        norm = _schema_key(schema, fq)
         if norm not in schema:
             return 'unknown'
         return 'present' if col_name in schema.get(norm, []) else 'absent'
@@ -671,7 +854,7 @@ def _materialized_star_column_state(
 
     states: list[str] = []
     for table in scope_data.star_schema_sources:
-        normalized = _normalize_table_name(table)
+        normalized = _schema_key(schema, table)
         if schema is None or normalized not in schema:
             states.append('unknown')
         elif col_name in schema.get(normalized, []):

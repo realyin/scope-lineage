@@ -17,6 +17,7 @@ import pytest
 
 from scope_lineage.metadata.schema_metadata import (
     MetadataFileError,
+    load_schema,
     load_schema_sources,
 )
 
@@ -149,3 +150,21 @@ def test_a_named_file_list_tolerates_one_unusable_member(tmp_path: Path) -> None
     assert [item.get("source_file") for item in schema.metadata_conflicts] == [
         "ods.broken_metadata.json"
     ]
+
+
+def test_a_file_holding_only_a_utf8_bom_is_reported_empty(tmp_path: Path) -> None:
+    """The emptiness check ran on the raw bytes, before the BOM was decoded away."""
+    path = tmp_path / "bom.csv"
+    path.write_bytes(b"\xef\xbb\xbf")
+
+    with pytest.raises(MetadataFileError, match="为空"):
+        load_schema(path)
+
+
+def test_a_bom_before_blank_lines_still_reports_the_missing_header(tmp_path: Path) -> None:
+    """Sentinel: a file with lines but no header keeps its own message."""
+    path = tmp_path / "blank.csv"
+    path.write_bytes(b"\xef\xbb\xbf\n\n")
+
+    with pytest.raises(MetadataFileError, match="缺少表头"):
+        load_schema(path)

@@ -14,17 +14,19 @@ declares another format; 2 an input
 could not be read, or ``--schema`` was given without ``--lineage``. merge: 0 merged and
 valid (warnings allowed); 1 a fragment fails its schema or the base catalog its schemas
 (nothing written), or the merge found conflicts or unknown concepts, or the merged
-catalog has validation errors (written, so the errors can be read in place); 2 an input
-could not be read, or ``--out`` is the base (without ``--in-place``), inside it, or not
-empty.
+catalog has validation errors (written, so the errors can be read in place -- unless
+``--atomic``, which writes nothing then); 2 an input could not be read, or ``--out`` is the
+base (without ``--in-place``), inside it, or not empty.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from .catalog import (
@@ -104,6 +106,15 @@ def add_draft_parsers(actions) -> None:
     target.add_argument("--out", help="A new or empty directory for the merged catalog")
     target.add_argument(
         "--in-place", action="store_true", help="Write the merge into the base catalog itself"
+    )
+    merge.add_argument(
+        "--atomic",
+        action="store_true",
+        help=(
+            "Merge into a staging copy and validate it there; write nothing unless there are "
+            "no conflicts, unknown concepts or validation errors (default: write, so the "
+            "errors can be read in place)"
+        ),
     )
 
 
@@ -264,15 +275,48 @@ def run_merge(args: argparse.Namespace) -> int:
         print("catalog merge: nothing merged -- fix the base catalog first", file=sys.stderr)
         return 1
     result = merge_fragments(catalog, fragments)
+    if getattr(args, "atomic", False):
+        return _merge_atomically(catalog, base, out, result, len(fragments))
     if out != base:
         shutil.copytree(base, out, ignore=shutil.ignore_patterns(".*"), dirs_exist_ok=True)
     write_documents(catalog, out, result.changed)
     print(_merge_summary(len(fragments), out, result))
-    merged = load_catalog(out)
+    return _report_merged(load_catalog(out), result)
+
+
+def _report_merged(merged, result) -> int:
     report = validate_catalog(merged)
     print(render_summary(report))
     print(render_coverage(table_coverage(merged, result.tables)))
     return 0 if result.ok and report.ok else 1
+
+
+def _merge_atomically(catalog, base: Path, out: Path, result, count: int) -> int:
+    """D4: merge into a staging copy beside ``out``, validate it, and only a clean result
+    reaches ``out`` -- the changed files replaced one by one for ``--in-place``, the whole
+    staged directory moved for ``--out``. Anything less writes nothing at all."""
+    out_parent = out.resolve().parent
+    out_parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{out.name}.merge-", dir=out_parent))
+    try:
+        shutil.copytree(base, stage, ignore=shutil.ignore_patterns(".*"), dirs_exist_ok=True)
+        write_documents(catalog, stage, result.changed)
+        print(_merge_summary(count, out, result))
+        code = _report_merged(load_catalog(stage), result)
+        if code != 0:
+            print(f"catalog merge: --atomic: nothing written to {out}", file=sys.stderr)
+            return code
+        if out == base:
+            for file in sorted(result.changed):
+                (out / file).parent.mkdir(parents=True, exist_ok=True)
+                os.replace(stage / file, out / file)
+        else:
+            if out.exists():
+                out.rmdir()  # `_refuse_out` already proved it empty
+            os.replace(stage, out)
+        return code
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 def _read_fragments(paths: list[str]):

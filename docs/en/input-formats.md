@@ -221,6 +221,18 @@ Note:
 - this is a deployment/batch-level parsing policy, not a business attribute of a SQL task, so it does not belong in task JSON;
 - Schema and target-table metadata may still carry fully qualified names, but they do not stand in for this setting when deciding whether lineage keeps the catalog.
 
+Every layer reads table names by this one rule (the table identity): identifier quotes are
+dropped, case is folded (the target table too, so `INSERT INTO MART.Y` and `mart.y` are one
+table), and a leading catalog is dropped only when it is configured. A three-part name that is
+not configured is kept whole, so `cat1.ods.t` and `cat2.ods.t` are two tables in lineage, table
+cards and the glossary. A spelling that differs only by qualification still finds its table
+when exactly one candidate could be it: Schema keyed `ods.t` describes a `lake.ods.t` read, and
+an `orders` read joins the `ods.orders` card. With two candidates (`ods.t` beside `cat1.ods.t`
+and `cat2.ods.t`) neither is chosen. `tables`, `glossary` and `catalog` read
+`SCOPE_LINEAGE_CATALOG_PREFIXES` the same way; `--catalog-prefixes` applies to `parse`.
+The catalog's own tables are `db.table`, so a catalog match keeps the last two segments of the
+normalized name.
+
 ## Source-table Schema metadata
 
 `--schema` accepts a JSON/CSV file, or a directory of rich JSON, used for source-field
@@ -278,7 +290,10 @@ Table-level keys are read too and normalized into `table_metadata` (`table_name_
 table card's "what is this table". Key names are vocabulary-neutral: `table_alias`,
 `table_comment` and `comment` all supply the readable name, `buzi_domain` and `domain` both
 supply the business domain. A value containing `@` (an address, such as `tbl_pic`) is dropped
-at load time, and timestamps and quality rates are not table-level facts. For the full key
+at load time; when a table-level key is dropped this way,
+`diagnostics.json.metadata_coverage.metadata_conflicts` records one entry with `reason:
+"privacy_refused"` whose `issues[]` names the key only (`table_desc contains @, refused by
+privacy rule`), never the value. Timestamps and quality rates are not table-level facts. For the full key
 table see [`lineage.json` §12.2](lineage-json.md#122-related_metadata).
 
 `--schema` also accepts an aggregated lightweight JSON. It has no explicit field index and no DDL;
@@ -426,6 +441,7 @@ Rules:
 - **Masked like any other comment**: a patched column comment and a patched `table_name_cn` / `table_desc` go through the same redaction as a schema comment (`<email>` / `<phone>` / `<id>`) as the patch is read; `parse --no-redact-comments` turns it off with the rest;
 - **Table matching** follows the schema's rule: case-insensitive, and `catalog.db.table` is the same table as `db.table`;
 - **An unmatched key is reported, not an error**: the run prints `unmatched=N` and lists the keys, so a typo is never swallowed;
+- **A refused entry is reported too**: a column key with fewer than three parts (`a.amt`) and a table fact containing `@` (refused by the privacy rule) are printed as `rejected=N (key (reason), …)` (`patch_rejected=N` under `describe`), by key and reason only, never the refused text;
 - Exit code 2 when the file is missing, is not valid JSON, is not a JSON object, or declares another `doc_format`.
 
 `describe --metadata-patch` takes the same file and applies it in memory to a `lineage.json`
@@ -457,7 +473,7 @@ mart.customer_daily,country_code,JP,20
 
 | Key | Value | Purpose |
 | --- | --- | --- |
-| `table` | `db.table` or a fully qualified name | matched the way a card normalizes it: last two segments, case ignored. |
+| `table` | `db.table` or a fully qualified name | matched by the table identity: quotes and case ignored, a configured catalog dropped; a spelling that differs only by qualification matches when it could be no other table in the file. |
 | `column` | column name | case ignored; a table or column the corpus does not know lands in `samples_applied.unmatched[]`. |
 | `value` | any scalar | trimmed, then redacted, then cut above 64 characters; an empty value is skipped. |
 | `count` | integer, optional | when given, values are ordered by it descending; a column with no counts keeps file order. |

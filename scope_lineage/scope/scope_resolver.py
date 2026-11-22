@@ -12,8 +12,8 @@ from sqlglot import exp
 from sqlglot.optimizer.scope import Scope
 
 from .parser import (
-    _normalize_table_name,
     _qualified_table,
+    _schema_key,
 )
 from .scope_types import (
     AMBIGUOUS_SCOPE_ID,
@@ -22,11 +22,14 @@ from .scope_types import (
     SourceRef,
     ScopeColumn,
     ScopeData,
+    ScopeFilter,
     ScopeGraphEdge,
+    ScopeJoin,
     ScopeLineageResult,
     DiagnosticWarning,
 )
 from ._constants import DIALECT, _SCOPE_ID_ATTR
+from .set_operations import value_branch_ids
 from .source_refs import _constant_sources
 from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _source_free_leaf_sources
 from .column_ref_resolver import _ambiguous_ref, _materialized_star_column_state, _resolve_column_refs_in_expr  # noqa: F401
@@ -95,7 +98,7 @@ def resolve_all(
         if scope_id is None or scope_id not in result.scopes:
             continue
         scope_data = result.scopes[scope_id]
-        if isinstance(sg_scope.expression, exp.Union) and not scope_data.columns:
+        if isinstance(sg_scope.expression, exp.SetOperation) and not scope_data.columns:
             _resolve_scope_union_passthrough(scope_id, scope_data, result)
 
     # Step 3b: Expand wildcard (*) columns into concrete columns where upstream is known.
@@ -362,6 +365,29 @@ def _infer_lateral_output_names(inner: exp.Expression | None) -> list[str]:
         names = _field_names_from_from_json_schema(inner)
         if names:
             return names
+    return _generator_default_output_names(inner)
+
+
+def _generator_default_output_names(inner: exp.Expression | None) -> list[str]:
+    """Spark's fixed output names for JSON_TUPLE (``c0..``) and STACK (``col0..``).
+
+    INLINE has none of its own -- its names come from the element struct, which only
+    metadata can supply -- so it is left out (1.13-i).
+    """
+    if inner is None:
+        return []
+    name = (inner.name if isinstance(inner, exp.Anonymous) else inner.sql_name()).lower()
+    args = [inner.this, *(inner.expressions or [])] if not isinstance(inner, exp.Anonymous) \
+        else list(inner.expressions or [])
+    args = [arg for arg in args if arg is not None]
+    if name == "json_tuple" and len(args) >= 2:
+        return [f"c{index}" for index in range(len(args) - 1)]
+    if name == "stack" and len(args) >= 2:
+        count = args[0]
+        if isinstance(count, exp.Literal) and not count.is_string and str(count.this).isdigit() \
+                and int(count.this) > 0:
+            width = -(-(len(args) - 1) // int(count.this))
+            return [f"col{index}" for index in range(width)]
     return []
 
 
@@ -419,8 +445,14 @@ def _extract_struct_field_names(schema_text: str) -> list[str]:
 def _resolve_union_scope(
     union_scope_id: str, scope_data: ScopeData, result: ScopeLineageResult,
 ) -> None:
-    """Resolve columns for a synthetic UNION scope from its branch scopes."""
-    branch_ids = scope_data.branches or []
+    """Resolve columns for a synthetic set-operation scope from its branch scopes.
+
+    UNION merges every branch's values position by position. EXCEPT and INTERSECT take
+    their values from the left input only; the other inputs decide which left rows survive
+    and are reported by the ``set_operation_semantics_partial`` gap, never as value
+    sources (audit 1.1).
+    """
+    branch_ids = value_branch_ids(scope_data)
     if not branch_ids:
         return
 
@@ -586,7 +618,7 @@ def _refresh_union_scopes_after_star_expansion(
     _resolve_union_scopes_bottom_up(result)
 
     for sg_scope in all_scopes:
-        if not isinstance(sg_scope.expression, exp.Union):
+        if not isinstance(sg_scope.expression, exp.SetOperation):
             continue
         scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
         if scope_id is None or scope_id not in result.scopes:
@@ -801,7 +833,7 @@ def _regex_selection_input_columns(
                 ]
         elif isinstance(source, exp.Table) and schema is not None:
             table = _qualified_table(source)
-            columns = schema.get(_normalize_table_name(table))
+            columns = schema.get(_schema_key(schema, table))
             if columns:
                 names[table] = list(columns)
     return names
@@ -1185,6 +1217,7 @@ def _resolve_merge_columns(
         )
 
     using_scope_id = getattr(using_scope, _SCOPE_ID_ATTR, None)
+    _record_merge_conditions(merge_node, using_scope, all_scopes, target_qualifiers, result, schema)
 
     whens = merge_node.args.get("whens")
     if whens is None:
@@ -1213,19 +1246,7 @@ def _resolve_merge_columns(
             "branch_qualifier": branch_qualifier,
         }
         if by_source and isinstance(then, exp.Update):
-            # Say why the label is absent. Without this a consumer sees only that
-            # merge_branch is gone and cannot tell "contract 1.0 has no name for this
-            # clause" from "this is not a MERGE write".
-            result.diagnostics.warnings.append(DiagnosticWarning(
-                type="merge_branch_not_representable",
-                scope="ROOT",
-                msg=(
-                    "MERGE WHEN NOT MATCHED BY SOURCE is one of Spark's three WHEN "
-                    "clause kinds and contract 1.0's merge_branch enum names only two; "
-                    "merge_branch is omitted and merge_branch_qualifier carries the "
-                    "clause kind instead."
-                ),
-            ))
+            _warn_merge_branch_not_representable(result)
         if isinstance(then, exp.Update):
             if any(isinstance(item, exp.Star) for item in then.expressions):
                 # WHEN MATCHED THEN UPDATE SET * -- same target-driven expansion as
@@ -1287,6 +1308,100 @@ def _resolve_merge_columns(
                     "output columns."
                 ),
             ))
+
+
+def _warn_merge_branch_not_representable(result: ScopeLineageResult) -> None:
+    # Say why the label is absent. Without this a consumer sees only that merge_branch
+    # is gone and cannot tell "contract 1.0 has no name for this clause" from "this is
+    # not a MERGE write".
+    result.diagnostics.warnings.append(DiagnosticWarning(
+        type="merge_branch_not_representable",
+        scope="ROOT",
+        msg=(
+            "MERGE WHEN NOT MATCHED BY SOURCE is one of Spark's three WHEN "
+            "clause kinds and contract 1.0's merge_branch enum names only two; "
+            "merge_branch is omitted and merge_branch_qualifier carries the "
+            "clause kind instead."
+        ),
+    ))
+
+
+def _record_merge_conditions(
+    merge_node: exp.Merge,
+    using_scope: Scope | None,
+    all_scopes: list[Scope],
+    target_qualifiers: set[str],
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> None:
+    context = {
+        "using_scope": using_scope, "all_scopes": all_scopes,
+        "target_qualifiers": target_qualifiers, "result": result, "schema": schema,
+    }
+    _record_merge_on(merge_node, getattr(using_scope, _SCOPE_ID_ATTR, None), context)
+    whens = merge_node.args.get("whens")
+    if whens is not None:
+        _record_merge_when_conditions(
+            whens.expressions if hasattr(whens, "expressions") else [whens], context,
+        )
+
+
+def _record_merge_on(
+    merge_node: exp.Merge, using_scope_id: str | None, context: dict,
+) -> None:
+    """Record MERGE ON as the ROOT's join of the target and the USING relation (1.13-j).
+
+    Without it a MERGE whose actions read nothing from USING (``SET t.flag = 1``) had no
+    dependency on the relation that decides which rows it touches.
+    """
+    on = merge_node.args.get("on")
+    result = context["result"]
+    if on is None or not using_scope_id or not result.target_table:
+        return
+    result.scopes["ROOT"].joins.append(ScopeJoin(
+        join_type="MERGE",
+        left_scope=result.target_table,
+        right_scope=using_scope_id,
+        alias_in_parent=result.merge_using_alias or None,
+        condition_expression=on.sql(dialect=DIALECT),
+        condition_columns=_merge_condition_refs(on, policy="both", **context),
+    ))
+
+
+def _record_merge_when_conditions(when_items: list, context: dict) -> None:
+    """Record each ``WHEN ... AND <condition>`` as a ROOT filter, resolved in the relations
+    that clause can see (target only for NOT MATCHED BY SOURCE, source for NOT MATCHED)."""
+    for when in when_items:
+        condition = when.args.get("condition")
+        if condition is None:
+            continue
+        matched = bool(when.args.get("matched"))
+        by_source = not matched and bool(when.args.get("source"))
+        policy = "target" if by_source else ("both" if matched else "source")
+        context["result"].scopes["ROOT"].filters.append(ScopeFilter(
+            expression=condition.sql(dialect=DIALECT),
+            columns=_merge_condition_refs(condition, policy=policy, **context),
+        ))
+
+
+def _merge_condition_refs(condition: exp.Expression, *, policy: str, **context) -> list[SourceRef]:
+    """The columns a MERGE condition reads, each keeping the qualifier it was written with
+    so a logic block can tell the target side from the USING side. Columns of a nested
+    query belong to that query's scope."""
+    refs: list[SourceRef] = []
+    seen: set[tuple[str, str, str]] = set()
+    for column in condition.find_all(exp.Column):
+        if column.find_ancestor(exp.Select) is not None:
+            continue
+        for ref in _resolve_merge_value_sources(
+            column, column.sql(dialect=DIALECT), policy=policy, **context,
+        ):
+            ref.qualifier = column.table or None
+            key = (ref.scope, ref.column, ref.qualifier or "")
+            if key not in seen:
+                seen.add(key)
+                refs.append(ref)
+    return refs
 
 
 def _merge_assignment_column(
@@ -1541,7 +1656,7 @@ def _resolve_merge_unqualified(
 def _merge_target_columns(result, schema: dict | None) -> list[str] | None:
     if not schema or not result.target_table:
         return None
-    columns = schema.get(_normalize_table_name(result.target_table))
+    columns = schema.get(_schema_key(schema, result.target_table))
     if not columns:
         return None
     return [c["name"] if isinstance(c, dict) else str(c) for c in columns]
@@ -1574,25 +1689,34 @@ def _build_depends_on_and_graph(result: ScopeLineageResult) -> None:
                 if _is_dependency_scope(src.scope):
                     referenced.add(src.scope)
 
+        # A MERGE's ON and WHEN conditions read its own target; that is the write's
+        # target state, not an upstream relation, so only the USING side becomes an edge.
+        condition_only = (
+            {result.target_table}
+            if scope_id == "ROOT" and result.stmt_kind == "MERGE" and result.target_table
+            else set()
+        )
+        condition_referenced = set()
         for join in scope_data.joins:
             if _is_dependency_scope(join.left_scope):
-                referenced.add(join.left_scope)
+                condition_referenced.add(join.left_scope)
             if _is_dependency_scope(join.right_scope):
-                referenced.add(join.right_scope)
+                condition_referenced.add(join.right_scope)
             for cc in join.condition_columns:
                 if _is_dependency_scope(cc.scope):
-                    referenced.add(cc.scope)
+                    condition_referenced.add(cc.scope)
 
         for f in scope_data.filters:
             for c in f.columns:
                 if _is_dependency_scope(c.scope):
-                    referenced.add(c.scope)
+                    condition_referenced.add(c.scope)
+        referenced |= condition_referenced - condition_only
 
         for g in scope_data.group_by:
             if _is_dependency_scope(g.scope):
                 referenced.add(g.scope)
 
-        for h in scope_data.having:
+        for h in [*scope_data.having, *scope_data.qualify]:
             for c in h.columns:
                 if _is_dependency_scope(c.scope):
                     referenced.add(c.scope)
@@ -1600,6 +1724,12 @@ def _build_depends_on_and_graph(result: ScopeLineageResult) -> None:
         for o in scope_data.order_by:
             if _is_dependency_scope(o.get("scope")):
                 referenced.add(o["scope"])
+
+        # A set operation reads every input, including the EXCEPT / INTERSECT inputs
+        # that contribute no column values.
+        for branch_id in scope_data.branches or []:
+            if _is_dependency_scope(branch_id):
+                referenced.add(branch_id)
 
         # Remove self-reference
         referenced.discard(scope_id)

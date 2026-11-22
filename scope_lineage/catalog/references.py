@@ -190,9 +190,12 @@ def _metric(checks: _Checks, file: str, metric: dict) -> None:
     broken down by attributes or by the concepts linked to it, scoped by constraints."""
     at = metric["id"]
     on = metric["on"]
-    checks.expect("metric_on", file, at, on, ("concept",), "a concept")
-    if "measure" in metric:
-        checks.expect("metric_measure", file, at, metric["measure"], ("attribute",), "an attribute")
+    on_ok = checks.expect("metric_on", file, at, on, ("concept",), "a concept")
+    owners = _metric_attribute_owners(checks.index, on) if on_ok else None
+    if "measure" in metric and checks.expect(
+        "metric_measure", file, at, metric["measure"], ("attribute",), "an attribute"
+    ):
+        _metric_attribute_owned(checks, file, at, "metric_measure", metric["measure"], on, owners)
     for dimension in metric.get("dimensions") or []:
         if not checks.expect(
             "metric_dimension", file, at, dimension, ("attribute", "concept"),
@@ -204,8 +207,31 @@ def _metric(checks: _Checks, file: str, metric: dict) -> None:
                 "metric_dimension", file, at,
                 f"{dimension!r} is neither a participant of {on} nor linked to it by a relation",
             )
+        elif checks.index.is_type(dimension, "attribute"):
+            _metric_attribute_owned(checks, file, at, "metric_dimension", dimension, on, owners)
     for constraint in metric.get("constraints") or []:
         checks.expect("metric_constraint", file, at, constraint, ("constraint",), "a constraint")
+
+
+def _metric_attribute_owners(index: Index, on: str) -> set[str]:
+    """6.3-a (owner decision D3): the concepts whose attributes a metric on ``on`` may
+    measure or break down by -- ``on`` and every concept linked to it, each with its
+    player when it is a role (a role's tables bind its player's attributes as their own)."""
+    owners: set[str] = set()
+    for concept in {on} | index.linked_concepts(on):
+        owners.update(index.binding_owners(concept) or (concept,))
+    return owners
+
+
+def _metric_attribute_owned(checks, file, at, rule, attribute, on, owners) -> None:
+    if owners is None:
+        return  # `on` is broken; reported above
+    owner = checks.index.get(attribute).owner
+    if owner not in owners:
+        checks.fail(
+            rule, file, at,
+            f"{attribute!r} is an attribute of {owner}, which is neither {on} nor linked to it",
+        )
 
 
 # --- mapping ---------------------------------------------------------------------------

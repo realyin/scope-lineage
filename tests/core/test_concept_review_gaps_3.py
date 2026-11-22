@@ -46,10 +46,12 @@ from scope_lineage.render.concepts import (
     ROLE_SNAPSHOT,
     apply_concept_overrides,
     build_concepts,
+    name_convention,
     key_column_name,
 )
 from scope_lineage.render.ontology import render_ontology_appendix_markdown
 
+from .concept_convention import WAREHOUSE_CONVENTION
 from .test_concept_relations import _cards, _entity, _relation
 from .test_concept_render_and_overrides import _ontology
 
@@ -72,8 +74,10 @@ def _built(entities, relations=(), overrides=None) -> dict:
         "tables": [dict(item) for item in entities],
         "table_relations": [dict(item) for item in relations],
     }
-    document.update(build_concepts(document, _cards()))
-    apply_concept_overrides(document, overrides or {})
+    # The fixture's tables are named by the warehouse convention its roles rest on.
+    with name_convention(WAREHOUSE_CONVENTION):
+        document.update(build_concepts(document, _cards()))
+        apply_concept_overrides(document, overrides or {})
     document.update(build_concept_relations(document))
     return document
 

@@ -70,6 +70,9 @@ def _drafted(view: CatalogView, concept_id: str) -> tuple[int, int]:
         *(binding for rep in reps for binding in rep["bindings"]),
         *view.relations_of(concept_id),
         *view.constraints_on(concept_id),
+        # 6.3-b: a metric says how the concept is counted; it is the concept's as much as a
+        # constraint on it is.
+        *view.metrics_on(concept_id),
     ]
     return sum(1 for obj in objects if obj.get("status") == "drafted"), len(objects)
 
@@ -99,6 +102,8 @@ def conflict_text(view: CatalogView, table: str, conflict: dict) -> str:
     if conflict["rule"] == "grain_not_proven":
         confidence = CONFIDENCE_TEXT.get(str(conflict.get("confidence")), "无")
         return f"{expr_span(table)}：目录声明粒度已证明，血缘只到{confidence}（{keys}）"
+    if conflict["rule"] == "grain_not_exposed":
+        return f"{expr_span(table)}：目录声明粒度已证明，血缘证明的键没有写到目标列上"
     declared = "、".join(expr_span(key) for key in conflict.get("declared") or [])
     proven = "、".join(expr_span(key) for key in conflict.get("proven") or [])
     return f"{expr_span(table)}：目录声明粒度 {declared}，血缘证明的是 {proven}"

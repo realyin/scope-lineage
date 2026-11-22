@@ -111,9 +111,13 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
   given and after this run's own cache; it implies `--incremental`, and `--no-cache` still
   wins. The corpus path is **not** part of the options digest: the same task has to derive
   the same facts wherever it was parsed.
-- Fact files are keyed by task name, and two corpora may hold different tasks under one
-  name. What decides a borrow is the fingerprint and the options digest recorded inside the
-  file, not the file's name, so a task of the same name and other contents is recomputed.
+- A fact file is found by the task's name (its path under `--lineage`) and, failing that,
+  by the sha256 of its `lineage.json`: each cache lists its files by content in
+  `.cache/by-content/index.json`, so a task walked as `task_a` by a subset run and as
+  `domain_a/task_a` by the superset run is still borrowed, and so is a task from a
+  single-file run. Two corpora may hold different tasks under one name; what decides a
+  borrow is the fingerprint and the options digest recorded inside the file, not how it
+  was found, so a task of the same name and other contents is recomputed.
 - A changed option invalidates the whole index and recomputes everything: the **content**
   of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
   and the tool version. An index or a cache file written by another subcommand (a
@@ -123,6 +127,12 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
   reads `reused=N (borrowed=B)`, `B` being the tasks borrowed from another corpus.
 - Without `--incremental` the run is the full one it always was, reading and writing
   neither index nor cache; `--no-cache` deletes both first and then runs in full.
+- **A page this command published earlier and no longer publishes is removed**, with or
+  without `--incremental`: a card for a table no task touches any more. Only
+  `tables/*.md` directly under `--out` is ever deleted, and only a file this command's own
+  record names -- the index's `written` list, or the `tables.json` the earlier run wrote beside
+  the pages. A file you put there, or one another command published into a shared `--out`,
+  stays. A `--format json` run does not touch the markdown.
 
 ## Merging across corpora: `--merge`
 
@@ -211,7 +221,8 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
          "corpus": "…",                                 // only after a merge
          "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
-         "grain": {"basis": "group_by", "keys": ["customer_id"]},
+         "grain": {"basis": "group_by", "keys": ["customer_id"],
+                   "evidence": ["logic:ROOT:group_by:001"]},  // evidence: only when the producer recorded any
          "candidate_keys": ["customer_id"], "key_confidence": "proven",
          "fields": [{"column": "…", "comment": null, "summary": "…", "structural_role": "measure"}],
          "refresh": {"cycle": "day", "cron": "…", "source": "task_meta"},
@@ -241,6 +252,12 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   `output_shape`, `fields`); `refresh` comes from the task JSON's `meta`
   (`schedule_cycle` / `schedule`) and stays `null` when none was supplied — a cadence is
   never guessed from a partition column or a table name.
+- `produced_by[].grain.keys` names each logical key by its target column; a key the SELECT
+  never projected (`GROUP BY id, upper(k)` writing only an aggregate) is written as the
+  expression it groups by, `` UPPER(`a`.`k`) ``, never as `None`. `grain.evidence` (optional,
+  present only when non-empty) is the producer's own `output_shape.grain.evidence`: the
+  logic blocks behind the grain, or the reason its walk stopped; a reader's
+  `card.grain_text` quotes the first entry when the producer could not decide its grain.
 - A MERGE producer's `grain`, `candidate_keys` and `key_confidence` are its written batch's
   (M1; they used to be `unknown` / `[]` / `none`). They still say nothing about the table:
   a merging producer is an appending one, so the card's `key_claim` is defeated.
@@ -284,6 +301,13 @@ in the corpus matches it by suffix; when several do, it gets a card of its own a
 card's `findings` carry `ambiguous_bare_name`, for a person to confirm which table the
 script actually reads and writes.
 
+The same holds one level up. Names are normalized first (quotes dropped, lower case, a leading
+catalog dropped only when `SCOPE_LINEAGE_CATALOG_PREFIXES` names it), so a quoted `` `ODS`.`Orders` ``
+writer and an `ods.orders` reader are one card, while `cat1.ods.t` and `cat2.ods.t` stay two
+cards when their catalogs are not configured. An `ods.t` written beside both could be either:
+it gets its own card with `ambiguous_bare_name` (the finding keeps its name although the name
+is qualified).
+
 ### Sample values (`--samples`)
 
 Core does not connect to a database, so "what does a value of this column look like" can
@@ -307,9 +331,11 @@ mart.customer_daily,country_code,CN,10
 }
 ```
 
-- **The table name is matched the way a card normalizes it**: last two segments, case
-  ignored, so `spark_catalog.MART.t` is the `mart.t` on the card. Column names ignore case
-  too.
+- **The table name is matched by the table identity**: quotes and case ignored, a configured
+  catalog dropped, and a spelling that differs only by qualification matched when the file
+  holds no other table it could be -- so `spark_catalog.MART.t` on a card finds rows for
+  `mart.t`, but rows for `cat1.mart.t` and `cat2.mart.t` stay with their own cards. Column
+  names ignore case too.
 - **At most N distinct values per column** (default 5, `--samples-top`): ordered by `count`
   descending where the file gave counts, otherwise in file order; a repeated value takes
   one slot, not two.
@@ -422,6 +448,7 @@ simply its fourth source of evidence. Everything derived from `output_shape` —
 | The JOIN's right side is a physical table whose card has `key_confidence: "proven"` and whose `candidate_keys` are a subset of that JOIN's right-side key columns | that risk becomes `safe`, its `reason` reads 「生产任务 `<task>` 已证明 `<keys>` 唯一（表卡）」, and it carries `basis: "table_card"` |
 | The same, but the card's `key_confidence` is `candidate` | still `safe`, but the `reason` says 「表卡候选键，未证唯一」 and the statement's whole `key_confidence` is capped at `candidate` |
 | The card's `key_confidence` is `proven_unexposed` or `none`, or the join keys do not cover the candidate keys | nothing is re-decided; the original verdict stands |
+| The card holds a key, but the JOIN has no usable key pair at all (an ON clause joined by OR, say) | nothing is re-decided, the verdict stays `unknown`; the `reason` reads 「该 JOIN 无可证明的连接键，右侧唯一性无从判定」 rather than 「物理表无主键事实」 -- the table has a key fact, what is missing is this JOIN's key |
 | Some producer appends (`INSERT INTO`) or merges (`MERGE`) into the table, or the producers disagree on the candidate keys | re-decided `unknown`, the `reason` saying why: the key is unique within one batch only / which version is read depends on the schedule (F2) |
 | The JOIN's right side is not the physical table but a subquery or CTE holding one table's rows -- every scope down to the table reads one input and only filters, and the join columns reach the table unchanged (G5a-2) | the card of that table is asked as above, with the WHERE equalities on the way as pins; a card with no answer leaves the original verdict |
 | Such a row subset reads the table at one point: the top-level WHERE conjuncts on the way hold `start <= X` and `end > X` (also written `X >= start`, `X < end`) for one literal or `${…}` X; one producer on the card carries `validity_window`, the ON clause's right-hand columns cover its `partition`, this statement's metadata declares start and end of one type, and no producer of another task writes either column (round-3 G6) | decided before the rows above. A whole-table overwrite writing the window gives `safe`; a MERGE gives `unknown`, because it matches on (partition, start) and nothing proves that pair unique in the table. The `reason` reads 「表卡：<task>/<statement> 以 LEAD(start) OVER (PARTITION BY partition ORDER BY start) 写 end，有效期首尾相接；本侧按 start <= X < end 读」, then the conclusion and its condition (「若表中 (partition, start) 不重复，每个 partition 至多一行有效、不放大；不成立时（(partition, start) 重复）右侧同一 partition 可能多行有效、会放大（写入方 MERGE 此时多行匹配，结果取决于引擎）」); when the card's producers' `batch_write_keys` hold columns the window does not partition by, it adds 「写入键比窗口分区多出 <columns>」 and the consequence, and when ON holds such columns, 「ON 另按 <columns> 关联……则关联不到」. `basis` is `table_card`; the `claim`'s rule is `R-VALIDITY-WINDOW` (`conditional` for a MERGE, with `conditions` `[["validity_rows_unique", [partition…, start]]]`, on the premise `A-WRITERS-CLOSED`). A validity table whose old versions are closed by a hash comparison is not covered: one SQL statement cannot prove its intervals do not overlap |

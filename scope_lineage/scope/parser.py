@@ -19,7 +19,9 @@ from sqlglot import ErrorLevel
 from sqlglot import exp
 
 from ..sqlglot_config import suppress_invalid_json_path_warnings
-from ..metadata.schema_metadata import load_schema as load_schema, normalize_table_name as _schema_normalize_table_name, strip_catalog_prefix as _strip_catalog_prefix
+from ..metadata.schema_metadata import load_schema as load_schema, normalize_table_name as _schema_normalize_table_name, schema_table_key
+from ..table_identity import canonical_table_name
+from .sql_text_spans import SQL_LITERAL_OR_COMMENT
 
 
 DIALECT = "spark"
@@ -70,17 +72,24 @@ def _qualified_table(t: exp.Table) -> str:
     if db is not None:
         parts.append(_name_part(db))
     parts.append(_name_part(t.this) if isinstance(t.this, exp.Parameter) else t.name)
-    # Drop a leading known-catalog segment so a physical table has ONE identity
-    # in lineage.json whether the SQL wrote catalog.db.table or db.table. Without
-    # this the same table appears under two forms (duplicate source_tables, split
-    # column lineage). Vocabulary-conditioned: only known catalogs are stripped,
-    # so db.table stays intact.
-    return _strip_catalog_prefix(".".join(parts))
+    # The table identity's one spelling (WP5): lower case, and a leading catalog dropped
+    # when it is a configured one, so a physical table has ONE identity in lineage.json
+    # whether the SQL wrote catalog.db.table or db.table. Vocabulary-conditioned: only
+    # configured catalogs are stripped, so db.table stays intact. Lower-casing matters
+    # for the *target*: qualify lower-cases the tables a query reads, but nothing
+    # normalized the one it writes, so ``SPARK_CATALOG.mart.y`` kept its catalog and
+    # ``MART.Y`` and ``mart.y`` were two table states.
+    return canonical_table_name(".".join(parts))
 
 
 def _normalize_table_name(name: str) -> str:
     """Normalize table names for schema lookup."""
     return _schema_normalize_table_name(name)
+
+
+def _schema_key(schema, name: str) -> str:
+    """The key ``schema`` holds ``name`` under (the identity's suffix rule), else its name."""
+    return schema_table_key(schema, name) if schema is not None else _normalize_table_name(name)
 
 
 # -- display-expression resolution ---------------------------------------
@@ -113,10 +122,9 @@ def _alias_to_physical_table(alias_bindings: List[dict]) -> Dict[str, str]:
     return amap
 
 
-# A string literal ('...', with '' / \\ escapes) or a comment (/* */ or -- ...). These spans carry
-# text that must NEVER be treated as code: a literal like 'a.b' or a Chinese comment mentioning a
-# qualifier would otherwise be corrupted by a blind alias substitution.
-_SQL_LITERAL_OR_COMMENT = r"'(?:''|\\.|[^'])*'|/\*.*?\*/|--[^\n\r]*"
+# A string literal or a comment (`SQL_LITERAL_OR_COMMENT`, shared with every other text pass):
+# these spans carry text that must NEVER be treated as code -- a literal like 'a.b' or a Chinese
+# comment mentioning a qualifier would otherwise be corrupted by a blind alias substitution.
 
 
 def resolve_display_expression(expression: Any, alias_bindings: List[dict]) -> Any:
@@ -137,8 +145,10 @@ def resolve_display_expression(expression: Any, alias_bindings: List[dict]) -> A
         return expression
     alias_alt = "|".join(re.escape(a) for a in sorted(amap, key=len, reverse=True))
     token = re.compile(
-        rf"(?P<skip>{_SQL_LITERAL_OR_COMMENT})"
-        rf"|`(?P<qa>{alias_alt})`\s*\."          # backtick-qualified: `a`.
+        rf"(?P<skip>{SQL_LITERAL_OR_COMMENT})"
+        # backtick-qualified: `a`. -- but not a later segment of a dotted path: in
+        # `u`.`profile`.`u`.`name` the second `u` is a struct field, not the alias (1.13-d)
+        rf"|(?<![\w.`])`(?P<qa>{alias_alt})`\s*\."
         rf"|(?<![\w.`])(?P<ba>{alias_alt})\s*\.",  # bare qualifier: a. (not mid-identifier/dotted)
         re.IGNORECASE | re.DOTALL,
     )

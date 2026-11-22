@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 
 import pytest
+import sqlglot
 from sqlglot.dialects.spark import Spark
 
 from scope_lineage.contract import to_lineage_dict
@@ -25,6 +26,7 @@ from scope_lineage.scope.expression_text import (
     _SQL_KEYWORDS_BEFORE_PAREN,
     _function_names,
 )
+from scope_lineage._function_names_snapshot import SQLGLOT_VERSION as REGISTRY_SNAPSHOT_VERSION
 from scope_lineage.function_catalog import _KNOWN_SCALAR_FUNCTIONS
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
@@ -65,8 +67,17 @@ def _udf_expressions(document: dict) -> list[str]:
 # ------------------------------------------------------- the sqlglot Spark registry
 
 
+@pytest.mark.skipif(
+    sqlglot.__version__ != REGISTRY_SNAPSHOT_VERSION,
+    reason="the registry snapshot is taken from the pinned sqlglot; other versions only report",
+)
 def test_every_spark_dialect_function_name_is_in_the_catalog() -> None:
-    """sqlglot's Spark grammar is the reference list; the catalog must not fall behind."""
+    """sqlglot's Spark grammar is the reference list; the catalog must not fall behind.
+
+    Checked on the sqlglot the snapshot was taken from (``constraints-dev.txt``): bumping
+    the pin without regenerating the snapshot fails here. Other supported versions differ
+    by design and are reported by ``test_function_catalog_snapshot``.
+    """
     registered = {
         name.lower()
         for name in Spark.Parser.FUNCTIONS
@@ -252,3 +263,95 @@ def test_a_real_call_beside_a_keyword_is_still_collected() -> None:
         "upper",
         "coalesce",
     ]
+
+
+# ------------------------------ comments and type names are not calls (WP4 1.13-m)
+
+# A type in a CAST is written `DECIMAL(18, 2)`, the same `<name>(` shape as a call, and a
+# block comment stays inside the expression text sqlglot renders. Both were harvested as
+# function names, and a name the catalog cannot place is published as a UDF: an ordinary
+# CAST, or a comment mentioning `decimal(10,2)`, became a "UDF black box".
+
+TYPE_AND_COMMENT_MEASURES = {
+    "cast_to_decimal": "CAST(src.amt AS DECIMAL(18, 2))",
+    "cast_to_varchar": "CAST(src.s AS VARCHAR(20))",
+    "colon_cast": "src.amt::DECIMAL(38, 10)",
+    "block_comment_call": "src.amt + src.bal /* note(x) */",
+    "block_comment_type": "src.amt /* decimal(10,2) rounded upstream */ + src.bal",
+}
+
+
+@pytest.mark.parametrize(
+    "measure", TYPE_AND_COMMENT_MEASURES.values(), ids=TYPE_AND_COMMENT_MEASURES
+)
+def test_a_type_name_or_a_comment_is_not_a_udf(measure: str) -> None:
+    assert _udf_expressions(_measure_document(measure)) == []
+
+
+@pytest.mark.parametrize(
+    "measure", TYPE_AND_COMMENT_MEASURES.values(), ids=TYPE_AND_COMMENT_MEASURES
+)
+def test_a_type_name_or_a_comment_is_not_published_as_a_function(measure: str) -> None:
+    document = _measure_document(measure)
+
+    found = set()
+    for scope in (document.get("scopes") or {}).values():
+        for item in [*(scope.get("logic_blocks") or []), *(scope.get("outputs") or [])]:
+            found.update((item.get("expression_features") or {}).get("functions") or [])
+
+    assert not found & {"decimal", "varchar", "note"}
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("cast(x as decimal(18, 2))", []),
+        ("x::decimal(18, 2)", []),
+        ("round(x, 2) /* upper(y) */", ["round"]),
+        ("round(x, 2) -- upper(y)", ["round"]),
+        # Sentinels: a real call stays a call, `char(` included -- it is a Spark function
+        # as well as a type, so it is skipped only where a type is written.
+        ("char(65)", ["char"]),
+        ("concat(cast(x as char(4)), char(65))", ["concat", "char"]),
+        ("upper('/* not a comment */') || lower(y)", ["upper", "lower"]),
+    ],
+)
+def test_function_names_skip_types_and_comments(expression: str, expected: list[str]) -> None:
+    assert _function_names(expression) == expected
+
+
+def test_a_cast_beside_a_real_udf_still_reports_the_udf() -> None:
+    flagged = _udf_expressions(_measure_document("my_udf(CAST(src.amt AS DECIMAL(18, 2)))"))
+
+    assert flagged
+    assert all("my_udf" in expression.lower() for expression in flagged)
+
+
+# ------------------------- a builtin sqlglot leaves anonymous is not a UDF (S10)
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [
+        "now()",
+        "NOW()",
+        "current_timestamp()",
+        "current_date()",
+        "unix_timestamp()",
+        "from_unixtime(unix_timestamp(), 'yyyyMMdd')",
+        "date_format(now(), 'yyyy-MM-dd')",
+    ],
+)
+def test_a_builtin_that_sqlglot_leaves_anonymous_is_not_a_udf(projection: str) -> None:
+    """sqlglot parses ``now()`` as ``exp.Anonymous``; the projection subtype read every
+    top-level anonymous call as ``udf`` without asking the catalog, which knows ``now``."""
+    document = _document(f"INSERT OVERWRITE TABLE d.t SELECT {projection} AS etl_ts, id FROM ods.e")
+
+    assert _udf_expressions(document) == []
+
+
+def test_a_top_level_unknown_call_is_still_a_udf() -> None:
+    flagged = _udf_expressions(_document("INSERT OVERWRITE TABLE d.t SELECT my_udf(id) AS k FROM ods.e"))
+
+    assert flagged
+    assert all("my_udf" in expression.lower() for expression in flagged)

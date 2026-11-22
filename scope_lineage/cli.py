@@ -28,7 +28,7 @@ from .cli_semantic import add_semantic_parser, run_semantic
 from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
 from .contract import write_task_lineage
 from .corpus_cache import _code_digest, add_incremental_arguments, open_cache
-from .metadata.schema_metadata import load_schema, load_schema_sources
+from .metadata.schema_metadata import MetadataFileError, load_schema, load_schema_sources
 from .metadata.target_table_metadata import load_target_table_metadata
 from .scope.expansion_budget import EXPANSION_MAX_SUBSTITUTIONS
 from .scope.task_lineage import parse_task_lineage
@@ -939,12 +939,21 @@ def _describe_one(item, formats: set, patch, table_cards, glossary, ontology, se
 
 def _patch_report(patch) -> str:
     """The unmatched half of a patch run, or nothing when no patch was supplied."""
+    rejected = _patch_rejected_report(patch, "patch_")
     if not patch:
-        return ""
+        return rejected
     unmatched = patch.unmatched()
     return f", patch_unmatched={len(unmatched)}" + (
         f" ({'、'.join(unmatched)})" if unmatched else ""
-    )
+    ) + rejected
+
+
+def _patch_rejected_report(patch, prefix: str) -> str:
+    """The entries the patch loader refused, by key and reason; nothing when none were."""
+    rejected = getattr(patch, "rejected", None) or []
+    if not rejected:
+        return ""
+    return f", {prefix}rejected={len(rejected)} ({'、'.join(rejected)})"
 
 
 class _SourceFile(NamedTuple):
@@ -994,21 +1003,27 @@ def _parse_inputs(args: argparse.Namespace) -> int:
         for path in [args.schema, *args.schema_fallback]
         if path
     ]
-    schema = None
-    if schema_paths:
-        loader = load_schema_sources if len(schema_paths) > 1 else load_schema
-        schema = loader(
-            schema_paths if len(schema_paths) > 1 else schema_paths[0],
-            sanitize_nul=args.sanitize_metadata_nul,
+    # An unusable metadata file is an input error like a bad --metadata-patch: its
+    # message on stderr and exit 2, not a Traceback with the "a task failed" exit 1.
+    try:
+        schema = None
+        if schema_paths:
+            loader = load_schema_sources if len(schema_paths) > 1 else load_schema
+            schema = loader(
+                schema_paths if len(schema_paths) > 1 else schema_paths[0],
+                sanitize_nul=args.sanitize_metadata_nul,
+            )
+        target_metadata = (
+            load_target_table_metadata(
+                args.target_ddl_metadata,
+                sanitize_nul=args.sanitize_metadata_nul,
+            )
+            if args.target_ddl_metadata
+            else None
         )
-    target_metadata = (
-        load_target_table_metadata(
-            args.target_ddl_metadata,
-            sanitize_nul=args.sanitize_metadata_nul,
-        )
-        if args.target_ddl_metadata
-        else None
-    )
+    except MetadataFileError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     # WI-2.6. Applied to each statement document by the same function
     # `describe --metadata-patch` uses, so the two paths publish one document.
     # The answers are masked as they are read, under the same switch the SQL author's
@@ -1192,18 +1207,22 @@ def _parse_task_inputs_v2(
         _print_unbound_parameters(unbound_referencers)
         return 1 if missing_referencers or unbound_referencers or input_failed_count else 0
 
+    # The batch manifest lands next to the artifacts, and lists unbound parameter tables
+    # exactly as the preflight one does -- also when they are the only gap. A single-file
+    # parse keeps its output directory to exactly the task artifact and lists gaps inline.
+    batch = bool(getattr(args, "input_dir", None))
+    if batch and (missing_referencers or unbound_referencers):
+        _write_metadata_gap_manifest(
+            manifest_path,
+            referenced_tables=referenced_tables,
+            covered_tables=covered_tables,
+            missing_referencers=missing_referencers,
+            unbound_referencers=unbound_referencers,
+            input_count=len(source_files),
+            input_failed_count=input_failed_count,
+        )
     if missing_referencers:
-        # The batch manifest lands next to the artifacts; a single-file parse keeps
-        # its output directory to exactly the task artifact and lists gaps inline.
-        if getattr(args, "input_dir", None):
-            _write_metadata_gap_manifest(
-                manifest_path,
-                referenced_tables=referenced_tables,
-                covered_tables=covered_tables,
-                missing_referencers=missing_referencers,
-                input_count=len(source_files),
-                input_failed_count=input_failed_count,
-            )
+        if batch:
             detail = f"list written to {manifest_path}"
         else:
             detail = "、".join(sorted(missing_referencers))
@@ -1213,13 +1232,14 @@ def _parse_task_inputs_v2(
             "(run with --metadata-preflight to review before parsing)"
         )
     _print_unbound_parameters(unbound_referencers)
-    if metadata_patch:
+    if metadata_patch or getattr(metadata_patch, "rejected", None):
         unmatched = metadata_patch.unmatched()
         detail = f"; unmatched: {'、'.join(unmatched)}" if unmatched else ""
         print(
             f"Metadata patch: {len(metadata_patch.tables)} table entry/entries and "
             f"{len(metadata_patch.columns)} column entry/entries from "
             f"{len(metadata_patch.sources)} file(s), unmatched={len(unmatched)}{detail}"
+            f"{_patch_rejected_report(metadata_patch, '')}"
         )
     print(
         f"Parsed {statement_count} statement(s) from {len(source_files)} input(s) "

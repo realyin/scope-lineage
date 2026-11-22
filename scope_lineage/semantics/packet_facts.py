@@ -11,6 +11,7 @@ which filters touch a business date).
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 
 import sqlglot
 from sqlglot import exp
@@ -32,10 +33,13 @@ _RULE_KINDS = {"filter": "filter", "having": "filter", "join_condition": "join",
 # hold predicates, joins and CASE branches.
 _STAGE_RULE_ACTIONS = {"window": "dedup", "distinct": "dedup", "union": "union"}
 
-# Warehouse naming conventions for what one partition of a table holds. A convention,
-# not a fact: published as `name_convention` so a reader sees what the check assumed.
-_FULL_SUFFIX = re.compile(r"_(df|da|full|snapshot)$")
-_INCREMENTAL_SUFFIX = re.compile(r"_(di|hi|inc|incr|delta)$")
+# A warehouse's naming convention for what one partition of a table holds is the
+# warehouse's, not the package's: it comes from the caller (`semantic packet
+# --domain-profile`, `table_name_convention`) as `{"full": (suffix, ...), "incremental":
+# (...)}`. Without one no name means anything and every input is `unknown`. With one it
+# is still a convention, not a fact: published as `name_convention` so a reader sees
+# what the check assumed.
+NameConvention = Mapping[str, Sequence[str]]
 _DATE_NAME = re.compile(r"(^|_)(date|dt|day|time|ts|month)$")
 _DATE_TYPE = re.compile(r"^(date|timestamp|datetime)")
 _DATE_COMMENT = re.compile(r"(date|time|日期|时间)", re.IGNORECASE)
@@ -496,8 +500,14 @@ def partition_filter_rules(table: str, rules: list[dict]) -> list[tuple[str, dic
     return found
 
 
-def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
-    """How one input's partitions are read, and its non-partition business-date filters."""
+def input_time_facts(
+    table: str, rules: list[dict], columns: list[dict], convention: NameConvention | None = None
+) -> dict:
+    """How one input's partitions are read, and its non-partition business-date filters.
+
+    ``convention`` is the caller's table-name convention; a table is a ``full`` snapshot
+    -- and an equality read of one partition a ``full_snapshot`` -- only by it.
+    """
     partition = [expression for expression, _rule in partition_filter_rules(table, rules)]
     by_name = {column["name"]: column for column in columns}
     dated = [
@@ -512,13 +522,13 @@ def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict
     ]
     _mark_date_shapes(dated, _batch_values(partition))
     read = _partition_read(partition)
-    convention = _name_convention(table)
+    named = _name_convention(table, convention)
     return {
         "partition_read": read,
         "partition_filters": partition,
         "date_filters": dated,
-        "name_convention": convention,
-        "full_snapshot": read == "equality" and convention == "full",
+        "name_convention": named,
+        "full_snapshot": read == "equality" and named == "full",
     }
 
 
@@ -694,12 +704,13 @@ def partition_values(expression: str) -> list[str] | None:
     return re.findall(_LITERAL, written)
 
 
-def _name_convention(table: str) -> str:
-    name = table.rsplit(".", 1)[-1]
-    if _FULL_SUFFIX.search(name):
-        return "full"
-    if _INCREMENTAL_SUFFIX.search(name):
-        return "incremental"
+def _name_convention(table: str, convention: NameConvention | None) -> str:
+    """``full`` / ``incremental`` when the last name segment ends in ``_<suffix>`` of the
+    caller's convention, else ``unknown``."""
+    name = table.rsplit(".", 1)[-1].lower()
+    for kind in ("full", "incremental"):
+        if any(name.endswith(f"_{suffix}") for suffix in (convention or {}).get(kind, ())):
+            return kind
     return "unknown"
 
 

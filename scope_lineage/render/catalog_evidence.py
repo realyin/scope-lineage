@@ -48,7 +48,7 @@ from typing import NamedTuple, Optional
 
 from .catalog_view import catalog_table_name, lookup_columns, realises
 from .ontology import join_key_pairs, write_statements
-from .semantic_profile import build_semantic_profile
+from .semantic_profile import KEY_CONFIDENCE_PROVEN_UNEXPOSED, build_semantic_profile
 from .table_cards import refresh_from_task_meta
 
 EXPRESSION_LIMIT = 200
@@ -181,13 +181,28 @@ def _cycle(task_meta) -> Optional[str]:
 
 
 def _grain(shape: Mapping) -> dict:
-    confidence = _CONFIDENCE.get(str(shape.get("key_confidence") or "none"), "none")
+    """The grain one statement proves, named by the *target* columns it writes.
+
+    Audit WP2f: ``candidate_keys`` is read at every confidence. ``grain.keys[].name``
+    are the logical keys of the scope that decides the grain -- a CTE's own column
+    names, pinned keys included -- and compared with the catalog's target columns they
+    raised ``grain_mismatch`` for a renamed or pinned key. A key that holds but is not
+    written (``proven_unexposed``) is marked, so the conflict can say so.
+    """
+    level = str(shape.get("key_confidence") or "none")
     grain = shape.get("grain") or {}
-    if confidence == "proven":
-        keys = [str(key.get("name")) for key in grain.get("keys") or []]
-    else:
-        keys = [str(key) for key in shape.get("candidate_keys") or []]
-    return {"confidence": confidence, "keys": keys, "basis": grain.get("basis")}
+    found = {
+        "confidence": _CONFIDENCE.get(level, "none"),
+        "keys": [str(key) for key in shape.get("candidate_keys") or []],
+        "basis": grain.get("basis"),
+    }
+    if level == KEY_CONFIDENCE_PROVEN_UNEXPOSED:
+        found[_UNEXPOSED] = True
+    return found
+
+
+#: Internal marker on a statement's grain: proven, but not on the columns it writes.
+_UNEXPOSED = "unexposed"
 
 
 # ------------------------------------------------------------------- the catalog side
@@ -310,7 +325,7 @@ def _lineage_entry(rep: Mapping, writers: list, readers: list) -> dict:
         entry["downstream_tables"] = downstream
     if writers:
         proof, partition = _strongest_proof(writers)
-        entry["grain_proof"] = proof
+        entry["grain_proof"] = {key: value for key, value in proof.items() if key != _UNEXPOSED}
         conflicts = grain_conflicts(rep, proof, partition)
         if conflicts:
             entry["conflicts"] = conflicts
@@ -337,6 +352,9 @@ def grain_conflicts(rep: Mapping, proof: Mapping, partition: set) -> list[dict]:
     if proof["confidence"] != "proven":
         if source != "proven":
             return []
+        if proof.get(_UNEXPOSED):
+            # The SQL proves a key, but not on columns it writes: nothing to compare.
+            return [{"rule": "grain_not_exposed", "declared_source": source}]
         return [
             {
                 "rule": "grain_not_proven",

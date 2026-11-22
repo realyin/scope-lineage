@@ -4,10 +4,10 @@
     "artifact_root": "corpus",
     "task_count": 5,
     "lineage_digests": {
-      "golden_commented_insert": "ff70e54f4ad02643",
-      "golden_commented_task": "26802adba54fbd12",
+      "golden_commented_insert": "f6b9b653a6449d5b",
+      "golden_commented_task": "eb4aa6453c1fd0ab",
       "golden_directory_target": "1ba502ab8f5efe17",
-      "golden_grouped_dedup_join": "66a2fc769ee91f3c",
+      "golden_grouped_dedup_join": "d15342fea4d367ff",
       "golden_simple_insert": "a23847b8454847b7"
     }
   },
@@ -238,6 +238,9 @@
             "keys": [
               "customer_id",
               "channel_name"
+            ],
+            "evidence": [
+              "logic:ROOT:group_by:001"
             ]
           },
           "candidate_keys": [
@@ -275,7 +278,7 @@
             "口径：仅统计生效状态的客户",
             "口径问题联系 <email>（合成地址）"
           ],
-          "lineage_digest": "ff70e54f4ad02643"
+          "lineage_digest": "f6b9b653a6449d5b"
         },
         {
           "task": "golden_commented_task",
@@ -295,6 +298,9 @@
             "keys": [
               "customer_id",
               "channel_name"
+            ],
+            "evidence": [
+              "logic:ROOT:group_by:001"
             ]
           },
           "candidate_keys": [
@@ -335,7 +341,7 @@
             "任务：客户渠道汇总（合成示例）",
             "口径：仅统计生效状态的客户"
           ],
-          "lineage_digest": "26802adba54fbd12"
+          "lineage_digest": "eb4aa6453c1fd0ab"
         }
       ],
       "consumed_by": [],
@@ -457,6 +463,9 @@
             "keys": [
               "segment",
               "band"
+            ],
+            "evidence": [
+              "logic:cte:agg:group_by:001"
             ]
           },
           "candidate_keys": [
@@ -508,7 +517,7 @@
           ],
           "refresh": null,
           "header_comments": [],
-          "lineage_digest": "66a2fc769ee91f3c"
+          "lineage_digest": "d15342fea4d367ff"
         }
       ],
       "consumed_by": [],
@@ -637,7 +646,10 @@
           },
           "grain": {
             "basis": "driving_table_rows",
-            "keys": []
+            "keys": [],
+            "evidence": [
+              "ods.users"
+            ]
           },
           "candidate_keys": [],
           "key_confidence": "none",

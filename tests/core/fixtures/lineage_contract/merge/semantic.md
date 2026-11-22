@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "merge_contract"
 target_table: "mart.customer_profile"
 stmt_kind: "MERGE"
-lineage_digest: "2467f32c459c3d23"
+lineage_digest: "c5cd1b6e82999004"
 ---
 
 # 任务语义描述 mart.customer_profile
@@ -41,7 +41,7 @@ lineage_digest: "2467f32c459c3d23"
 - 动作：无（该 scope 只做投影）。（SQL事实）
 - 输出：2 列（`customer_id`、`customer_name`）（SQL事实）
 
-### 阶段 2：ROOT（`ROOT`，角色 pass_through）
+### 阶段 2：ROOT（`ROOT`，角色 join）
 
 - 直接输入：`subq:source`（SQL事实）
 - 直接读取物理表：无（仅读上游 scope）（SQL事实）

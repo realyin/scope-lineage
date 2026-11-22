@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from ..scope.task_lineage import TaskLineageResult
+from ..serialize.scope_profile import apply_session_relations
 from .lineage import _diagnostics_summary
 from .validation import (
     validate_cross_references,
@@ -20,7 +21,7 @@ from .validation import (
 def to_task_lineage_dict(result: TaskLineageResult) -> dict:
     state_graph = copy.deepcopy(result.table_state_graph)
     state_graph.pop("nodes_by_id", None)
-    return {
+    document = {
         "schema_version": "2.0",
         "artifact_kind": "task_lineage",
         "task_id": result.task_id,
@@ -46,6 +47,9 @@ def to_task_lineage_dict(result: TaskLineageResult) -> dict:
         "task_dependencies": copy.deepcopy(result.task_dependencies),
         "diagnostics": copy.deepcopy(result.diagnostics),
     }
+    # C2.5-1: a statement's profile cannot see the script's temporary views; the task can.
+    apply_session_relations(document)
+    return document
 
 
 def to_task_lineage_json(result: TaskLineageResult, indent: int = 2) -> str:
@@ -184,8 +188,13 @@ def _validate_owned_output_directory(output: Path) -> None:
     owned_names = {
         "lineage.json",
         "diagnostics.json",
+        # Derived views: render writes mapping.md/warnings.md and describe writes
+        # semantic.json/semantic.md next to lineage.json. They describe the old
+        # contract, so a new generation drops them with it.
         "mapping.md",
         "warnings.md",
+        "semantic.json",
+        "semantic.md",
     }
     unknown = sorted(path.name for path in output.iterdir() if path.name not in owned_names)
     if unknown:

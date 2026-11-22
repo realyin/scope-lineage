@@ -467,7 +467,7 @@
     },
     "ROOT": {
       "kind": "root",
-      "role": "pass_through",
+      "role": "join",
       "depends_on": [
         "subq:source"
       ],
@@ -943,6 +943,27 @@
           "merge_when_index": 1,
           "display_expression": "`customer_name`"
         }
+      ],
+      "joins": [
+        {
+          "join_type": "MERGE",
+          "left_scope": "mart.customer_profile",
+          "right_scope": "subq:source",
+          "alias_in_parent": "source",
+          "condition_expression": "`target`.`customer_id` = `source`.`customer_id`",
+          "condition_columns": [
+            {
+              "scope": "mart.customer_profile",
+              "column": "customer_id",
+              "qualifier": "target"
+            },
+            {
+              "scope": "subq:source",
+              "column": "customer_id",
+              "qualifier": "source"
+            }
+          ]
+        }
       ]
     }
   },
@@ -1363,11 +1384,11 @@
         "scope_id": "ROOT",
         "name": "ROOT",
         "kind": "root",
-        "role": "pass_through",
+        "role": "join",
         "operations": [
-          "pass_through"
+          "join"
         ],
-        "business_summary": "基于 subq:source；上游可追溯至 ods.customer_delta",
+        "business_summary": "基于 subq:source；关联 1 个上游；上游可追溯至 ods.customer_delta",
         "direct_inputs": [
           "subq:source"
         ],
@@ -1377,7 +1398,13 @@
         ],
         "output_columns": 3,
         "logic": {
-          "joins": [],
+          "joins": [
+            {
+              "type": "MERGE",
+              "right": "subq:source",
+              "on": "`target`.`customer_id` = `source`.`customer_id`"
+            }
+          ],
           "filters": [],
           "aggregations": [],
           "window_functions": [],
@@ -1454,8 +1481,8 @@
     "lineage_fact_gap_types": {},
     "lineage_fact_gap_samples": [],
     "stats": {
-      "scope_count": 3,
-      "physical_table_count": 1,
+      "scope_count": 4,
+      "physical_table_count": 2,
       "cte_count": 0,
       "subquery_count": 1,
       "union_count": 0,
@@ -1463,7 +1490,7 @@
       "max_depth": 2,
       "case_when_count": 0,
       "window_function_count": 0,
-      "join_count": 0,
+      "join_count": 1,
       "aggregate_function_count": 0
     },
     "full_diagnostics_file": "diagnostics.json"

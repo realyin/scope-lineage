@@ -1,6 +1,102 @@
 # Changelog
 
 ## Unreleased
+- **Re-parsing after `describe` no longer fails; it deletes the old `semantic.*`.** `describe`
+  writes `semantic.json` / `semantic.md` next to `lineage.json` by default, but the task writer
+  did not know those names and refused to replace the directory (`input_failed=1`). They are now
+  treated like `mapping.md` / `warnings.md`: views derived from the old contract, removed when a
+  new parse generation replaces the task directory. Run `describe` again after re-parsing.
+- **`tables --merge` no longer crashes on a bare name another corpus makes ambiguous.** A bare
+  `t` that one corpus folded into `ods.t` became its own group once a second corpus brought
+  `dwd.t`, and no card answered for it (`IndexError`). The merge now matches cards by table and
+  aliases, so `t` gets a card with `ambiguous_bare_name` that keeps the bare-name reader; a group
+  no card answers for gets a card holding only that finding.
+- **A comment in target DDL no longer hangs `parse`.** `id BIGINT, -- user's id` hid the column
+  list from the keyword-column rewrite, so a column named `not` reached sqlglot unquoted and the
+  load never returned. Comments are now skipped in the same pass that tracks quotes; a `--`
+  inside a `COMMENT '...'` string is still text.
+- **A metadata file holding only a UTF-8 BOM is reported as empty** (`MetadataFileError`)
+  instead of failing with `IndexError`.
+- **One unusable file in a `--target-ddl-metadata` directory costs only that file.** An empty
+  file, a file that is not UTF-8, or a JSON array used to abort the whole directory; like a
+  malformed JSON file, it is now recorded in `metadata_conflicts` (`metadata_rejected`) and the
+  rest loads. A single named file still raises, and so does a directory where nothing loaded.
+- **`questions`: a file whose top level is not an object exits 2 and says so.** The reader
+  returned the int 2 for "cannot read" and handed any other JSON value on, so a file holding
+  `false` or `0` exited 0 with no output, `7` exited 7 and `300` exited 44. Every
+  `questions` subcommand now reports `top level is <type>, not an object` and exits 2 (a
+  top-level list or null, which used to exit 1 with a doc_format message, exits 2 too).
+- **`questions grading-sheet` reads code fences the CommonMark way.** A line like
+  ```` ```dt``` 是分区列 ```` opened a fence, and a ```` ```bash ```` line inside a block closed
+  it, so every later answer heading was swallowed into the first answer ("no answer for ...").
+  A backtick fence's info string may not hold a backtick, and a closing fence is the opener's
+  character, at least as long, with nothing else on the line.
+- **`glossary --template t.json` writes `t.md` and `t.json`.** It used to write the form to
+  `t.json` and then overwrite it with the data, leaving no form.
+- **`--only A B` run inside `packets/` no longer takes `B` for the directory.** The last word was
+  read as the directory whenever a folder of that name existed, so `semantic status` silently
+  dropped a table and `semantic validate` read a packet folder as the documents directory. A
+  `db.table`-shaped word is now never a path; the missing directory is a usage error (exit 2).
+- **The batch `metadata_gaps.json` lists unbound parameter tables, as documented.** A batch
+  `parse` wrote the manifest without `unbound_parameter_tables` (only `--metadata-preflight`
+  filled it) and wrote none when unbound tables were the only gap. Both are fixed.
+- **Breaking -- a SELECT-list name that is also a source column reads the column, not an
+  earlier alias.** No format changes number; the source of existing outputs changes. In
+  `SELECT fee AS amt, amt AS fee FROM ods.x` sqlglot expanded the second `amt` into the alias,
+  so both outputs came from `fee` with `trace_complete` true and no warning; likewise
+  `SELECT new_code AS status, status AS old_status` gave `old_status <- new_code`. Spark reads
+  the FROM clause's columns before a lateral column alias ("A local column reference takes
+  precedence, over a lateral column alias",
+  https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html;
+  SPARK-27561). The GROUP BY shield of 0.11.2 now covers the SELECT list under the same
+  condition: when Schema, a derived table's or a CTE's listed columns prove a source has the
+  name, the column is kept. A name no source has is still the lateral alias. A name the
+  metadata cannot settle (a table without Schema, a `SELECT *` CTE) keeps the alias reading and
+  carries the new warning `lateral_alias_ambiguous`, reported only where sqlglot actually
+  expanded the alias. Who is affected: any stored lineage, profile or table-semantics packet
+  built from such a projection; `sources`, `expression`, `field_mapping_chains` and
+  `end_to_end_lineage` of those outputs change. What to do: re-run `parse`, rebuild packets in
+  a table-semantics run, and treat `lateral_alias_ambiguous` like `ambiguous_unqualified` (see
+  the READMEs' migration section). The 0.11.1 test that pinned the alias reading now asserts
+  the source column.
+- **Fixed: a WHERE or GROUP BY column no longer comes out as `__lineage_where_column__<name>`.**
+  The shields added in 0.11.1 and 0.11.2 rename a column while sqlglot qualifies the statement
+  and rename it back afterwards, but only the node objects they saved. Expanding a lateral,
+  GROUP BY or HAVING alias copies the aliased expression -- a scalar subquery with a shielded
+  WHERE, say -- and every copy kept the placeholder, which reached `raw_sql`, the column list and
+  the physical sources as if the table had such a column. The restore now scans the whole
+  qualified tree and qualifies each restored column by its own nearest SELECT; a placeholder
+  that still survives fails the test suite and, in production, is stripped after a Python
+  warning (`ShieldPlaceholderLeak`). Both shields also compare alias names case-insensitively,
+  as Spark and sqlglot do, so `SELECT 'ALL' AS BIZ ... WHERE biz = ...` keeps its filter.
+- **`join_key_pairs[].left` / `.right` gain an optional `bare` field; uniqueness proofs only
+  read pairs whose right side is a bare column.** `ON t.region = substr(u.user_id, 1, 2)` is
+  still recorded as a key pair (so `trace_status` and warnings do not change), but many right
+  rows share one prefix, and the fan-out verdict and the ontology's table relations used to
+  prove the JOIN safe / `many_to_one proven` from it. Both now skip a pair whose right side is
+  not a bare column; a contract written before the field existed is read by parsing the pair's
+  `expression`, and an expression that does not parse counts as not bare. The incremental
+  cache payload version is bumped, so cached facts are recomputed once. Not breaking: existing
+  fields keep their values. Some fan-out verdicts change from `safe` to `risk`.
+- **Uniqueness proofs no longer borrow evidence about other rows** (`describe`, `tables`,
+  `ontology`). A `row_number() ... = 1` filter now proves a JOIN's right side unique only when
+  it reads the window column through that JOIN's own right input -- a sibling CTE filtering the
+  same window, or `WHERE r.rn = 1` beside a second alias `r2`, no longer counts; `rn = 1` under
+  an OR, a NOT or a CASE no longer counts anywhere; and a ROOT `WHERE r.rn = 1` on a joined side
+  no longer makes ROOT's output "deduplicated by the partition key". An equality pin
+  (`WHERE a.status = 'X'`) now drops only the grouping key read from the same input (by
+  `input_ref_id`), so `GROUP BY a.user_id, b.status` keeps `b.status`; an `AMBIGUOUS` column
+  pins nothing, and `ORDER BY b.dt` over `WHERE a.dt = ...` is no longer read as ordering by a
+  pinned column. A bare table name that several qualified tables in the corpus could be no
+  longer borrows the first one's card key. Some `candidate_keys`, `key_confidence`, fan-out and
+  window-intent values change toward the weaker, correct answer.
+- **`catalog build --lineage`: no false `grain_mismatch` for a renamed or pinned key.** The
+  evidence compared the catalog's declared grain (target columns) with the logical keys of the
+  scope that decides the grain -- a CTE's own column names, keys a WHERE pins included -- so a
+  write that renames its key in the outer SELECT, or pins one grouping column, was reported as a
+  mismatch. `grain_proof.keys` now reads the statement's `candidate_keys` at every confidence. A
+  key that holds but is not written on target columns (`proven_unexposed`) reports the new
+  conflict rule `grain_not_exposed` instead of `grain_not_proven`.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
@@ -103,6 +199,488 @@
   question goes to a sub-agent and the main conversation keeps a brief of at most 5 KB.
   `references/catalog-questions.md` keeps the `catalog query` lookups and the seven reporting
   rules and points to the walk for SQL.
+- **`expression_features.functions` / `has_udf`: a CAST type or a comment is not a call.**
+  `CAST(x AS DECIMAL(18, 2))` published `decimal` as a function, and a block comment kept inside
+  an expression (`/* note(x) */`) published `note`; neither is in the function catalog, so an
+  ordinary CAST or a commented expression was marked a UDF black box. Literals and comments are
+  now skipped by one shared splitter (`scope/sql_text_spans.py`), and a name written where a type
+  goes (after `AS` or `::`) is not collected; `char(65)` called as a function still is.
+- **Text rewrites leave string literals and comments alone.** Expansion rewrote a reference
+  inside a literal or comment (`CONCAT('see c.v now', c.v)` published `'see (amt * 2) now'` in
+  `expanded_expression`), the qualify-fallback substitution did the same to unqualified names,
+  keyword repair quoted a word inside a literal (`'no using here'` became ``'no `using` here'``
+  in `expression`), and a literal ending in a backslash (`'\\'`) hid the reference after it, so
+  `expanded_expression` dropped the call around it or kept a local alias. All of these now go
+  through the shared splitter. `display_expression` no longer drops a struct field named like the
+  table alias (`u.profile.u.name` displays as `` `profile`.`u`.`name` ``).
+- **`expanded_expression` keeps operator precedence.** An upstream expression substituted into
+  a later one was left unwrapped when it merely started with `(` and ended with `)`:
+  `(x + 1) + COALESCE(y, 0)` substituted into `v * 10` published
+  `(x + 1) + COALESCE(y, 0) * 10`. It is now left unwrapped only when its first `(` is the one
+  its last `)` closes.
+- **Each GROUP BY / PARTITION BY / ORDER BY key carries its own `source_fields`.** The per-item
+  fields of `aggregation_detail.group_by_items` and `window_specification.partition_by` /
+  `order_by` were cut from the clause's flat reference list by counting columns, which the list's
+  de-duplication does not preserve: `GROUP BY 'c', a.y` gave the constant `y` and left `a.y`
+  with no field. Each item now takes the references resolved for it.
+- **`magic_number` no longer warns about a type's precision.** `CAST(x AS DECIMAL(18, 2))` was
+  warned about the literal `18`; a literal inside a type's parameters is now skipped, and a value
+  literal in the same expression is still warned about.
+- **Comment masking: a date after an offset is no longer a phone number.** The international
+  phone rule had no boundary, so `T+1 20260802`, `UTC+8 20260802` and `金额 +1000000` became
+  `<phone>`, and a 20-digit key lost its head (`<phone>890`). The rule now needs 9 to 15 digits
+  of country code and number, refuses a run that continues with another digit, and refuses a
+  number part that is exactly an 8-digit date. A number glued to an ASCII label (`tel+86…`) is
+  still masked. Two narrow shapes are deliberately let through: 8 digits or fewer in total, and
+  a number part that reads as a real date (`+86 20231215`). An 18-digit ID number must now have a
+  birth year from 1900 to the current year, so `110101000101011234` is left as written.
+- **`--metadata-patch`: a refused entry is reported, not dropped.** A column key with only two
+  parts (`a.amt`) and a table fact containing `@` vanished without a word: counted nowhere, not
+  in `unmatched`. The run now prints `rejected=N (key (reason), …)` (`patch_rejected=N` under
+  `describe`), by key and reason only, never the refused text.
+- **A table fact refused for holding `@` leaves a warning.** The privacy rule is unchanged
+  (any `@`-bearing value is still refused), but `metadata_coverage.metadata_conflicts` now
+  records `{"reason": "privacy_refused", "issues": ["<key> contains @, refused by privacy rule"]}`
+  and `semantic.json` lists it under `findings[]` as a `metadata_conflicts` warning naming the
+  keys, never the value.
+- **`semantic validate` check 5: a qualified quote cites only its own filter.** The comparison
+  dropped every table qualifier, so quoting `a.is_deleted = 0` also cited `b.is_deleted = 0`,
+  and a dot inside a string literal was stripped too (`x = 'p.q'` matched `x = 'q'`). A quote
+  that writes a qualifier is now held to it (the filter's own qualifier or its table's name);
+  an unqualified quote still matches loosely, and literals are kept as written. Some documents
+  that passed check 5 now fail it: they cite one side of a pair and must cite the other.
+- **Check 5: a quote with a dangling `AND` still cites its conjuncts.** An unparsed quote is
+  tried again without a leading or trailing `AND` / `OR`; the last-resort split counts
+  parentheses, skips strings and keeps `BETWEEN x AND y` whole, and parentheses around a
+  conjunction are looked through.
+- **Check 12: a number glued to a unit is not a code.** `近30天活跃标志` read as code `30` =
+  `天活跃标志`, so a document that left `30` unconfirmed failed. Glued pairs now follow the
+  glossary's rule (shared as `glossary_values.glued_pairs_hold`: two or more pairs, one code
+  width, distinct labels) and no label may open with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %.
+  `0未推送，1已推送` still reads as two codes.
+- **Check 11: negating phrases and a second producer.** `未能通过`, `无法正常使用`, `不曾成功`
+  are no longer success-like (a phrase is matched whole, so `非常成功` still is). When two tasks
+  write the same value and one cannot list its source values, the other's list is kept
+  instead of being erased, so the merged-value warning no longer disappears.
+- **`semantic status`: a review whose digest is a placeholder is `review_malformed`.**
+  `reviewed_doc_digest` and a present `reviewed_packet_digest` must be sixteen lower-case hex
+  digits. A copied placeholder (`<doc_digest>`, `TODO`) used to read as "the review read
+  another packet" (`review_packet_stale`) and its findings were dropped; it is now
+  `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
+  `summary.flags` gains the `review_malformed` key.
+- **`window_context_sources` and MERGE condition entries say which state they read.** Like
+  `value_sources` and `row_membership_sources`, an entry naming a relation the script wrote
+  now carries `source_state`, and `session_scoped: true` when that relation is a temp view.
+  This covers `window_context_sources` (beside `role`), a MERGE's `value_condition_sources`,
+  and `effect.rowset_effect.membership_sources`. New optional keys; entries naming a table the
+  script never wrote are unchanged.
+- **`fold_session_scoped` no longer drops or leaves behind what a temp view decided.**
+  - A value read through a view keeps the view's own row conditions: `SELECT id FROM tv`
+    over `tv ... WHERE amt > 0` now folds `amt` into `row_membership_sources` (every hop of a
+    chain), as the equivalent CTE does. The row used to say `value_sources_folded: true`
+    with the condition gone.
+  - `window_context_sources` and `value_condition_sources` are folded too, so a window or
+    MERGE condition read through a view no longer names the view after it is dropped. An
+    unstamped entry naming a session relation (a document from an older producer) makes the
+    row `value_sources_folded: false` with the new reason `session_scoped_reference_unmarked`.
+  - A temp view nobody reads is dropped from `end_to_end_lineage` and `final_table_states`.
+  - `COUNT(*)` through a view that reads another view folds through every hop, with each
+    hop's row conditions, instead of stopping at `rowset_relation_unresolved`.
+  - A chain of views whose conditions all read the previous view folded in time exponential
+    in its length (N=13 took seconds); answers are now cached per column and state, and the
+    walk is linear.
+- **`--cache-from` borrows across layouts.** A fact file was found only by the task's path
+  under `--lineage`, so a superset corpus borrowed nothing from a subset run (`task_a` vs
+  `domain_a/task_a`), nor from a single-file run, whose fact file was also a hidden
+  `.-<digest>.json`. Each cache now lists its fact files by `lineage.json` digest in
+  `.cache/by-content/index.json`, and a borrow falls back to that list; every candidate is
+  still judged on its own fingerprints and options digest. The single-file fact file has a
+  visible name. `payload_version` is 3, so existing caches are recomputed once.
+- **`tables` and `ontology` remove the pages they no longer publish.** A card for a table
+  no task touches any more, or a concept page merged away, stayed in `tables/` /
+  `concepts/` and kept answering -- with or without `--incremental`. A run that publishes
+  markdown now deletes the `tables/*.md` (and, for `ontology`, `concepts/*.md`) that this
+  command's own record of its last run names and this run did not write: the index's
+  `written` list, or the `tables.json` / `ontology.json` the last run wrote. Files you put
+  there, and cards another command wrote into a shared `--out`, are left alone.
+- **Breaking -- `set_op` reads UNION's de-duplication, and EXCEPT / INTERSECT are modelled.**
+  No format changes number; existing `set_op` values change. sqlglot keeps UNION's DISTINCT in
+  `args["distinct"]`, but the builder read `args["kind"]` (always empty), so every UNION was
+  labelled `UNION_ALL`. A de-duplicating UNION is now `UNION`. A flattened chain is labelled by
+  the operator that produces its output: `A UNION ALL B UNION C` is one `UNION` scope, while in
+  `A UNION B UNION ALL C` the DISTINCT pair keeps its own nested `kind=union` scope labelled
+  `UNION` under the `UNION_ALL` one, since only those two branches are de-duplicated. The label
+  is not used to infer keys. Separately, `EXCEPT` and `INTERSECT` were not recognised at all:
+  the statement came out with zero columns, no edges and no gap. They are now `kind=union`
+  scopes with `set_op` `EXCEPT` / `INTERSECT`; only the first (left) branch supplies column
+  values, and the other branches, which decide which rows survive, are reported by the new
+  fact gap `set_operation_semantics_partial` (`root_impact`, so `analysis_status` is
+  `partial`). `duplicate_table_in_union` is not raised for them: the same table on both sides
+  is the set form of an anti-/semi-join. Who is affected: consumers that compare `set_op` with `UNION_ALL`, and stored
+  lineage of statements with a DISTINCT UNION, EXCEPT or INTERSECT. What to do: accept the four
+  values, read EXCEPT / INTERSECT values from the first branch only, and re-run `parse` (see
+  the READMEs' migration section).
+- **Fixed: `GROUP BY CUBE / ROLLUP / GROUPING SETS` keeps its keys and no longer proves a
+  single row.** sqlglot keeps those keys outside `group.expressions`, so the scope had no
+  GROUP BY and the semantic profile published `single_row` with a `proven` empty key -- a wrong
+  uniqueness claim that reached table cards. The keys are now read from every form, the scope
+  gains the optional field `grouping_kind` (`cube`, `rollup`, `grouping_sets`, `with_cube`,
+  `with_rollup`, `mixed`; absent for a plain GROUP BY), and the profile lowers such keys to
+  `candidate` with the reason in `key_evidence`: subtotal rows carry NULL in the rolled-up keys,
+  and a NULL already in the data shares a key tuple with one.
+- **Fixed: Hive's FROM-first multi-table insert is modelled.** `FROM src INSERT OVERWRITE TABLE
+  t1 SELECT ... INSERT ... t2 SELECT ...` is not parsed by sqlglot: every INSERT clause was
+  dropped and the task reported one unsupported `SELECT` with no word about the targets. The
+  statement is now split before parsing, on sqlglot's tokens, into one `INSERT ... SELECT
+  <projection> FROM <shared FROM> <branch clauses>` per target, disclosed by the new task
+  warning `multi_table_insert_split`; statement ids and `table_state_graph` follow the split
+  statements, and the script keeps its line count. A statement whose targets the shared FROM
+  also reads is not split (Hive reads the source once; sequential INSERTs would read the first
+  branch's output) and gets the new task gap `multi_table_insert_unsupported` listing every
+  target.
+- **A named window reads the columns of its definition.** `ROW_NUMBER() OVER w` with
+  `WINDOW w AS (PARTITION BY user_id ORDER BY ts)` was a CONSTANT and `SUM(amt) OVER w` lost
+  `user_id` and `ts`: the partition and order sit in the WINDOW clause, which nothing read.
+  Named windows are now inlined into every `OVER` that names them before scopes are built,
+  including a window built on another (`w2 AS (w1 ORDER BY ts)`, `w2 AS w1`) and an `OVER`
+  that refines one (`OVER (w ORDER BY ts)`). The window's `expression` / `raw_expression`
+  text now shows the inlined specification.
+- **QUALIFY is read (new `predicate_type="qualify"`).** The clause was ignored: no logic
+  block, role `pass_through`, and the window's columns appeared only in the raw SQL. It is now
+  a `logic_type=filter` block with `filter_predicate_detail.predicate_type="qualify"` (id
+  `logic:<scope>:qualify:<n>`), and each window function the clause computes gets its own
+  window block (`output_field` null, the testing conjunct in `filter_after_window`). A
+  ranking window pinned to a small constant makes the scope `dedup`, and `ROW_NUMBER() ... =
+  1` at ROOT proves its partition keys unique in the semantic profile, the same reading the
+  subquery form already had. The statement's output columns are unchanged (the clause is not
+  rewritten into a subquery). Consumers that list WHERE conditions from `logic_type=filter`
+  blocks should skip `predicate_type` other than `where`, as `mapping.md` does.
+- **A member of MAX_BY / MIN_BY / FIRST / LAST of a STRUCT keeps the aggregate.**
+  `MAX_BY(NAMED_STRUCT('val', a.amount), a.ts)` read through `.val` came back as the bare
+  `amount`: the aggregate and the `ts` that chooses the row were dropped. Only MAX / MIN were
+  recognised. The member now moves inside the aggregate (`MAX_BY(amount, ts)`), so its
+  sources are the member's columns plus the ordering column, with transform `AGGREGATE`.
+  Members are found in the AST by name, so a computed member of a plain STRUCT
+  (`NAMED_STRUCT('a', COALESCE(c1, 0), 'b', c2)` read through `.a`) reads only `c1` instead
+  of every column of the STRUCT.
+- **PIVOT and UNPIVOT produce Spark's column set.** A `SELECT *` over a PIVOT returned only
+  the IN-value columns, marked `DIRECT`, without the FOR column, and one column for several
+  aggregates; an outer reference to a grouping column was dropped as dangling. It now
+  returns the implicit grouping columns (the relation's columns neither aggregated nor
+  pivoted on) followed by one `AGGREGATE` column per IN value and aggregate, named
+  `<value>_<alias>` when there are several aggregates, each reading the aggregate's columns
+  and the FOR column; the grouping columns are recorded as the scope's GROUP BY, so the
+  semantic profile keys the output by them instead of calling it a single row. `p.<grouping
+  column>` through a pivot alias resolves. An UNPIVOT, which was silently expanded as the
+  original table, now gives the columns outside its IN list, the name column (`CONSTANT`,
+  one literal per IN item) and the value column read from the IN columns. Explicit
+  unqualified references to pivoted or unpivoted columns (`SELECT dept, q1 FROM ... PIVOT`)
+  are still reported as unresolved.
+- **A `JOIN ... USING` key is the side Spark outputs.** sqlglot expands a merged USING column
+  into `COALESCE(left, right)`, so an INNER join's key was published as a `cleaning`
+  EXPRESSION over both tables. INNER, LEFT, SEMI and ANTI now read the left key, RIGHT the
+  right key, and only FULL OUTER keeps the coalesce -- in the SELECT list, WHERE and GROUP BY
+  alike; a later USING join of the same column matches that carried key in its ON. A
+  `COALESCE` the author wrote is left alone.
+- **A ranking window is `dedup` only when a reader pins its own column.** The window scope's own
+  `WHERE a.rn = 1` (evaluated before the projection, so a source column) and a reader's
+  `o.rn = 1` on another table both used to make the scope `dedup`; both are `window` now.
+- **A MERGE's ON and WHEN conditions are on its ROOT.** ON is recorded in `scopes.ROOT.joins`
+  (`join_type: "MERGE"`, target to USING), so a MERGE whose actions read only constants still
+  depends on its USING relation; each WHEN condition is a `filter` logic block with
+  `filter_predicate_detail.predicate_type: "merge_when"`. ROOT's `role` follows (`join`), and the
+  target a condition reads is not added to `depends_on`.
+- **`struct_col.field.leaf` without an alias, in a SELECT over several tables, binds to the one
+  input with that struct column** (AMBIGUOUS when several have it) instead of reading `field`
+  as a table alias.
+- **`LATERAL VIEW JSON_TUPLE(...) t` / `STACK(n, ...) t` without column aliases** name their
+  outputs `c0, c1, ...` and `col0, col1, ...` as Spark does. INLINE without metadata is still a
+  gap.
+- **An AMBIGUOUS reference keeps its candidate tables as inputs.** `related_metadata` took it for
+  a table named `AMBIGUOUS` and dropped it, so a table read only through an ambiguous column
+  vanished from `input_tables`; each candidate table is now an input with the column used.
+- **`has_aggregate` finds an aggregate wrapped in another function.** It is read off the AST (any
+  aggregate function, plus a Spark name table for calls sqlglot does not type), so
+  `ROUND(STDDEV(x), 2)` and `COALESCE(MAX_BY(v, dt), 0)` are `aggregate_expression` with
+  `grain_effect: changed` instead of `preserved`.
+- **A DELETE / UPDATE / MERGE condition column no table can be proven to own is a gap.** An
+  unqualified column in a condition subquery over several tables was written as
+  `{"table": "UNKNOWN"}` beside `trace_complete: true`. The schema now settles it when exactly
+  one of the tables has the column; otherwise the field gets no name and the task document
+  records the new `row_condition_source_unresolved` fact gap (`root_impact: true`), the same as
+  an INSERT condition: `trace_complete` keeps answering only whether the values were traced. An
+  UPDATE assignment whose value reads such a column is a value, so that column keeps the
+  `UNKNOWN` value source and gets `trace_complete: false` with that missing reason.
+- **`scope_profile` tells tables from session relations one way.** `direct_source_tables`
+  required a dot in the name and `physical_source_tables` did not, so a bare table read
+  directly was summarized as "上游可追溯至" (traced back to). Both lists now count any name that
+  is not a scope of the statement; in a task document a temporary view or cached relation an
+  earlier statement defined is a session relation and is in neither list (it stays in
+  `direct_inputs`), and `business_summary` follows.
+- **Key-fold candidates: a leading `id_` / `no_` stays in the key stem.** `key_stem` took `id`
+  / `no` off the front of a key as well as the back, so `id_card_no` reduced to `card` and an
+  identity-card table folded into one concept with a bank card's `card_no`. Only a trailing
+  `id` / `no` is a key marker now (the other affixes are still taken off both ends), and the
+  role names read from column names follow. Concept ids change where a key column starts with
+  `id_` or `no_` (`concept:card` → `concept:id_card` in that example). **Migration:** an entry in
+  `concepts.overrides.json` that names such a concept by its old id is reported as unknown on
+  the next run; rename it to the id `ontology.json` now publishes (the `identity.stem` of the
+  concept holding those tables).
+- **Key-fold candidates: one English comment no longer retires a key stem.** The generic-stem
+  evidence rule intersected the Chinese two-character fragments of three or more different
+  comments, and an English comment has none, so `客户编号` / `客户号` / `Customer ID` retired
+  `customer`. Only comments containing Chinese take part; with none, the rule does not apply.
+- **Table cards keep the producer's grain evidence and never write `None` as a key.**
+  `tables.json` `produced_by[].grain` gains an optional `evidence` (the producer's own
+  `output_shape.grain.evidence`, present only when non-empty), so a reader's `grain_text` for a
+  producer that could not decide its grain gives that producer's reason (a UNION, say) instead
+  of 「结构未记录原因」. A logical key the SELECT never projected is written as its expression
+  (`UPPER(a.k)`) instead of the string `None`. The unused producer-side type pass is removed;
+  column types still come from the target's metadata.
+- **`ontology --export shacl,linkml` escapes every control character.** A comment holding a
+  carriage return went out raw, which made the Turtle file invalid and was folded to a space by
+  a YAML reader. `\r` is now escaped, and the rest of C0 and DEL go out as `\uXXXX`.
+- **Catalog pages: a rule cites a table by its whole name.** `scopes.md` and `catalog query`
+  matched a rule's expression by substring, so a rule about `db.t_order_refund` was listed under
+  `db.t_order` too. The name must now stand alone or be followed by `.column`.
+- **Catalog pages count metrics in the drafted share.** `catalog validate` counted metrics, but
+  `index.md` (whole document) and each concept's `governance.md` row and page line left them
+  out. A metric now counts on the document and on the concept it is `on`. The ontology-json/3
+  schema lists `metrics` under `required`; `catalog build` has always written it.
+- **`catalog validate` checks whose attributes a metric uses.** A metric's `measure` and its
+  attribute dimensions must belong to `on` or to a concept linked to `on` (a linked role with
+  its player); otherwise `metric_measure` / `metric_dimension` is an error. Catalogs whose
+  metrics measured or broke down by an unrelated concept's attribute used to pass and now fail.
+  New warning `grain_identifier_unbound`: a representation's grain names an identifier no
+  column of the table binds.
+- **`catalog merge --atomic`.** New option (with `--out` or `--in-place`): the merge goes into a
+  hidden staging copy, is validated there, and reaches the target only with no conflicts, no
+  unknown concepts and no validation errors; otherwise nothing is written and stderr says so.
+  The default is unchanged: without `--atomic` a merge with validation errors is written, so the
+  errors can be read in place.
+- **`glossary --template` refuses a path over the dictionary's own files.**
+  `--template <out>/glossary.md` wrote the form's JSON over `<out>/glossary.json` (and
+  `<out>/glossary.json` the form over `glossary.md`). Such a path is now a usage error, exit 2,
+  before anything is written.
+- **`validate` checks more references and the task document's own rows.**
+  `validate_cross_references` now also checks, in each statement document, every scope's
+  `depends_on` and each join's `left_scope` / `right_scope` (a scope or graph node; a MERGE's
+  target is accepted as a join side), `input_edges[].source_id` when `source_type` is `scope`,
+  and `outputs[].source_logic_blocks` (must be ids of the same scope's `logic_blocks`); in a
+  task document, every `source_state` in `value_sources`, `row_membership_sources`,
+  `value_condition_sources` and `window_context_sources` must be a `table_state_graph` node.
+  `validate_contract_invariants` now checks a task document's `end_to_end_lineage` rows too: a
+  row with `trace_complete: true` must not name `UNKNOWN` or `AMBIGUOUS` as a table in its
+  value, row-membership or value-condition sources. Each rule had zero violations over the
+  example corpus, the golden files and a full private corpus before it was added. A document
+  an older version wrote with one of these shapes now fails `validate`; parse it again.
+- **Two more ways a row condition published a placeholder table are fixed.** An INSERT whose
+  WHERE / JOIN / HAVING read a bare column two joined tables both have put
+  `{"table": "AMBIGUOUS"}` into `row_membership_sources`. Like any condition field that reaches
+  no physical column, it now gets no name and is a `row_condition_source_unresolved` gap
+  (`scope_id: "AMBIGUOUS"`). In a DELETE / UPDATE / MERGE condition, a qualifier is now
+  resolved through the query it sits in, each enclosing query, then the written table (its
+  alias, else its name): a correlated `t.id` against `DELETE FROM mart.t t` used to be
+  published as table `t` and is now `mart.t`. A qualifier none of them declares is treated
+  like an unqualified column no table can be proven to own (no name in a condition, `UNKNOWN`
+  in an UPDATE value, the `row_condition_source_unresolved` gap either way); it used to be
+  published as a table of that name.
+- **Breaking -- one table identity in every layer; a catalog is dropped only when configured.**
+  No format changes number; table names in existing outputs change. Four rules used to
+  disagree: metadata lookup cut any three-part name to its last two segments, table cards
+  grouped by dotted suffix, the glossary bucketed by the last two segments exactly, and the
+  catalog view kept the last two segments without dropping quotes. So the glossary filed
+  `cat2.ods.t`'s codes under `cat1.ods.t`, a bare `orders` read was one card but its own
+  glossary owner beside `ods.orders`, and two catalogs' columns were merged with no conflict.
+  The target table was not lower-cased either: `SPARK_CATALOG.mart.y` kept its catalog with
+  `spark_catalog` configured, and `MART.Y` and `mart.y` were two table states. The new
+  `scope_lineage.table_identity` module owns the rule and every layer calls it: quotes dropped,
+  lower case, a leading catalog dropped only when `SCOPE_LINEAGE_CATALOG_PREFIXES` names it;
+  spellings grouped by dotted suffix, a less qualified name joining only the one table it could
+  be (an `ods.t` beside `cat1.ods.t` and `cat2.ods.t` now joins neither and is flagged
+  `ambiguous_bare_name`). Lookups -- Schema, target metadata, metadata patches, column samples,
+  table cards, glossary value domains -- take an exact name first and otherwise the one
+  candidate the suffix rule allows, so Schema keyed `ods.t` still describes a `lake.ods.t`
+  read. `normalize_schema_map` records a `catalog_collision` in `metadata_conflicts` when two
+  spellings fold to one name, and keeps the first. The two card lookups share
+  `table_identity.find_card`. The catalog match key drops quotes and case and a configured
+  catalog, then keeps `db.table` (the catalog's own form). Who is affected: lineage whose
+  target was written in upper case; glossaries and overrides keyed by a `column_ref` whose
+  owner was a bare name or one of two catalogs; corpora with same-named tables in two
+  unconfigured catalogs. What to do: re-run `parse`, rebuild `tables` and `glossary`,
+  re-key overrides, and configure catalog prefixes where two catalogs are in fact one table
+  (see the READMEs' migration section).
+- **Breaking -- a HAVING or QUALIFY name that is also a source column reads the column, not the
+  SELECT alias.** No format changes number; the source of existing filter blocks changes. In
+  `SELECT g, MAX(fee) AS amt FROM ods.x GROUP BY g HAVING amt > 0`, where `ods.x` has its own
+  `amt`, sqlglot expanded the name into the alias and the HAVING block read
+  `MAX(x.fee) > 0` with fields `fee`; QUALIFY did the same. Spark's rule is "HAVING prefers the
+  table column over the SELECT list alias", and QUALIFY follows HAVING
+  (https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html). The shield
+  that keeps such a name in GROUP BY and the SELECT list now covers HAVING and QUALIFY under the
+  same condition (Schema, a derived table's or a CTE's columns prove a source has it). A name no
+  source has, or one the metadata cannot settle, still reads the alias; ORDER BY, which prefers
+  the alias, is unchanged. Who is affected: stored lineage whose HAVING or QUALIFY uses such a
+  name; the `raw_expression` and `fields` of that filter block change. What to do: re-run
+  `parse` (see the READMEs' migration section).
+- **`SELECT now() AS ts` is no longer reported as a UDF.** sqlglot parses `now()` as an
+  anonymous call, and a projection that was one anonymous call got the `udf` subtype without
+  the function catalog being asked, so `has_udf` was true and the output was typed
+  `udf_expression` although the catalog lists `now`. The subtype now consults the catalog; an
+  unknown name is still a UDF. Such an output now reads `has_udf: false`,
+  `expression_type: function_expression`, and its column carries no `transform_subkind`
+  (it was `udf`). `current_timestamp()`, `current_date()` and `unix_timestamp()`
+  parse to named nodes and were never affected.
+- **`describe` no longer describes EXCEPT / INTERSECT as a UNION.** The profile read every set
+  operation as a sum of branches: the grain blocker said 「行数为各分支之和」, the stage action
+  「合并 2 个分支」, the shape line 合并型, and every branch's table was `driving`. EXCEPT keeps
+  the first branch's rows no other branch has and INTERSECT those every other branch also has,
+  so the stage action now reads 「差集：取 A 的行，去掉在 B 中出现的行」 / 「交集：取 A 的行，只留在 B
+  中也出现的行」, the shape line 差集型 / 交集型 (the `shape` value stays `union_merge`), the grain
+  blocker says where the rows come from, only the first branch is on the driving path, and the
+  tables of the later branches are `filter_partner` instead of `driving` / `union_branch`.
+  `key_confidence` is unchanged (`none`): nothing here proves a key.
+- **Breaking -- no warehouse naming convention and no business-domain words ship as defaults;
+  a `domain-profile/1` file brings them (`--domain-profile`).** No format changes number; default
+  verdicts change. (1) `semantic packet` no longer reads table-name suffixes: without a
+  configured `table_name_convention` every input's `name_convention` is `unknown` and none is a
+  `full_snapshot`, so **check 9 no longer fails an `incremental` document whose inputs were
+  judged full snapshots only because their names end in `_df` / `_da` / `_full` /
+  `_snapshot`** -- that failure rested on the name alone, and a table so named that is really
+  incremental was failed wrongly. With a convention configured the failure still fires, and its
+  message now says it rests on the name convention. (2) Check 12's built-in qualifiers are
+  增值税 / 税 / 手续费 / 测试 (罚息 and 冲正 are gone), and a Chinese term counts only where it
+  stands as a word: 纳税人识别号, 税务登记号 and 测试结果 no longer raise a qualifier warning,
+  while 含税金额, 税前收入 and 含测试客户 still do. (3) The concept layer's lending words
+  (回款 as an event word; 欠款 as a measure suffix; 已到期 / 未到期 / 已还 / 未还 / 已结清 /
+  未结清 / 首期 as filter words) are gone; generic words stay. (4) The concept layer
+  (`ontology`) no longer reads table-name suffixes either (`_df` / `_hf` / `_mf` / `_wf` /
+  `_all` as a full snapshot, `_di` / `_hi` / `_mi` / `_wi` as a period increment): it reads
+  the same `table_name_convention`, and without one a member with no columns outside its key
+  is `primary` rather than `snapshot` by its `_di` name, a folded provisional member is never
+  re-roled `snapshot` by its suffix, the `increment_with_event_time` kind vote is never cast,
+  incremental tables no longer block the `all_members_full_snapshot` vote, and a table with
+  no comment is named by its whole short name (`gadget_df`, not `gadget`); a name read off
+  the most representative members' comments can follow the changed roles. Concept ids do not
+  change (they come from key stems and table names). Who is affected: a run whose
+  tables follow such a suffix convention (packets change `name_convention`, `full_snapshot` and
+  therefore `packet_digest`, so documents become `packet_stale`; concepts change member roles,
+  kind votes and the stem-only names), and corpora whose comments used those words. What to
+  do: write a `domain-profile/1` file -- the example
+  `examples/domain-profile/domain-profile.json` carries the union of the packet's and the
+  concept layer's old suffix lists (list only one layer's old suffixes to keep that layer's
+  reading word for word) -- and pass it to
+  `semantic packet`, `semantic validate` and `ontology` with `--domain-profile`; see
+  `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
+  (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
+  word in a package string literal.
+- **`expression_features.operators` ignores comments and string literals.** The operator list
+  was scanned over the raw expression, so the `*` and `/` of a `/* ... */` remark or the `-` of
+  `'2024-01-01'` were listed as operators. It now reads code only, as `functions` already did.
+- **A STRUCT path whose member is named like the table alias expands correctly.**
+  `u.profile.u.name` expanded to `` `s.users`.`profile`.`s.users`.`name` `` (or, after the
+  pass-through step, lost its member path), and `physical_source_fields` listed a column
+  `s.users.name` that does not exist. The `u`.`name` inside a path is no longer read as a
+  reference to `u`. The physical-field rewrite also no longer rewrites references inside a string
+  literal (`'see a.x'` stays as written in `expanded_expression`).
+- **The parser's memo caches are bounded.** Five module-level caches (compiled patterns,
+  field-reference extraction, two STRUCT-access probes, literal-skipping patterns) were plain
+  dicts, so a process parsing many statements kept every key it had seen. Each is now an LRU of
+  4096 entries, an order of magnitude above what the largest statements measured need; output
+  and single-parse time are unchanged.
+- **`semantic validate --json`: a failed `digest` item carries `reason_code`** (`no_packet` or
+  `stale`). `semantic render --validation` now decides `no_packet` / `packet_stale` by it rather
+  than by the message wording; a report without the field (written by an earlier version) is
+  still read by the `no packet` prefix. Additive: no other field and no exit code changes.
+- **A STRUCT path of three or more segments traces complete.** `u.info.addr.city` (any depth
+  past two, with or without an alias, in a projection, filter, grouping key or derived table)
+  reported `trace_complete: false` with `alias_not_bound_to_input_source:addr`, although its
+  source `s.users.info` was right; `u.info.addr` was complete. The field-reference scan read
+  the `addr`.`city` inside the path as a column of a source aliased `addr`. The guard added for
+  the alias-named member above covers this shape too; new tests and
+  `examples/sql/struct_access_nested_member.sql` pin it.
+- **A run parameter spliced into a table name keeps the whole name.** `FROM db.src_${region}`
+  tokenizes as the word `src_` followed by a parameter, which sqlglot cannot place: the
+  statement fell back to syntax recovery, the table became `db.src_` and was reported as
+  missing metadata, and a table JOINed after it disappeared from the lineage. Such a name part
+  is now backtick-quoted before parsing (only in name positions: a dotted name, or right after
+  `FROM` / `JOIN` / `TABLE` / `INTO` / `VIEW`; a `${...}` in a value is untouched), so the table
+  id is `db.src_${region}`, it is listed under `unbound_parameter_tables` with
+  `input_incomplete` instead of `missing_tables`, the rest of the statement survives, and the
+  quoting is disclosed as a new `parameter_names_quoted_for_parse` warning. Who is affected:
+  scripts with a parameter inside a table-name part; their `source_tables`, metadata coverage
+  and `analysis_status` change (`syntax_recovered` gives way to `input_incomplete`).
+- **`parse` reports an unusable metadata file as an input error instead of a Traceback.** A
+  `--schema` or `--target-ddl-metadata` file that is missing, empty after its BOM, not UTF-8
+  or not valid JSON raised `MetadataFileError` out of the CLI: a Python Traceback and exit
+  code 1, the code that means "a task failed". `parse` now prints the error's message on
+  stderr (first line: cause and file) and exits 2, like a bad `--metadata-patch`. Who is
+  affected: scripts that matched on exit code 1 or on the Traceback text for this case.
+- **`has_udf` no longer depends on the installed sqlglot version.** The function catalog folded
+  in the names the installed sqlglot's Spark / Spark2 / Hive registries held, and those differ
+  across the supported range: 30.0.0 lacks 26 names 30.17.0 has (`try_divide`, `negative`,
+  `rint`, `nanvl`, `shuffle`, `regexp_substr` ...), and 30.16.0 dropped `hex_encode`. So
+  `try_divide(a, b)` was a UDF on 30.0.0 and not on 30.17.0. The registry names are now a
+  snapshot taken from sqlglot 30.17.0 (`scope_lineage/_function_names_snapshot.py`); a test
+  reports what a newer sqlglot registers beyond it without changing output. Who is affected:
+  nobody on 30.16.0 / 30.17.0 (the answer is unchanged there); on 30.0.0 (and likely the
+  versions between, not measured) those 26 names stop being UDFs and `hex_encode` becomes one,
+  as on 30.17.0.
+  word in a package string literal, and on a literal that is a table-name suffix (`df`, `di`,
+  ...) outside the two constants it exempts with their reasons (`table_family`'s
+  `PERIOD_SUFFIXES`, and the comment-tail trim).
+- **A JOIN with no key pair onto a carded table no longer says the table has no key fact.**
+  With `--tables`, a JOIN onto a physical table whose card proves a key, but whose ON clause
+  offers no usable key pair (joined by OR, say), stays `unknown` as before; its `reason` now
+  reads 「该 JOIN 无可证明的连接键，右侧唯一性无从判定」 instead of 「物理表无主键事实」, which
+  the card contradicted. Only the text changes; without a card the reason is unchanged.
+- **An output's `expression_resolution` no longer settles a column the column layer left
+  ambiguous.** In `WITH c AS (...) SELECT CONCAT('p', v) FROM c JOIN s.b b ...` with no
+  metadata for `s.b`, the bare `v` is `AMBIGUOUS` between `cte:c` and `s.b` and the
+  end-to-end row is `trace_complete: false`, but sqlglot had already rewritten the text to
+  `c.v` and the internal-scope expansion read that text as a binding: the output said
+  `expression_resolution.status: resolved` with the CTE's physical field, an expanded
+  expression through it, and `consumer_readiness: ready`. Such a reference is no longer
+  expanded; the resolution is `unresolved` (or `partially_resolved` beside other resolved
+  references) with the reason `ambiguous_unqualified`, readiness is `blocked`, and the
+  field mapping chain's `chain_status` is `unresolved` instead of `partially_resolved`.
+  Like any other ambiguous output, it is now an `expression_source_unresolved` gap, so a
+  task that has one is `analysis_status: partial` (it was `complete`). Metadata that rules the joined table out still resolves it, as does a qualified `c.v`.
+- **A bare column a correlated subquery's tables lack resolves to the enclosing query.** In
+  `... FROM s.o o WHERE EXISTS (SELECT 1 FROM s.i i WHERE i.k = o.id AND flag = 1)` with
+  metadata saying `s.i` has no `flag` and `s.o` does, Spark resolves `flag` as an outer
+  reference to `s.o.flag`; the resolver searched only the subquery's own sources, so the
+  column was `UNKNOWN` (`column_not_found`) and the INSERT's condition a
+  `row_condition_source_unresolved` gap. It now looks in each enclosing query when every
+  source of a subquery in an expression is known not to have the column, and binds when
+  exactly one source there is known to have it (a query in FROM does not look outward). The
+  DELETE / UPDATE / MERGE predicate path had the sharper form of the same blind spot: a bare
+  column in a one-table subquery was given to that table without asking the schema, so the
+  example's `flag` against `DELETE FROM m.t` was published as `s.i.flag`, a field metadata
+  says does not exist; it is now the enclosing query's table or the written table, and
+  `UNKNOWN` with the gap when none of them has it. Without metadata both paths keep the
+  subquery's table, as before.
+- **sqlglot 30.0: a bare column of a correlated subquery is no longer an outer struct field.**
+  `qualify` in sqlglot 30.0 rewrote a bare `flag` in a subquery that references the outer
+  `o` as `o.i.flag` (a struct field of a column `i` of the outer table), so a field that
+  does not exist (`s.o.i`) was published as a source; `MAX(k)` in a correlated scalar
+  subquery became `MAX(o.i.k)`. The reference is now put back as later sqlglot versions
+  leave it (`i.flag`, still marked unqualified) before columns are resolved. Outputs on
+  sqlglot 30.16 / 30.17 do not change.
+- **A reference through a PIVOT / UNPIVOT alias is the column `SELECT *` gives.** Two gaps
+  were left in the alias form. With the PIVOT written straight on a table
+  (`FROM s.sales PIVOT (SUM(amt) FOR quarter IN ('Q1', 'Q2')) p`), `p.dept` was published
+  as a physical column `s.sales.p`. sqlglot rewrites the tree as `sales.p.dept` in
+  place: 30.16 / 30.17 then raise, and the fallback used the half-rewritten tree, while
+  30.0 returns the struct reading. Now the fallback is a copy taken before `qualify`, and
+  on 30.0 the author's `p.dept` is put back. Separately, an alias reference resolved to the
+  first column a pivot column reads, so `p.q1` kept `amt` but dropped the FOR column
+  `quarter`, and an UNPIVOT's `u.val` kept only its first IN column. Both now read
+  what `SELECT *` over the same pivot reads. A bare `p.q1` is also the pivot's `AGGREGATE`
+  column (expression `q1`, as under `*`) instead of a `DIRECT` copy of `amt`, so its
+  `physical_source_fields` gain the FOR column. A pivot column inside a larger
+  expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
+  `partially_resolved`, as before.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

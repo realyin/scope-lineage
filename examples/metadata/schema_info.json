@@ -103,6 +103,26 @@
       "ddl": "CREATE TABLE spark_catalog.ods.web_order (web_order_id STRING, buyer_id BIGINT, order_amount DECIMAL(18,2), order_status STRING, order_time TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
       "query_time": "2026-08-02 09:00:00",
       "data_source": "catalog_api_demo"
+    },
+    {
+      "table_name": "ods.customer_contact",
+      "full_table_name": "spark_catalog.ods.customer_contact",
+      "table_alias": "Customer contact",
+      "table_desc": "Synthetic customer contact detail, one row per customer",
+      "buzi_domain": "Customer",
+      "project_name": "Customer profile demo",
+      "owner_name": "demo_owner",
+      "data_level": "ODS",
+      "is_partition": 1,
+      "schema": [
+        {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
+        {"columnName": "contact", "columnType": "struct<addr:struct<city:string,zip:string>,channel:string>", "columnComment": "Contact detail", "columnIndex": 1, "isPartition": 0},
+        {"columnName": "contact_json", "columnType": "string", "columnComment": "Contact detail as JSON text", "columnIndex": 2, "isPartition": 0},
+        {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 3, "isPartition": 1}
+      ],
+      "ddl": "CREATE TABLE spark_catalog.ods.customer_contact (customer_id BIGINT, contact STRUCT<addr: STRUCT<city: STRING, zip: STRING>, channel: STRING>, contact_json STRING, dt STRING) USING iceberg PARTITIONED BY (dt)",
+      "query_time": "2026-08-02 09:00:00",
+      "data_source": "catalog_api_demo"
     }
   ]
 }

@@ -97,17 +97,20 @@ scope_lineage/schemas/diagnostics.schema.json
 | `star_modifier_not_applied` | 星号带了 `EXCEPT`，但该星号本身没能展开（缺 Schema），排除因此无从施加。 | 补源表 Schema；占位列代表「全部列」，其中仍含本应被排除的列。 |
 | `unresolved_alias` | 表达式 qualifier 没有绑定到输入。 | 检查 SQL alias、自定义语法或解析支持。 |
 | `duplicate_alias` | 同一 scope 重复使用 alias，字段来源可能歧义。 | 修正 SQL，或结合字段/Schema 证据消歧。 |
-| `column_not_found` | 字段不在任何已知来源中。 | 检查字段名和 Schema 完整性。 |
+| `column_not_found` | 字段不在任何已知来源中（表达式里的子查询：既不在它自己的来源里，也不在按 Spark 外层引用规则逐层找到的外层查询来源里）。 | 检查字段名和 Schema 完整性。 |
 | `ambiguous_unqualified` | 未限定字段匹配多个输入。 | 给 SQL 字段增加 qualifier；不得任选来源。 |
+| `lateral_alias_ambiguous` | 投影里的名字和同一 SELECT 里更早的别名同名，按别名读了；但有个来源的列未知，可能也有这一列，而 Spark 会先读源列。`msg` 写明列名。 | 给该来源补 Schema（或在 SQL 里给列加限定）；证明有这一列后，输出读源列。 |
 | `merge_delete_ignored` | `WHEN ... THEN DELETE` 是行级操作，不产出 `ROOT` 输出字段；`msg` 指明它来自 `MATCHED` 还是 `NOT MATCHED BY SOURCE` 分支。 | 无需处理；字段级覆盖率不要把该分支算作缺失。 |
 | `merge_branch_not_representable` | 该写入来自 `WHEN NOT MATCHED BY SOURCE`——Spark 三种 WHEN 子句中的第三种，契约 1.0 的 `merge_branch` 枚举只命名两种。 | 读 `merge_branch_qualifier` 取子句种类；不要把 `merge_branch` 的缺席理解为「这不是一条 MERGE 写入」（语句种类见顶层 `stmt_kind`）。 |
 | `identifiers_quoted_for_parse` | 列名与 SQL 关键字撞名（如 `not`、`like`、`out`、`using`）且原文未加引号，工具为完成解析给这些标识符补了反引号；`msg` 列出补引号的全部标识符。 | 无需处理，血缘正常。建议在源 SQL 中给这些列名加引号，避免依赖工具修补。 |
+| `parameter_names_quoted_for_parse` | 表名的一部分里嵌着调度参数（`db.src_${region}`、`db.${p}_src`），sqlglot 无法把它读成一个名字；工具为完成解析把整段加了反引号（`` db.`src_${region}` ``），表 id 因此保留参数原样，按下文「表名里还留着调度参数」报告。`msg` 列出补引号的全部名字。只在名字位置（带点的名字，或紧跟 `FROM` / `JOIN` / `TABLE` / `INTO` / `VIEW`）改写，值里的 `${...}` 不动。 | 无需处理此条；按 `input_incomplete` 提供参数已替换的 SQL 重跑。 |
+| `multi_table_insert_split` | 只在任务文档里出现。sqlglot 解析不了 Hive 的 FROM 开头多表写入（`FROM src INSERT ... SELECT ... INSERT ... SELECT ...`），工具在解析前把它改写成每个目标一条 `INSERT ... SELECT <投影> FROM <共享 FROM> <该分支的子句>`；`statement_id` 是其中第一条，`msg` 列出目标表。语句编号、`table_state_graph` 和行号都按拆开后的语句计；脚本行数不变。 | 无需处理，每个目标都有自己的血缘。对照源脚本数语句时，按每个目标一条计。 |
 | `session_scoped_relations_present` | 本脚本产出了只存活于会话、不落存储的关系（`TEMP VIEW` / `GLOBAL TEMP VIEW` / `CACHE [LAZY] TABLE`），`msg` 列出全部关系名。 | 按 catalog 对账前，先把这些关系从 `final_table_states` 和表级覆盖统计里排除；字段血缘本身有效，两跳各自保留。 |
 | `filter_in_join_on_clause` | JOIN ON 中包含常量比较等行过滤。 | 影响逻辑解释时区分 join key 与 condition filter。 |
 | `join_keys_not_split` | JOIN 的等值键无法从 ON 条件中拆分（限定符无法分边的自连接、`ON TRUE` 等），按原文保留连接条件。 | 改读该 join 的 `condition_expression` / mapping.md §6「连接条件（未拆分）」行，不要把空键列表当作「无连接键」。 |
-| `magic_number` | 表达式包含缺少解释的数值常量。 | 上层业务知识生成时请求口径说明。 |
+| `magic_number` | 表达式包含缺少解释的数值常量（类型参数不算，如 `DECIMAL(18, 2)` 的精度）。 | 上层业务知识生成时请求口径说明。 |
 | `complex_aggregate_with_case` | 聚合中嵌套 CASE。 | 指标解释应保留 CASE 分支，不只记录 SUM/COUNT。 |
-| `duplicate_table_in_union` | 同一物理表是多个 UNION 分支的 **FROM/JOIN 来源**。只被某个分支的过滤子查询读到（如 `NOT EXISTS`）不计入。 | 确认分支是否复制后忘记换来源；反连接排重是正常写法，不再触发。 |
+| `duplicate_table_in_union` | 同一物理表是多个 UNION 分支的 **FROM/JOIN 来源**。只被某个分支的过滤子查询读到（如 `NOT EXISTS`）不计入；`EXCEPT` / `INTERSECT` 也不计入，两侧读同一张表是反连接/半连接的集合写法。 | 确认分支是否复制后忘记换来源；反连接排重是正常写法，不再触发。 |
 | `expansion_truncated` | 表达式展开撞上保护上限（`max_chars` 或 `max_substitutions`），`expanded_expression` 被截断并以 `/* expansion truncated at <guard>=<limit> */` 结尾；`msg` 给出字段、闸门和数字。来源事实完整，因此它是 warning 而不是缺口。 | 需要完整文本时沿该 output 的 `unexpanded_refs[]` 继续展开；`max_substitutions` 可用 `parse --expansion-limit N` 重跑。不要据此判定血缘不完整。 |
 | `target_field_binding_fallback` | 目标字段权威绑定没有完整应用。 | 查看 `lineage.json.target_field_binding.issues[]`。 |
 
@@ -165,6 +168,8 @@ warning 不是固定封闭枚举；机器处理应对已知类型设策略，对
 - `warnings[]` 里有一条 `type: "input_incomplete"`；
 - `metadata_coverage.unbound_parameter_tables` 列出这张表（只在非空时出现），它不在 `missing_tables` 里。
   批量的 `metadata_gaps.json` 把它列在 `unbound_parameter_tables` 下，`parse` 会打印一行 `Input incomplete:`。
+
+参数嵌在名字中间（`FROM db.src_${region}`）同样适用：表 id 是 `db.src_${region}`，`warnings[]` 另有一条 `parameter_names_quoted_for_parse` 说明为解析补了引号。
 
 处理办法是提供参数已替换好的 SQL 重跑。值里的参数（`dt = '${dt}'`）不是表名，不受影响。
 
@@ -246,6 +251,8 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `expression_source_unresolved` | 表达式的物理或生成来源。 |
 | `expression_resolution_incomplete` | 部分来源已知，但表达式解析尚不完整。 |
 | `expression_expansion_bounded` | 表达式展开达到保护上限，且该输出的来源本身也未解析完；可沿 `evidence_summary.unexpanded_refs` 继续追踪。来源已完整时不再是缺口，改为 `expansion_truncated` warning（见 §3.2）。 |
+| `multi_table_insert_unsupported` | 只在任务文档里出现。一条无法拆分的 FROM 开头多表写入（见 `multi_table_insert_split` 警告）：`targets` 列出它写的全部表，`reason` 说明原因——`target_read_by_shared_from`（某个目标也被共享 FROM 读取，Hive 只读一次源，拆成依次执行的 INSERT 含义就变了）、`branch_without_select` 或 `split_does_not_parse`。`root_impact` 为 `true`；这些目标都没有血缘。 |
+| `set_operation_semantics_partial` | 一个 `EXCEPT` / `INTERSECT` scope（`scope_id`）：输出列及其取值来自左支，已完整追踪；其余输入删掉或保留哪些行，没有建模成行条件。`evidence_summary` 给出 `set_op`、`value_branches`、`row_membership_branches`、`row_membership_tables`。`root_impact` 为 `true`，`downstream_impact` 两个列表为空：影响的是每一行，而不是某一列的取值。 |
 
 ### 5.2 `gap_bucket`
 

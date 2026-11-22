@@ -51,6 +51,7 @@ def build_packets(
     only: Iterable[str] | None = None,
     glossary: Mapping | None = None,
     patched: Mapping | None = None,
+    name_convention: Mapping | None = None,
 ) -> list[dict]:
     """One packet per table the corpus writes (or per ``only`` table), sorted by name.
 
@@ -65,6 +66,10 @@ def build_packets(
     patch as plain data, see :class:`~.packet_confirmed.Confirmed`) mark what the owner
     already confirmed; the caller has applied the patch to ``documents`` and ``metadata``
     already, so ``patched`` only says which of the comments are its answers.
+
+    ``name_convention`` is the caller's table-name convention (``domain-profile/1``'s
+    ``table_name_convention``: ``{"full": [suffix, ...], "incremental": [...]}``); without
+    it every input's ``name_convention`` is ``unknown`` and none is a ``full_snapshot``.
     """
     documents = list(documents)
     wanted = {bare_table(name) for name in only} if only else None
@@ -79,6 +84,7 @@ def build_packets(
         _task_reads(documents), _right_side_shapes(statements), statements,
     )
     corpus.script = _task_statements(profiles)
+    corpus.name_convention = name_convention
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
 
 
@@ -248,6 +254,8 @@ class _Corpus:
         self._statements = statements or {}
         # G1: `task -> [statement profile]` in script order, set by `build_packets`.
         self.script: dict[str, list[dict]] = {}
+        # WP11: the caller's table-name convention, or None (set by `build_packets`).
+        self.name_convention: Optional[Mapping] = None
         self.confirmed = confirmed
         self._metadata = metadata
         self._looked_up: dict[str, Optional[dict]] = {}

@@ -24,7 +24,8 @@ import pytest
 from scope_lineage.contract.lineage import to_lineage_dict
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 from scope_lineage.semantics import CHECKS, validate_document
-from scope_lineage.semantics.checks_meaning import check_fan_out
+from scope_lineage.semantics.checks_documented import QUALIFIER_TERMS
+from scope_lineage.semantics.checks_meaning import check_fan_out, success_like
 from scope_lineage.semantics.packet import build_packets
 
 from .table_semantics_demo import demo_packets, example, packet_of
@@ -43,6 +44,11 @@ def packet(packets: Path) -> dict:
 @pytest.fixture
 def document(packets: Path) -> dict:
     return example(packets)
+
+
+# 冲正 is a payment-domain qualifier the package no longer ships (WP11); these tests
+# bring it the way a caller's domain profile does.
+_WITH_REVERSAL = {"qualifier_terms": (*QUALIFIER_TERMS, "冲正")}
 
 
 def _problems(report: dict, check: str, status: str = "fail") -> list[dict]:
@@ -650,10 +656,12 @@ def test_a_qualifier_of_a_source_column_must_reach_that_column(
     document: dict, packet: dict
 ) -> None:
     _source_column(packet, "register_ts")["comment"] = "冲正后的注册时间戳"
-    (warning,) = _problems(validate_document(document, packet), "documented_meaning", "warn")
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    (warning,) = _problems(report, "documented_meaning", "warn")
     assert warning["at"] == "columns[3]"
     _column(document, "register_time")["derivation"] += "取冲正后的时间。"
-    assert _problems(validate_document(document, packet), "documented_meaning", "warn") == []
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    assert _problems(report, "documented_meaning", "warn") == []
 
 
 def _shout_inputs(packet: dict) -> None:
@@ -680,7 +688,8 @@ def test_a_qualifier_of_an_upper_case_source_column_must_reach_that_column(
 ) -> None:
     _source_column(packet, "register_ts")["comment"] = "冲正后的注册时间戳"
     _shout_inputs(packet)
-    (warning,) = _problems(validate_document(document, packet), "documented_meaning", "warn")
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    (warning,) = _problems(report, "documented_meaning", "warn")
     assert warning["at"] == "columns[3]"
 
 
@@ -699,11 +708,12 @@ def test_one_qualifier_over_several_columns_is_one_warning_naming_them(
 ) -> None:
     _source_column(packet, "cust_no")["comment"] = "冲正后的客户号"
     _source_column(packet, "verified_no")["comment"] = "冲正后的实名客户号"
-    (warning,) = _problems(validate_document(document, packet), "documented_meaning", "warn")
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    (warning,) = _problems(report, "documented_meaning", "warn")
     assert warning["at"] == "columns[0]"
     assert "customer_id" in warning["message"] and "verified_customer_no" in warning["message"]
     _column(document, "verified_customer_no")["meaning"] += "（冲正后）"
-    report = validate_document(document, packet)
+    report = validate_document(document, packet, **_WITH_REVERSAL)
     assert _problems(report, "documented_meaning", "warn") == []
 
 
@@ -767,3 +777,94 @@ def test_the_text_report_numbers_the_meaning_checks_for_the_rewrite_prompt(
     assert "  FAIL [10 fan_out] summary.row.note: 关联 demo_ods.ods_credit_limit_df" in (
         render_validation_text(report)
     )
+
+
+# ------------------------------------------------------------------ audit 2026-11-21 (E §5.3, §5.4)
+
+
+def test_a_number_in_a_quantity_comment_may_stay_unconfirmed(
+    document: dict, packet: dict
+) -> None:
+    """``近30天活跃标志`` names a window, not the meaning of a code ``30``."""
+    _source_column(packet, "verify_flag")["comment"] = "近30天活跃标志"
+    code = _column(document, "verify_status")["code_values"][1]
+    code.update(value="30", meaning="待确认", unconfirmed=True)
+
+    assert _problems(validate_document(document, packet), "documented_meaning") == []
+
+
+def test_glued_codes_the_comment_explains_still_cannot_stay_unconfirmed(
+    document: dict, packet: dict
+) -> None:
+    _source_column(packet, "verify_flag")["comment"] = "实名标志 0未实名，1已实名"
+    code = _column(document, "verify_status")["code_values"][1]
+    code.update(meaning="待确认", unconfirmed=True)
+
+    (problem,) = _problems(validate_document(document, packet), "documented_meaning")
+    assert "0 = 未实名" in problem["message"]
+
+
+@pytest.mark.parametrize("meaning", ["未能通过", "无法正常使用", "不曾成功", "没能成功", "未能正常通过"])
+def test_a_negating_phrase_before_success_is_not_success_like(
+    document: dict, packet: dict, meaning: str
+) -> None:
+    _verify_status_case(packet)
+    _column(document, "verify_status")["code_values"][0]["meaning"] = meaning
+
+    assert _problems(validate_document(document, packet), "derived_codes", "warn") == []
+
+
+@pytest.mark.parametrize(
+    ("meaning", "expected"),
+    [
+        ("未成功", False),
+        ("没有成功", False),
+        ("尚未通过", False),
+        ("审核不通过", False),
+        ("未能通过", False),
+        ("无法正常使用", False),
+        ("不曾成功", False),
+        ("没能成功", False),
+        # sentinels: still success-like
+        ("成功", True),
+        ("实名有效", True),
+        ("非常成功", True),
+        ("审核通过，未发现问题", True),
+    ],
+)
+def test_success_like_reads_negation_in_a_short_window(meaning: str, expected: bool) -> None:
+    assert success_like(meaning) is expected
+
+
+def test_a_second_producer_without_source_values_keeps_the_merged_warning(
+    document: dict, packet: dict
+) -> None:
+    """t1 gathers two source values into ``1``; t2 reaches ``1`` by a range. The warning
+    t1 earns used to vanish because t2's ``None`` erased the merged list."""
+    _verify_status_case(packet)
+    _column(document, "verify_status")["code_values"][0]["meaning"] = "实名有效"
+    column = next(c for c in packet["lineage"]["columns"] if c["column"] == "verify_status")
+    second = copy.deepcopy(column["producers"][0])
+    second["case_outputs"] = [
+        {"value": "1", "when": ["`score` >= 60"], "source_values": None, "catch_all": False}
+    ]
+    column["producers"].append(second)
+
+    (warning,) = _problems(validate_document(document, packet), "derived_codes", "warn")
+    assert warning["at"] == "columns[4].watch"
+
+
+def test_two_single_value_producers_without_lists_ask_for_no_watch(
+    document: dict, packet: dict
+) -> None:
+    _verify_status_case(packet, {"value": "1", "when": ["`verify_flag` = 1"],
+                                 "source_values": ["1"], "catch_all": False})
+    _column(document, "verify_status")["code_values"][0]["meaning"] = "实名有效"
+    column = next(c for c in packet["lineage"]["columns"] if c["column"] == "verify_status")
+    second = copy.deepcopy(column["producers"][0])
+    second["case_outputs"] = [
+        {"value": "1", "when": ["`score` >= 60"], "source_values": None, "catch_all": False}
+    ]
+    column["producers"].append(second)
+
+    assert _problems(validate_document(document, packet), "derived_codes", "warn") == []

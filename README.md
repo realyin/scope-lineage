@@ -316,6 +316,73 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to the next release (Unreleased)
+
+No format changes number, but some field sources change. A SELECT-list name that is both a
+source column and an earlier alias in the same SELECT (`SELECT fee AS amt, amt AS fee`) now
+reads the source column, as Spark does, wherever Schema proves the source has it; before, the
+alias always won, silently. A name the Schema cannot settle keeps the alias reading and adds a
+`lateral_alias_ambiguous` warning. Full entry: the **Breaking** item under Unreleased in
+[CHANGELOG.md](CHANGELOG.md).
+
+1. Re-run `parse` for stored lineage documents. Expect changed `sources`, `expression` and
+   `end_to_end_lineage` only on outputs of this shape; no other output moves.
+2. Treat `lateral_alias_ambiguous` like `ambiguous_unqualified`: supply the named source's Schema
+   and re-run, or confirm the alias reading by hand.
+3. In a table-semantics run, rebuild packets with the same `semantic packet` command; documents
+   whose packet changed become `packet_stale` and are rewritten as usual (runbook S3 and S4).
+
+HAVING and QUALIFY follow the same source-first rule: a name there that is both a source column
+and a SELECT alias now reads the column wherever Schema proves the source has it, so the
+`raw_expression` and `fields` of such a filter block change on re-parse; ORDER BY still reads
+the alias.
+
+`set_op` on a `kind=union` scope also changes value. A `UNION` without `ALL` is now labelled
+`UNION` (it was always `UNION_ALL`), and `EXCEPT` / `INTERSECT`, which used to yield no columns,
+now yield scopes labelled `EXCEPT` / `INTERSECT` plus a `set_operation_semantics_partial` fact gap.
+
+4. A consumer that reads `set_op == "UNION_ALL"` as "a set operation" should accept `UNION_ALL`,
+   `UNION`, `EXCEPT` and `INTERSECT`, and take `EXCEPT` / `INTERSECT` values from the first
+   branch only.
+
+Table names now follow one identity rule in every layer, and it follows
+`SCOPE_LINEAGE_CATALOG_PREFIXES` (see [Catalog-prefix normalization](#catalog-prefix-normalization)).
+The target table is lower-cased like the tables a query reads, and a configured catalog is
+dropped from it whatever its case. A three-part name whose catalog is not configured is no
+longer cut to its last two segments anywhere, so two catalogs' tables of the same name stay two
+tables.
+
+5. Re-run `parse` when a target was written in upper case or with an upper-case catalog
+   (`INSERT INTO MART.Y`, `SPARK_CATALOG.mart.y`): `target_table` and the table state become
+   `mart.y`.
+6. Glossary `column_ref`: an owner is the corpus's primary spelling of its table. A bare-name
+   read is filed under its one qualified table (`orders.status` becomes `ods.orders.status`),
+   and `cat1.ods.t` / `cat2.ods.t` codes are no longer filed together. Rebuild `glossary` and
+   re-key any overrides that named the old `column_ref`.
+7. Same-named tables in two catalogs: if they are in fact one table, configure the catalog
+   prefixes; otherwise expect two table cards, two glossary owners, and Schema looked up per
+   catalog. Inline Schema whose spellings fold to one name records a `catalog_collision` in
+   `metadata_conflicts` and keeps the first.
+8. Catalog match key: the catalog view now drops quotes and case before matching, and drops a
+   catalog only when configured (otherwise it keeps the last two segments, as before). Schema
+   keyed `db.table` still describes a `catalog.db.table` read when no other entry could be it.
+The package no longer carries a warehouse's table-name suffix convention or business-domain
+words as defaults. `semantic packet` reads no suffix unless told to, so an input named
+`…_df` is no longer a full snapshot by its name alone and check 9 no longer fails an
+`incremental` document on that ground; check 12 looks only for 增值税 / 税 / 手续费 / 测试,
+matched as words (纳税人识别号 no longer counts as qualified by 税); the concept layer's lending
+words are gone, and it reads no table-name suffix either: without a convention no member is a
+`snapshot` by its `_di` name, `increment_with_event_time` is never cast, and a comment-less
+table is named `gadget_df` rather than `gadget`.
+
+9. To keep the old readings, write a `domain-profile/1` file (start from
+   `examples/domain-profile/domain-profile.json`, whose `table_name_convention` is the union of
+   the packet's and the concept layer's old suffix lists) and pass it with `--domain-profile` to
+   `semantic packet`, `semantic validate` and `ontology`. Rebuild a run's packets with it:
+   packets built without it differ in `name_convention`, `full_snapshot` and `packet_digest`.
+   To keep one layer's old reading word for word, list only that layer's old suffixes. See
+   [docs/en/domain-profile.md](docs/en/domain-profile.md).
+
 ### Migrating to 0.11.0
 
 Every format keeps its number and every catalog change is additive: a catalog written for

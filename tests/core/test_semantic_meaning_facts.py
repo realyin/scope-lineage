@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from scope_lineage.semantics.comment_values import listed_labels, value_labels
 from scope_lineage.semantics.packet_meaning import (
     case_outputs,
@@ -176,3 +178,30 @@ def test_header_facts_read_the_published_header_and_stop_at_the_first_statement(
     }
     assert header_facts([], "-- 仅保留新核心\nSELECT 1") == {"lifecycle": None, "volume": None}
     assert header_facts([], None) == {"lifecycle": None, "volume": None}
+
+
+@pytest.mark.parametrize(
+    "comment",
+    [
+        "近30天活跃标志",
+        "满100元减免",
+        "2024年新客标志",
+        "窗口天数：近7天或近30天",
+        "统计近3个月，近12个月",
+    ],
+)
+def test_a_number_glued_to_a_quantity_is_not_a_code(comment: str) -> None:
+    """One glued hit is an amount in a sentence, not a code list (check 12, E §5.3)."""
+    assert value_labels(comment) == {}
+
+
+def test_glued_codes_keep_the_glossary_s_constraints() -> None:
+    # two pairs of one width with distinct labels: codes
+    assert value_labels("0未推送，1已推送") == {"0": "未推送", "1": "已推送"}
+    assert value_labels("Y是 N否") == {"Y": "是", "N": "否"}
+    # one pair alone is not a list of codes
+    assert value_labels("1已推送") == {}
+    # codes of different widths are a date or amounts, not codes
+    assert value_labels("2023年 12月") == {}
+    # the same label twice is not two meanings
+    assert value_labels("1有效 2有效") == {}

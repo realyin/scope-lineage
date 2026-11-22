@@ -94,8 +94,11 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   那份事实而不是重算；借来的文件会抄进本次运行自己的 `.cache/`，下次即本地命中，借出的那份
   目录可以删掉。可重复，按给出的顺序、在本地缓存之后依次尝试；它本身即蕴含 `--incremental`，
   `--no-cache` 仍然优先。语料路径**不进**选项摘要：同一个任务在哪个目录下解析，都该算出同一份事实。
-- 事实文件按任务名存放，两份语料完全可能各有一个同名而内容不同的任务。能不能借用由文件里记着的
-  指纹与选项摘要说了算，不由文件名说了算——同名不同内容的任务照样重算。
+- 事实文件先按任务名（它在 `--lineage` 下的路径）找，找不到再按 `lineage.json` 的 sha256 找：
+  每份缓存在 `.cache/by-content/index.json` 里按内容列出自己的文件，所以子集语料里叫 `task_a`、
+  超集语料里叫 `domain_a/task_a` 的同一个任务照样能借，单文件运行留下的事实也能借。两份语料完全
+  可能各有一个同名而内容不同的任务；能不能借用由文件里记着的指纹与选项摘要说了算，不由怎么找到的
+  说了算——同名不同内容的任务照样重算。
 - 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
   `glossary.json` / `tables.json`、以及工具版本，任何一项对不上，索引就当没有。
   由别的子命令写下的索引或缓存（`command`、`doc_format` 对不上）同样当没有。
@@ -203,6 +206,11 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 一个列名不属于任何（非临时）概念属性时，它只留在 `terms[]` 里——概念层不为它发明一个概念。
 
 ### 值域观察（values[]）
+
+物理 `column_ref` 的 `<db.table>` 是这张表在语料里的主名，按表身份规则（和表卡同一条）归组：
+读裸名 `orders` 的观察记在语料同时写入的 `ods.orders` 名下；`cat1.ods.t` 和 `cat2.ods.t` 是两个归属，
+除非它们的 catalog 配进了 `SCOPE_LINEAGE_CATALOG_PREFIXES`。以前归属取表名最后两段，会把一个 catalog 的码值
+记到另一个 catalog 的表名下。
 
 `column_ref` 优先是物理列 `<db.table>.<column>`；**穿不透物理列时**写
 `<scope_id>.<column>` 并带 `logical: true`——CTE id 不是表名，把它写在 `table` 位置等于
@@ -379,6 +387,9 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 一个 `--template` 路径写两个文件：`.md` 是给人填的（一列一节，一取值一行），同名 `.json` 是
 `--overrides` 直接读得回去的（`doc_format: "glossary-overrides-template/1"`，`values` 的键是
 `<表.列>=<去引号取值>`，`meaning` 为空串，`date` 取当天）。两个文件问的是同一批取值。
+路径以 `.json` 结尾时，它就是那份 JSON，给人填的表格写在旁边的同名 `.md`。
+两个文件里有一个会落在字典自己的文件上时（`--template <out>/glossary.md` 或 `<out>/glossary.json`），
+命令以退出码 2 拒绝，什么都不写。
 
 `--template` 仍然需要 `--out`：模板是**对字典的一次排名**，不是字典的替代品。少给 `--out`
 时命令以退出码 2 停下，并把这句理由一起打出来。

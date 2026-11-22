@@ -125,7 +125,8 @@ scope（FROM、JOIN、UNION 分支、CTE），所以 CTE 里的过滤、每个 U
 标量子查询的 WHERE 只决定一个值，不算；WHERE 里的 `IN (子查询)` 的列已经是父查询过滤的字段。GROUP BY
 的键不算——它们是输出的值。追加（INSERT INTO）时，新写入这批行的条件与前一状态已有的条件并列。
 只由常量或系统值算出的条件字段（`'2026' AS y`、`CURRENT_DATE() AS d`）不对应任何名字，也不是缺口：没有
-哪一行源数据决定它。追踪不到物理字段的条件字段不补位名字，记为 row_condition_source_unresolved fact gap；
+哪一行源数据决定它。追踪不到物理字段的条件字段不补位名字，记为 row_condition_source_unresolved fact gap
+（两张关联表都有的未限定列也是这样：缺口的 `scope_id` 为 `AMBIGUOUS`，不写 `{"table": "AMBIGUOUS"}` 条目）；
 缺口的 `scope_id` / `column` 是被读的字段，`condition_scope_id`、`logic_block_id`、`logic_type`、
 `expression` 指出是哪一个 WHERE / JOIN / HAVING / QUALIFY 读了它。
 
@@ -336,6 +337,11 @@ columns = {
 标记由工具在解析时按它实际解析到的关系判定，所以**拼写不一致也不会漏**：
 全局临时视图声明时是裸名、读的时候是 `global_temp.` 限定名，按名字比对会漏，边上的标记不会。
 
+同样的两个可选键（`source_state`，以及关系只活在会话里时的 `session_scoped`）打在每一个指向「本脚本写过的关系」的
+条目上：`value_sources`、`row_membership_sources`、`window_context_sources`（与 `role` 并列），以及 MERGE 条件条目
+（MERGE 语句的 `value_condition_sources` 和 `effect.rowset_effect.membership_sources`）。
+指向本脚本从未写过的表的条目两个键都不带。
+
 ### 只想排除、不想折叠
 
 按 catalog 对账时通常只需要把这些关系从表清单里去掉，不需要动字段血缘：
@@ -377,9 +383,14 @@ folded = fold_session_scoped(document)     # 输入不会被修改
 折叠按语句级端到端血缘的同一规则组合每一跳的 `transform`（取路径上更强的一种），所以
 `v * 2` 经过一层透传视图读到的仍是 `EXPRESSION`；两条来源只有内容完全相同才合并，
 同一视图列背后的不同常量、同一物理列的不同参与路径都各自保留。
+经过临时视图读到的值同时也经过了视图自己的行条件：视图里的 `WHERE amt > 0` 会让 `amt` 进入折叠后该行的
+`row_membership_sources`，多层视图串起来时每一跳都收集——与等价的 CTE 写法给出的答案一致。
 行条件与行集同样折叠：`row_membership_sources` 里读临时视图的条件（带 `session_scoped`）解析成视图列背后的
-物理字段，并加上视图自己的行条件；`COUNT(*)` 这类读临时视图的 `rowset` 来源展开成视图所读的物理表各一条，
-视图的行条件同时并入目标行的 `row_membership_sources`。这些组合规则（身份、合并、变换组合）与语句级、
+物理字段，并加上视图自己的行条件；`COUNT(*)` 这类读临时视图的 `rowset` 来源展开成视图所读的物理表各一条
+（视图又读另一个视图时，递归到它当时读到的那个状态），每一层视图的行条件都并入目标行的 `row_membership_sources`。
+`value_condition_sources` 按行条件同样折叠；`window_context_sources` 的条目解析成视图列背后的物理字段，保留 `role`。
+没有任何语句读的临时视图也会被去掉：会话关系取自 `statement_sequence[].is_session_scoped_relation`，
+不只取自指向它的边。这些组合规则（身份、合并、变换组合）与语句级、
 任务级共用 `scope/composition.py`。
 
 **折不动的地方不会被悄悄丢掉。** 该行保留原边，并给出：
@@ -389,7 +400,7 @@ folded = fold_session_scoped(document)     # 输入不会被修改
 | `value_sources_folded` | `true` = 这一行全部折叠成功；`false` = 有折不动的跳 |
 | `fold_incomplete_reasons` | 折不动的原因，仅在 `false` 时出现 |
 
-原因有五种，都对应一个真实存在的情况：
+原因有六种，都对应一个真实存在的情况：
 
 - `source_state_not_in_document` —— 读的是该关系被重定义**之前**的状态。
   `end_to_end_lineage` 是最终状态视图，那个状态没有行；用现存的定义替换会**指错出处**。
@@ -397,7 +408,9 @@ folded = fold_session_scoped(document)     # 输入不会被修改
   只有一行 `*`）。
 - `source_column_has_no_sources` —— 该列在文档里没有任何来源。
 - `fold_depth_exceeded` —— 关系间构成环。
-- `rowset_relation_unresolved` —— 读临时视图的行集，但找不到该视图语句读的物理表（或它读的仍是另一个会话关系）。
+- `rowset_relation_unresolved` —— 读临时视图的行集，但找不到该视图语句读的物理表，或它读的另一个会话关系所处的状态在文档里没有行（读之后被重定义了）。
+- `session_scoped_reference_unmarked` —— 某个条目指向会话关系却没有 `session_scoped` 标记（窗口与 MERGE 条件条目
+  开始打标之前写出的文档），折叠无法判断它读的是哪个状态。
 
 **折叠后来源为空 ≠ 这列没有血缘**，所以这个实现从不返回空——折不动就保留原边并说明。
 自己写折叠最容易错的也正是这一点。
@@ -576,6 +589,22 @@ statement_id、source_alias、column、root_impact=true 和 needed_fact。触发
 USING 关系并未输出的列，以及条件使用了既非目标别名也非 USING 别名的限定符。只由常量或系统值算出的
 USING 列不对应任何名字，也不是缺口。该缺口
 root_impact=true，因此会令 analysis_status=partial 并使 strict 门禁返回非零。
+
+DELETE、UPDATE 或 MERGE 的条件里，子查询读多张表时，未限定的列先按 schema 判断归属：恰好一张表
+有这一列、其余表都已知没有时，就记到那张表上。子查询的表（一张或几张）都已知没有这一列时，按 Spark 解析
+外层引用的顺序往外找：逐层找外层查询，最后是被写的表（FROM 里的子查询不是关联子查询，不往外找）。没有
+元数据时，单表子查询仍按原来的做法把列记到那张表上。判断不了（几张表都有，或有表缺元数据）时，这个字段不补位
+名字——row_membership_sources、value_condition_sources 里都不写 `{"table": "UNKNOWN", ...}`——同时记录
+row_condition_source_unresolved，字段为 statement_id、target_table、column（只有一列时）、columns、
+root_impact=true 和 needed_fact。这和 INSERT 条件是同一条规则：`trace_complete` 仍然只回答值是否追到，
+条件是否闭合看这个缺口（`conditions_closed`，见「什么时候一个字段可以当作完整事实使用」）。UPDATE 的赋值
+不同，那里是值：赋值表达式读到判断不了归属的列时，这一列保留 `{"table": "UNKNOWN", ...}` 值来源，
+`trace_complete` 为 false，missing_reasons 里有 row_condition_source_unresolved，并记录同一个缺口。
+
+这类条件里带限定符的列，按 Spark 的解析顺序找限定符：先是列所在的查询，再逐层往外找外层查询（关联引用），
+最后是被写的表（有别名时认别名，没有别名时认表名）。`DELETE FROM mart.t t` 里关联子查询的 `t.id`
+记到 `mart.t` 上。哪一层都没声明的限定符，按「判断不了归属的未限定列」处理：在条件里不补位名字，在
+UPDATE 的赋值里写 `UNKNOWN`，两种情况都记缺口。
 
 diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、schema 来源数以及元数据冲突。
 --schema-fallback 只补 --schema 中缺失的表；同表定义不一致时保留权威来源并报告冲突。

@@ -42,7 +42,8 @@ scope-lineage parse --input-dir examples/catalog-demo-corpus/tasks \
   --schema examples/catalog-demo-corpus/schema_info.json --out out/lineage
 scope-lineage semantic packet --lineage out/lineage \
   --tasks examples/catalog-demo-corpus/tasks \
-  --schema examples/catalog-demo-corpus/schema_info.json --out out/packets
+  --schema examples/catalog-demo-corpus/schema_info.json \
+  --domain-profile examples/domain-profile/domain-profile.json --out out/packets
 scope-lineage semantic validate examples/table-semantics --packets out/packets
 scope-lineage semantic confirm examples/table-semantics \
   --confirmations examples/table-semantics/confirmations.json --out out/confirmed
@@ -56,7 +57,8 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 
 `validate` 每份文档打印一行（`demo_dwd.dwd_party_customer_info_df: 52/52 checks passed
 (100.0%)`），最后是合计。示例的 `packet_digest` 对应当前安装的 SQLGlot 渲染出的材料包；换一个 SQLGlot
-版本，摘要检查可能把示例报为过期，其余检查照样通过。
+版本，摘要检查可能把示例报为过期，其余检查照样通过。演示语料按 `_df` / `_di` 约定给表命名，所以打包时带上示例领域配置，
+由它开启这条约定（见[领域配置](domain-profile.md)）。
 
 ## `semantic packet`
 
@@ -72,6 +74,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `--glossary` | 否 | `scope-lineage glossary` 写出的 `glossary.json`；每个目标列和输入列带上字典已确认的码值含义（`confirmed_values`），见「已确认的事实」 |
 | `--metadata-patch` | 否 | 审过的 `metadata-patch/1` 文件，可重复；在内存里覆盖到血缘和 `--schema` 的注释上，被覆盖的注释标 `comment_source: "patch"`；文件读不了时退出码 2 |
 | `--out` | 是 | 输出目录：每张目标表一个 `<db.table>/` |
+| `--domain-profile` | 否 | `domain-profile/1` 文件；其中的 `table_name_convention` 说明哪些表名后缀表示全量快照表、哪些表示增量表（见下文 `name_convention`）。不给时任何后缀都不算数。文件读不了时退出码 2。见[领域配置](domain-profile.md) |
 
 语料里每张被任务最终写入的表都会生成材料包（会话视图和临时表不算目标表）。`--tasks` 里找不到任务 JSON 的
 任务照样打包、只是没有 SQL；摘要行以 `tasks_without_sql` 计数。
@@ -122,8 +125,8 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 每张输入表带上第 9 项检查要用的事实：`partition_read`（只取一个分区为 `equality`；每个分区过滤都是等值或全由
 字面量组成的 `IN`、合起来不止一个值时为 `multi_equality`，即读几个固定分区；其余为 `range`；不过滤为
 `none`）及其依据 `partition_filters`；`date_filters`（落在日期、时间类列上的非分区过滤）；`name_convention`
-（`_df` / `_da` 一类表名为 `full`，`_di` / `_hi` 为 `incremental`，其余 `unknown`）——这是命名约定，公开出来
-让读者看到检查的前提。`full_snapshot` 即以 `equality` 方式读取的 `full` 表；它为假时，`packet.md` 写明原因：
+（表名以调用方 `--domain-profile` 的 `table_name_convention` 里的 `_<后缀>` 结尾时为 `full` 或 `incremental`，其余
+`unknown`；没有配置约定时一律 `unknown`）——这是数仓的命名约定，不是本工具的规则，公开出来让读者看到检查的前提。`full_snapshot` 即以 `equality` 方式读取的 `full` 表；它为假时，`packet.md` 写明原因：
 `不适用（非分区表）`、`未证明（未见分区条件）`、`否（读 N 个固定分区 …）`（`full` 表另加「每个分区是一份快照，
 同一记录在每份里各一行」）、`否（读多个分区 / 范围）` 或 `未证明（表名约定 …）`。
 
@@ -327,8 +330,10 @@ Schema 只查结构。模型常出错的两个数量故意留给第 7 项检查�
 ## `semantic validate`
 
 ```bash
-scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json]
+scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json] [--domain-profile <file>]
 ```
+
+`--domain-profile` 读一份 `domain-profile/1` 文件，其中的 `qualifier_terms` 加到第 12 项的通用限定词上；文件读不了时退出码 2。
 
 读取 `<documents>` 下每个 `*.json`；工具链自己的其他文档（`semantic-confirmations/1`、材料包、报告）跳过，
 其他一律检查。Schema 不通过的文档报出错误、不做交叉检查。合法的文档与 `<packet dir>/<table>/packet.json`
@@ -353,10 +358,10 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过五个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
-| 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选（只算形状为 `window` 的日期过滤） |
+| 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤（全量快照靠表名判断，所以要配置了 `table_name_convention` 才可能触发；失败文字写明依据是表名约定） | `refresh.time` 写 `snapshot`，而写入按业务日期筛选（只算形状为 `window` 的日期过滤） |
 | 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名、材料包里只有这一右侧用的别名，或它的关联规则编号 pN；同一右侧不论关联几次只算一项） | 只靠别的右侧也在用的别名点到它（别名只在一个 SELECT 里唯一，各 UNION 分支、子查询常重复用 `b`、`c`）：这句话可能说的是另一处关联，每个右侧一条警告，改用表名或 pN 点名；行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。附带条件并写出反面情形的说法也不算：这句话里说法之前有条件词（若、如果、假如、倘若、假设、只要、只有、一旦、除非、当 / 在…时，以及「X 成立时 / 满足时 / 唯一时 / 不重复时」，「不成立时 / 不唯一时」不算条件词），并且说法之后写了会放大（会 / 可能 + 放大、膨胀、重复，或关联出多行 / 多条）；或者下一句以「若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足」或「不成立时 / 不满足时 / 不唯一时 / 重复时」开头并写了会放大（「重复时」只在句首才算，先写主语再写「… 重复时」的下一句不算）；或者说法之前有条件词、下一句以否则、不然、反之开头并写了会放大。反面情形里点名了这句话到说法为止没提过的关联时仍然警告；只有后置保留语（「注释推出，SQL 未证明」）不算写了反面情形。不在粒度路径上（位于聚合之下）的关联两项都不查 |
-| 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效）来自归并多个来源值的分支或 ELSE，而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
-| 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
+| 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效，紧挨着的否定字或前面几个字里的「未能 / 无法 / 不曾 / 没能」等否定词组会取消它）来自归并多个来源值的分支或 ELSE（多个任务写同一列时按所有能列出来源值的分支合并，列不出的不清空别人的），而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
+| 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对；`0未推送，1已推送` 式紧贴的写法要至少两对、码宽一致、标签互不相同，标签不以天 / 元 / 年 / 月 / 日 / 个 / 次 / % 开头，`近30天活跃标志` 不算，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有成词的限定词（`增值税`、`税`、`手续费`、`测试`，加上 `--domain-profile` 的 `qualifier_terms`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到；头注释描述的是同任务另一张表（`header_facts.about`）时不检查 |
 
 第 9 项存在的原因：把每日全量快照写成增量，读者就会把多个分区相加，每一行按天数重复计数。
@@ -365,11 +370,16 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 文档可以通过前九项却依然误导读者：会重复行的关联没有提、派生出来的码值漏了、注释已经解释的值被当成问题、
 增值税或测试这样的限定被丢掉、十天的生命周期没有传达。它们读取「材料包里有什么」一节所述的事实（`fan_out`、
 `case_outputs`、`header_facts`）和注释；在这些事实出现之前生成的材料包里没有它们，相应检查就无事可查。
-限定词清单是 `scope_lineage/semantics/checks_documented.py` 里的 `QUALIFIER_TERMS`；同一条注释里被更长的词
+通用限定词清单是 `scope_lineage/semantics/checks_documented.py` 里的 `QUALIFIER_TERMS`（增值税、税、手续费、测试）；
+业务自己的限定词由 `--domain-profile` 提供。中文限定词只在读作限定时算数：后一个字不是汉字，或是
+前后额率费金款价收支发票数用客户账订单环标 之一（税后收入、收入税率、测试客户）；或者前一个字是 含扣除免去计减剔退 之一
+（含税总金额）——所以 纳税人识别号、税务登记号、税号、测试结果 不算带「税」或「测试」限定。拉丁字母的限定词按整词匹配，不分大小写。同一条注释里被更长的词
 包含的词（增值税里的税）只按更长的词报一次。
 
 第 5 项的规范化会转小写、去掉标识符引号、表限定、空白以及开头的 `WHERE` / `AND` / `ON`，所以血缘里的
-`` `latest`.`rn` = 1 ``、文档引用的 `WHERE rn = 1` 和脚本里的 `latest.rn=1` 视为相同。
+`` `latest`.`rn` = 1 ``、文档引用的 `WHERE rn = 1` 和脚本里的 `latest.rn=1` 视为相同。字符串字面量里的点不是表限定，
+原样保留：`x = 'p.q'` 与 `x = 'q'` 不相同。引用本身写了表限定时按限定核对：`a.is_deleted = 0` 只引用 `a` 的那条过滤，
+不引用 `b.is_deleted = 0`；限定可以是过滤自己的限定，也可以是这列所在表的表名。不写限定的引用仍按宽松文本比较。
 
 血缘里的每个谓词都经 SQLGlot 渲染，`rules[].sql` 却照抄脚本原文，所以第 5 项在同一个空间里比较两者。一段
 片段有两种形式：宽松文本，以及 SQLGlot 按血缘所用方言能解析时渲染出的文本。任务 SQL 有宽松文本、渲染文本，
@@ -378,7 +388,9 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 一种形式与某条引用、或与该引用相等的单元的某种形式相合，就算被引用。因此脚本里的 `nvl(x, 0) = 1`、
 `substr(n, 1, 2) = 'AB'`、`x is not null` 分别引用了血缘的 `COALESCE(x, 0) = 1`、`SUBSTRING(n, 1, 2) = 'AB'`、
 `NOT x IS NULL`；子查询 `a` 这样算出 `dt` 时，引用 `a.dt = '${bizdate}'` 也就引用了
-`DATE_FORMAT(time_inst, 'yyyyMMdd') = '${bizdate}'`。SQLGlot 解析不了的片段或脚本，仍按宽松文本比较。
+`DATE_FORMAT(time_inst, 'yyyyMMdd') = '${bizdate}'`。SQLGlot 解析不了的片段或脚本，仍按宽松文本比较；
+解析不了的引用先去掉首尾多出来的 `AND` / `OR` 再试一次，仍不行就在顶层 `AND` 处切开（括号里的、字符串里的、
+`BETWEEN x AND y` 里的 `AND` 不切），引用整体包着括号时按括号里的合取项比较。
 
 ### 报告
 
@@ -428,6 +440,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 - `not_reported` 按编号列出这些检查项（`number` 是检查项表的 #）。Schema 不通过、或没有这张表的材料包时，
   交叉检查没有运行，它为空。
 - `failures[].number` 是该条所属检查项的编号，与文字摘要里的 `[N name]` 相同，按编号统计不必再对照名称。
+- 失败的 `digest` 条目另有 `reason_code`：`no_packet`（该表没有材料包）或 `stale`（文档的 `packet_digest` 不是当前材料包的）。`semantic render --validation` 按这个字段区分 `no_packet` / `packet_stale`；没有这个字段的旧报告，按消息的 `no packet` 前缀判断。
 
 ### 退出码
 
@@ -500,6 +513,7 @@ status 报告、分批文件）跳过，与 `validate` 相同。
 | `review_stale` | 文档在审读之后改过，又没有修订回执把改动和这份审读对上：审读没有要求改高 / 中问题，或审读没有写材料包（`table-semantics-review@5` 之前写的审读） | 阶段退回 `valid`，重新审读 |
 | `fix_unconfirmed` | 审读读的是当前材料包、有高 / 中问题；文档之后改过，但没有这一版的修订回执：修订被打断，或写回执之后又改过 | 阶段为 `reviewed`，`--next fix` 重新派发 |
 | `review_unparsed` | 审读文件没有完整的 front matter | 阶段为 `reviewed`，任何一步都不再派发它；补上 front matter 或删掉审读文件重审 |
+| `review_malformed` | 与 `review_unparsed` 同时出现：front matter 齐全，但 `reviewed_doc_digest` 或 `reviewed_packet_digest` 不是十六位小写十六进制（照抄了 `<doc_digest>`、`TODO` 这类占位符） | 同 `review_unparsed`；写入真实摘要或删掉审读文件重审 |
 | `render_stale` | 已 `fixed`，页面比文档旧 | 阶段为 `fixed`，重新渲染 |
 | `doc_misfiled` | 某个文档文件的文件名是另一张表，与它里面写的 `table` 不符（两张表都标），或者两个文件写的是这同一张表 | 不改阶段，只是警告。文件名那张表会看起来没写过文档（`packet`），两个文件时按路径排第一个的生效；把每份文档放回 `docs/<db.table>.json`，并让文件里的 `table` 就是它 |
 
@@ -559,8 +573,8 @@ low: 0
 ---
 ```
 
-`reviewed_doc_digest` 和三个计数必须有；摘要不能为空，计数是非负整数。缺任何一项都当作没有 front matter
-（`review_unparsed`）。`reviewed_packet_digest` 是审读员读的那份材料包的 `packet_digest`，从 `packet.md` 照抄；
+`reviewed_doc_digest` 和三个计数必须有；摘要是十六位小写十六进制，计数是非负整数。缺任何一项都当作没有 front matter
+（`review_unparsed`）；摘要写成占位符时另加 `review_malformed`。`reviewed_packet_digest` 写了就必须同样是十六位摘要。`reviewed_packet_digest` 是审读员读的那份材料包的 `packet_digest`，从 `packet.md` 照抄；
 `table-semantics-review@5` 起的审读提示词一定会写它，没有它的审读照样能解析，但按上面第 4 条判断。`fixed_doc_digest` 只由
 `semantic fixed` 添加；不是十六位小写十六进制的值当作没有回执。解析不依赖 YAML 库，只认 `键: 值` 一行一个。
 
@@ -605,7 +619,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": [], "doc_misfiled": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "review_malformed": [], "render_stale": [], "doc_misfiled": []}
   }
 }
 ```

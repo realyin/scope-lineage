@@ -1359,14 +1359,21 @@ def _yaml_scalar(value) -> str:
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
-    escaped = (
-        str(value)
-        .replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\t", "\\t")
+    return f'"{_escape_quoted(value)}"'
+
+
+#: 4.5-d: the escapes both quoted-string syntaxes (YAML double-quoted, Turtle
+#: STRING_LITERAL_QUOTE) read the same way. Every other control character -- the rest of
+#: C0 and DEL -- goes out as ``\uXXXX``, which both read too: a raw CR made the Turtle
+#: file invalid and was folded to a space by a YAML reader.
+_QUOTED_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r"}
+_CONTROL_RE = re.compile(r'[\\"\x00-\x1f\x7f]')
+
+
+def _escape_quoted(value) -> str:
+    return _CONTROL_RE.sub(
+        lambda m: _QUOTED_ESCAPES.get(m.group(), f"\\u{ord(m.group()):04X}"), str(value)
     )
-    return f'"{escaped}"'
 
 
 def _yaml_lines(value: Mapping, indent: int = 0) -> list[str]:
@@ -1392,14 +1399,7 @@ def _yaml_lines(value: Mapping, indent: int = 0) -> list[str]:
 
 
 def _turtle_string(value) -> str:
-    escaped = (
-        str(value)
-        .replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\t", "\\t")
-    )
-    return f'"{escaped}"'
+    return f'"{_escape_quoted(value)}"'
 
 
 def _turtle_statement(head: list[str], blocks: Sequence[Sequence[str]]) -> list[str]:

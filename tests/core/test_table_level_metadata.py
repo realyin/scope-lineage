@@ -514,3 +514,44 @@ def test_the_golden_case_bait_address_reaches_no_recorded_artifact() -> None:
 
     for name in ("lineage.json", "diagnostics.json", "mapping.md", "semantic.json", "semantic.md"):
         assert "demo_owner@example.invalid" not in (case_dir / name).read_text(encoding="utf-8")
+
+
+def test_a_refused_table_fact_leaves_a_metadata_warning_without_the_value() -> None:
+    """D7: the ``@`` rule stays as strict as it is, but it no longer refuses in silence.
+
+    A description such as ``快照表 @每日零点`` is not an address and is dropped all the
+    same; a reader of the diagnostics should see that a fact was supplied and refused, and
+    under which key -- never the refused text.
+    """
+    schema = normalize_schema_map(
+        {
+            "ods.t": {
+                "table_desc": "快照表 @每日零点",
+                "comment": "备用说明",
+                "owner_name": "owner@example.invalid",
+                "column_details": [{"name": "c"}],
+            }
+        }
+    )
+
+    assert schema.metadata_conflicts == [
+        {
+            "table": "ods.t",
+            "reason": "privacy_refused",
+            "issues": [
+                "table_desc contains @, refused by privacy rule",
+                "owner_name contains @, refused by privacy rule",
+            ],
+        }
+    ]
+    serialized = json.dumps(schema.metadata_conflicts, ensure_ascii=False)
+    assert "每日零点" not in serialized and "example.invalid" not in serialized
+    # the rule itself is unchanged: the fallback key still fills the fact
+    assert table_details_for_table(schema, "ods.t")["table_desc"] == "备用说明"
+
+
+def test_a_table_with_no_refused_fact_carries_no_warning(tmp_path: Path) -> None:
+    """``tbl_pic`` is not a key any table fact is read from, so it refuses nothing."""
+    path = _write_rich(tmp_path / "meta", RICH_DOCUMENT)
+
+    assert load_schema(str(path)).metadata_conflicts == []

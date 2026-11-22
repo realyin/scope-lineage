@@ -65,7 +65,7 @@ from .glossary_values import (
     AGENT_CONFIRMATION_PREFIX,
     aggregate_values,
     canonical_owner,
-    canonical_name,
+    canonical_tables,
     same_table,
     statement_observations,
     strip_quotes,
@@ -274,20 +274,21 @@ def _corpus_block(
 
 
 def _canonical_tables(statements: Sequence[tuple]) -> dict[tuple, str]:
-    """``table_key -> most qualified spelling``, so one table is counted once."""
-    spellings: dict[tuple, set] = {}
+    """``table_key -> its group's primary spelling``, so one table is counted once (WP5)."""
+    names: list[str] = []
     for statement, _profile, _task in statements:
         metadata = statement.get("related_metadata") or {}
-        names = [
-            *(statement.get("source_tables") or []),
-            *(metadata.get("input_tables") or {}),
-            *(metadata.get("output_tables") or {}),
-        ]
+        names.extend(
+            str(name)
+            for name in [
+                *(statement.get("source_tables") or []),
+                *(metadata.get("input_tables") or {}),
+                *(metadata.get("output_tables") or {}),
+            ]
+        )
         if statement.get("target_table"):
             names.append(str(statement["target_table"]))
-        for name in names:
-            spellings.setdefault(table_key(name), set()).add(str(name))
-    return {key: canonical_name(names) for key, names in spellings.items()}
+    return canonical_tables(names)
 
 
 # ----------------------------------------------------------------------- terms

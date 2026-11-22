@@ -113,9 +113,13 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   given and after this run's own cache; it implies `--incremental`, and `--no-cache` still
   wins. The corpus path is **not** part of the options digest: the same task has to derive
   the same facts wherever it was parsed.
-- Fact files are keyed by task name, and two corpora may hold different tasks under one
-  name. What decides a borrow is the fingerprint and the options digest recorded inside the
-  file, not the file's name, so a task of the same name and other contents is recomputed.
+- A fact file is found by the task's name (its path under `--lineage`) and, failing that,
+  by the sha256 of its `lineage.json`: each cache lists its files by content in
+  `.cache/by-content/index.json`, so a task walked as `task_a` by a subset run and as
+  `domain_a/task_a` by the superset run is still borrowed, and so is a task from a
+  single-file run. Two corpora may hold different tasks under one name; what decides a
+  borrow is the fingerprint and the options digest recorded inside the file, not how it
+  was found, so a task of the same name and other contents is recomputed.
 - A changed option invalidates the whole index and recomputes everything: the **content**
   of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
   and the tool version. An index or a cache file written by another subcommand (a
@@ -237,6 +241,12 @@ id is not a table name, and writing it where a table goes would invent one. The
 attribution rule: a physical table is claimed only when **exactly one** of the rule's
 `fields[]` carries that column name, otherwise the entry falls back to the scope level
 (with two joined tables both holding `status`, either choice is a guess).
+
+The `<db.table>` of a physical `column_ref` is the corpus's primary spelling of that table,
+grouped by the table identity (the rule the table cards use): a bare `orders` read is filed
+under the `ods.orders` the corpus also writes, and `cat1.ods.t` and `cat2.ods.t` are two owners
+unless their catalogs are configured in `SCOPE_LINEAGE_CATALOG_PREFIXES`. Before this rule the
+owner was the last two segments, which filed one catalog's codes under the other's table.
 
 `sql_alias` (WI-B) appears only where the write is **bound by DDL position**, the
 observation lands on a target column, the alias the author wrote differs from the column
@@ -438,7 +448,10 @@ One `--template` path writes two files: the `.md` is what a person fills in (one
 per column, one row per value) and the same-named `.json` is what `--overrides` reads
 straight back (`doc_format: "glossary-overrides-template/1"`, `values` keyed on
 `<table.column>=<unquoted value>`, an empty `meaning`, and today's `date`). Both files ask
-about the same values.
+about the same values. A path ending in `.json` names that JSON file, and the form is written
+beside it as the same-named `.md`. A path whose two files would be the dictionary's own
+(`--template <out>/glossary.md` or `<out>/glossary.json`) is refused with exit code 2 before
+anything is written.
 
 `--template` still needs `--out`: the form is **a ranking of the dictionary**, not a
 replacement for it. Without `--out` the command stops with exit code 2 and prints that

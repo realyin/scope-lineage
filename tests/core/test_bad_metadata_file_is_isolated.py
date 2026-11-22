@@ -68,6 +68,41 @@ def test_a_broken_target_metadata_file_does_not_cost_the_directory(tmp_path):
     assert "ods.good" in metadata, "the readable file's table must survive"
 
 
+@pytest.mark.parametrize(
+    "content",
+    [b"", b"\xff\xfe not utf-8", b"[1, 2]"],
+    ids=["empty", "not-utf8", "json-array"],
+)
+def test_an_unreadable_or_non_object_target_file_does_not_cost_the_directory(
+    tmp_path, content
+):
+    """Every per-file MetadataFileError is a rejection, not only a JSON decode error."""
+    _write(tmp_path / "ods.good_metadata.json", json.dumps(_target_document("ods.good")))
+    (tmp_path / "ods.z_metadata.json").write_bytes(content)
+
+    metadata = load_target_table_metadata(tmp_path)
+
+    assert list(metadata) == ["ods.good"]
+    assert [c.get("source_file") for c in metadata.metadata_conflicts] == [
+        "ods.z_metadata.json"
+    ]
+    assert metadata.metadata_conflicts[0]["reason"] == "metadata_rejected"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"", b"\xff\xfe not utf-8", b"[1, 2]"],
+    ids=["empty", "not-utf8", "json-array"],
+)
+def test_a_single_named_unreadable_target_file_still_raises(tmp_path, content):
+    """Sentinel: naming one file keeps raising, whatever made it unreadable."""
+    bad = tmp_path / "ods.z_metadata.json"
+    bad.write_bytes(content)
+
+    with pytest.raises(MetadataFileError):
+        load_target_table_metadata(bad)
+
+
 def test_a_directory_of_only_broken_files_still_raises(tmp_path):
     """The 0.1.6 backstop: nothing loaded is the one case that must not pass quietly."""
     _write(tmp_path / "ods.bad_metadata.json", json.dumps(_target_document("ods.bad"))[:-5])

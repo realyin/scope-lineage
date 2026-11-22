@@ -5,6 +5,7 @@ module imports and calls these; see its wrapper for the public entry point.
 """
 from __future__ import annotations
 import re
+from functools import lru_cache
 from datetime import datetime
 
 import sqlglot
@@ -36,10 +37,11 @@ from .expansion_budget import (
 from .sqlglot_walk import _pivot_of_source_node, _source_item_from_ast_node
 from ._constants import DIALECT, PARSE_OPTS, _SCOPE_ID_ATTR
 from .expression_expansion import _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _replace_struct_field_access_from_upstream, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs
-from .expression_refs import _cached_pattern, _qualified_field_refs, _strip_sql_comments
+from .expression_refs import PARSE_CACHE_SIZE, _cached_pattern, _qualified_field_refs
 from .expression_text import _function_names, _replace_qualified_ref_with_expression, _replace_unqualified_ref_with_expression, _unexpanded_bound_aliases_in_expression
-from ..function_catalog import _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS
+from ..function_catalog import _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SPARK_AGGREGATE_FUNCTIONS
 from .sequences import _extend_unique, _unique_ordered
+from .sql_text_spans import blank_comments, blank_literals_and_comments
 from .source_refs import _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _physical_source_fields_for_refs, _physical_source_ids_for_input, _qualified_physical_field_sql, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id
 from .sqlglot_walk import _find_alias_in_parent
 from .star_passthrough import _populate_union_output_branch_mappings, _star_passthrough_output_fact
@@ -49,7 +51,7 @@ from .lineage_fact_gaps import (
     _root_gap_reasons_for_output,
 )
 from .passthrough_resolution import _propagate_passthrough_expression_resolution
-from .logic_block import _populate_logic_blocks  # noqa: F401
+from .logic_block import _populate_logic_blocks, _populate_merge_root_logic_blocks  # noqa: F401
 
 
 # The FRONT resolution segment used to be hand-unrolled (P I O, P I O, P I); full
@@ -152,6 +154,7 @@ def _populate_structural_facts(
         _populate_logic_blocks(scope_id, scope_data, sg_scope, result, schema)
     # A MERGE's ROOT has no sqlglot scope, so the loop above never reaches it.
     _populate_merge_root_input_edges(result)
+    _populate_merge_root_logic_blocks(result)
     _populate_scope_input_source_refs(result)
     _populate_scope_raw_sql_quality_and_source_coverage(result)
     _populate_scope_alias_source_bindings(result)
@@ -2144,6 +2147,9 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
                     source_id = alias_to_source.get(qualifier)
                 if not source_id or not _is_internal_scope_id(source_id):
                     continue
+                if _left_ambiguous(output, source_id, field):
+                    _extend_unique(missing_reasons, [_AMBIGUOUS_REASON])
+                    continue
                 upstream = output_lookup.get((source_id, field))
                 if upstream is None:
                     upstream_fact = _star_passthrough_output_fact(result, source_id, field, output_lookup)
@@ -2249,6 +2255,8 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
                 )
                 resolved_internal_ref = True
             if not resolved_internal_ref:
+                if _AMBIGUOUS_REASON in missing_reasons:
+                    output.expression_resolution = _ambiguous_resolution(current_resolution)
                 continue
             physical_fields = (
                 (
@@ -2303,26 +2311,62 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
             }
 
 
+def _left_ambiguous(output: ScopeOutputField, source_id: str, field: str) -> bool:
+    """Whether the column layer left this reference ambiguous between ``source_id`` and another.
+
+    sqlglot's ``qualify`` rewrites a bare column to the one source whose columns it knows,
+    ignoring a joined table without metadata, so the expression text says ``c.v`` where
+    column resolution kept the author's bare ``v`` open between both sources
+    (LINEAGE-002). The text is no proof of the binding; the ``AMBIGUOUS`` ref is the fact.
+    """
+    name = field.lower()
+    return any(
+        source.scope == AMBIGUOUS_SCOPE_ID
+        and source.column.lower() == name
+        and any(candidate.get("scope") == source_id for candidate in source.candidates)
+        for source in output.sources
+    )
+
+
+_AMBIGUOUS_REASON = "ambiguous_unqualified"
+
+
+def _ambiguous_resolution(current: dict) -> dict:
+    """``current`` with the ambiguity as its reason instead of a generic "no fields found".
+
+    The reason is the end-to-end layer's own word for an ``AMBIGUOUS`` terminal, so the
+    row reports one reason, not the cause and a symptom of it.
+    """
+    reasons = [
+        reason
+        for reason in current.get("missing_reasons") or []
+        if reason != "no_physical_source_fields"
+    ]
+    has_fields = bool(
+        current.get("physical_source_fields")
+        or current.get("generated_sources")
+        or current.get("rowset_sources")
+    )
+    return {
+        **current,
+        "status": "partially_resolved" if has_fields else "unresolved",
+        "missing_reasons": _unique_ordered([*reasons, _AMBIGUOUS_REASON]),
+    }
+
+
 # Asked once per reference per pass over the same expressions, and in a profiled run those
 # repeated calls cost a fifth of the total. Depends only on its arguments (PERF-002).
-_STRUCT_MEMBER_ACCESS_CACHE: dict[tuple[str, tuple[tuple[str, str], ...]], bool] = {}
-
-
 def _has_qualified_struct_member_access(
     expression: str,
     qualified_refs: list[tuple[str, str]],
 ) -> bool:
-    key = (expression, tuple(qualified_refs))
-    cached = _STRUCT_MEMBER_ACCESS_CACHE.get(key)
-    if cached is None:
-        cached = _has_qualified_struct_member_access_uncached(expression, qualified_refs)
-        _STRUCT_MEMBER_ACCESS_CACHE[key] = cached
-    return cached
+    return _struct_member_access_cached(expression, tuple(qualified_refs))
 
 
-def _has_qualified_struct_member_access_uncached(
+@lru_cache(maxsize=PARSE_CACHE_SIZE)
+def _struct_member_access_cached(
     expression: str,
-    qualified_refs: list[tuple[str, str]],
+    qualified_refs: tuple[tuple[str, str], ...],
 ) -> bool:
     for qualifier, field in qualified_refs:
         escaped_qualifier = re.escape(qualifier)
@@ -2604,7 +2648,7 @@ def _unqualified_field_refs(expression: str | None) -> list[str]:
 def _normalize_expression_for_matching(expression: str | None) -> str:
     if not expression:
         return ""
-    return re.sub(r"\s+", " ", _strip_sql_comments(str(expression)).strip()).lower()
+    return re.sub(r"\s+", " ", blank_comments(str(expression)).strip()).lower()
 
 
 def _resolved_scope_alias_expression_fact(
@@ -2969,7 +3013,10 @@ def _expression_features(
     text = expression or ""
     lower = text.lower()
     functions = _function_names(lower)
-    operators = [op for op in ["<>", "!=", ">=", "<=", "=", ">", "<", "+", "-", "*", "/"] if op in text]
+    # A `*` in `/* rate * 100 */` or the `-` of `'2024-01-01'` is not an operator, so the
+    # scan reads code only (WP4 follow-up; the same spans `_function_names` skips).
+    code = blank_literals_and_comments(text)
+    operators = [op for op in ["<>", "!=", ">=", "<=", "=", ">", "<", "+", "-", "*", "/"] if op in code]
     field_names = {ref.column.lower() for ref in fields}
     return {
         "functions": functions,
@@ -2978,7 +3025,7 @@ def _expression_features(
         "has_if": subtype == "if" or bool(re.search(r"\bif\s*\(", lower)),
         "has_cast": subtype == "cast" or bool(re.search(r"\bcast\s*\(", lower)),
         "has_window": logic_type == "window" or " over " in lower,
-        "has_aggregate": logic_type == "aggregate" or _has_aggregate_function(lower),
+        "has_aggregate": logic_type == "aggregate" or _has_aggregate_function(text),
         "has_udf": subtype == "udf" or _has_udf_function(functions),
         "has_constant_mapping": (
             logic_type == "constant"
@@ -3136,8 +3183,47 @@ def _grain_effect_for_column(column) -> str:
     return "preserved"
 
 
+# Functions sqlglot types as ``exp.AggFunc`` that compute over a window frame and never
+# collapse rows; looked up by name so a class missing from an older sqlglot is skipped.
+_WINDOW_ONLY_FUNCTIONS = tuple(
+    cls for cls in (
+        getattr(exp, name, None)
+        for name in (
+            "Lag", "Lead", "FirstValue", "LastValue", "NthValue", "Rank", "DenseRank",
+            "Ntile", "PercentRank", "CumeDist",
+        )
+    )
+    if isinstance(cls, type)
+)
+_PREDICATE_KEYWORD = re.compile(r"^\s*(?:where|having|qualify|on)\b", re.IGNORECASE)
+
+
+@lru_cache(maxsize=8192)
 def _has_aggregate_function(expression: str) -> bool:
-    return bool(re.search(r"\b(" + "|".join(sorted(_AGGREGATE_FUNCTIONS)) + r")\s*\(", expression))
+    """Does the expression call an aggregate function, wherever it is nested (C2.5-3)?
+
+    Read from the AST: any ``exp.AggFunc`` that is not a window-only function, or an
+    Anonymous call Spark knows as an aggregate. Text that does not parse falls back to
+    the same name table, as the previous regex did.
+    """
+    text = _PREDICATE_KEYWORD.sub("", expression or "", count=1).strip()
+    if not text:
+        return False
+    try:
+        tree = sqlglot.parse_one(text, dialect=DIALECT, **PARSE_OPTS)
+    except Exception:  # noqa: BLE001 - unparseable text falls back to the name table
+        return bool(_AGGREGATE_NAME_CALL.search(text))
+    for node in tree.walk():
+        if isinstance(node, exp.AggFunc) and not isinstance(node, _WINDOW_ONLY_FUNCTIONS):
+            return True
+        if isinstance(node, exp.Anonymous) and str(node.name).lower() in _SPARK_AGGREGATE_FUNCTIONS:
+            return True
+    return False
+
+
+_AGGREGATE_NAME_CALL = re.compile(
+    r"\b(" + "|".join(sorted(_SPARK_AGGREGATE_FUNCTIONS)) + r")\s*\(", re.IGNORECASE
+)
 
 
 def _has_udf_function(functions: list[str]) -> bool:

@@ -50,6 +50,8 @@ from scope_lineage.render.table_cards import build_table_cards
 from scope_lineage.contract import to_lineage_dict
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
+from .concept_convention import WAREHOUSE_CONVENTION
+
 
 # ------------------------------------------------------------------ synthetic inputs
 
@@ -170,10 +172,9 @@ def _cards(*cards: dict) -> dict:
 
 
 def _concepts(ontology: dict, cards: dict) -> dict:
-    return {
-        str(concept["id"]): concept
-        for concept in build_concepts(ontology, cards)["concepts"]
-    }
+    # The fixtures name tables by the warehouse convention the role rules read.
+    built = build_concepts(ontology, cards, convention=WAREHOUSE_CONVENTION)
+    return {str(concept["id"]): concept for concept in built["concepts"]}
 
 
 def _folded(ontology: dict, cards: dict) -> dict:
@@ -207,7 +208,8 @@ def _provisional(ontology: dict, cards: dict) -> list[str]:
         ("order_cd", "order"),
         ("item_num", "item"),
         ("party_key", "party"),
-        ("id_cust", "cust"),
+        # 4.4-1: a leading id / no is part of the name, not a key marker.
+        ("id_cust", "id_cust"),
         # Whole segments only, and never the last one left.
         ("channel_name", "channel_name"),
         ("id", "id"),

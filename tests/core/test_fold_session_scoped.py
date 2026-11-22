@@ -235,3 +235,259 @@ def test_a_count_through_a_temp_view_counts_the_rows_behind_it():
         (item["table"], item["column"]) for item in row["row_membership_sources"]
     ) == [("ods.a", "id"), ("ods.real", "amt"), ("ods.real", "id")]
     assert row["value_sources_folded"] is True
+
+
+# ---------------------------------------------------------------------------------------------
+# WP6: what the fold dropped, left behind, or recomputed.
+
+WIDE = {
+    "ods.real": ["id", "flag", "amt", "dt", "a", "b", "c"],
+    "ods.other": ["id"],
+    "mart.acct": ["id", "amt"],
+}
+
+
+def _mentions(row, table):
+    """Every field of ``row`` that still names ``table``."""
+    found = []
+    for field in (
+        "value_sources",
+        "row_membership_sources",
+        "value_condition_sources",
+        "window_context_sources",
+    ):
+        for item in row.get(field) or []:
+            if item.get("table") == table:
+                found.append((field, item.get("column")))
+    return found
+
+
+def _pairs(items):
+    return sorted((item["table"], item["column"]) for item in items)
+
+
+def test_a_value_read_through_a_filtering_view_keeps_the_views_row_condition():
+    """C2.2: ``tv`` keeps only ``amt > 0``; the rows written are those rows, so the
+    folded row names ``ods.real.amt`` -- exactly what the equivalent CTE reports."""
+    document = _document(
+        "create temporary view tv as select id from ods.real where amt > 0;\n"
+        "insert overwrite table mart.daily select id from tv",
+        schema=WIDE,
+    )
+    cte = _document(
+        "with tv as (select id from ods.real where amt > 0) "
+        "insert overwrite table mart.daily select id from tv",
+        schema=WIDE,
+    )
+    row = _folded(document, "mart.daily", "id")
+    cte_row = next(
+        item
+        for item in cte["end_to_end_lineage"]
+        if item["table"] == "mart.daily" and item["column"] == "id"
+    )
+
+    assert _pairs(row["row_membership_sources"]) == [("ods.real", "amt")]
+    assert _pairs(row["row_membership_sources"]) == _pairs(cte_row["row_membership_sources"])
+    assert row["value_sources_folded"] is True
+
+
+def test_every_hop_contributes_its_own_row_condition():
+    document = _document(
+        "create temporary view tv1 as select id, flag from ods.real where amt > 0;\n"
+        "create temporary view tv2 as select id from tv1 where flag > 0;\n"
+        "insert overwrite table mart.daily select id from tv2",
+        schema=WIDE,
+    )
+    row = _folded(document, "mart.daily", "id")
+
+    assert _pairs(row["row_membership_sources"]) == [("ods.real", "amt"), ("ods.real", "flag")]
+    assert row["value_sources_folded"] is True
+
+
+def test_a_view_without_a_filter_adds_no_row_condition():
+    """Sentinel: the new collection must not invent conditions."""
+    document = _document(
+        "create temporary view tv as select id from ods.real;\n"
+        "insert overwrite table mart.daily select id from tv",
+        schema=WIDE,
+    )
+    row = _folded(document, "mart.daily", "id")
+
+    assert row.get("row_membership_sources") == []
+    assert row["value_sources_folded"] is True
+
+
+def test_window_context_read_through_a_view_names_the_table_behind_it():
+    """C2.3-1: a window's PARTITION BY / ORDER BY read through ``tv`` is ``ods.real``'s."""
+    document = _document(
+        "create temporary view tv as select id, flag, amt, dt from ods.real;\n"
+        "insert overwrite table mart.daily\n"
+        "select id, case when flag = 1 then 'a' else 'b' end as kind,\n"
+        "       row_number() over (partition by id order by dt) as rn,\n"
+        "       sum(amt) over (partition by flag order by dt) as s\n"
+        "from tv",
+        schema=WIDE,
+    )
+    unfolded = next(
+        item
+        for item in document["end_to_end_lineage"]
+        if item["table"] == "mart.daily" and item["column"] == "rn"
+    )
+    assert unfolded["window_context_sources"]
+    assert all(
+        entry.get("session_scoped") and entry.get("source_state") == "state:tv:001"
+        for entry in unfolded["window_context_sources"]
+    ), "the producer says which entries read a session relation"
+
+    folded = fold_session_scoped(document)
+    for row in folded["end_to_end_lineage"]:
+        assert not _mentions(row, "tv") or row["value_sources_folded"] is False, row
+    rn = _folded(document, "mart.daily", "rn")
+    assert sorted(
+        (item["table"], item["column"], item["role"]) for item in rn["window_context_sources"]
+    ) == [("ods.real", "dt", "order"), ("ods.real", "id", "partition")]
+    assert rn["value_sources_folded"] is True
+
+
+def test_merge_conditions_read_through_a_view_name_the_table_behind_it():
+    """C2.3-1 / X3: MERGE's USING columns were published unstamped, so even the row
+    membership kept naming ``tv`` after the fold."""
+    document = _document(
+        "create temporary view tv as select id, flag, amt from ods.real;\n"
+        "merge into mart.acct t using tv s on t.id = s.id\n"
+        "when matched and s.flag = 1 then update set t.amt = s.amt\n"
+        "when not matched then insert (id, amt) values (s.id, s.amt)",
+        schema=WIDE,
+    )
+    unfolded = next(
+        item
+        for item in document["end_to_end_lineage"]
+        if item["table"] == "mart.acct" and item["column"] == "amt"
+    )
+    stamped = [
+        entry for entry in unfolded["value_condition_sources"] if entry["table"] == "tv"
+    ]
+    assert stamped and all(
+        entry.get("session_scoped") and entry.get("source_state") == "state:tv:001"
+        for entry in stamped
+    )
+
+    row = _folded(document, "mart.acct", "amt")
+    assert not _mentions(row, "tv")
+    assert _pairs(row["row_membership_sources"]) == [
+        ("mart.acct", "id"),
+        ("ods.real", "flag"),
+        ("ods.real", "id"),
+    ]
+    assert _pairs(row["value_condition_sources"]) == _pairs(row["row_membership_sources"])
+    assert row["value_sources_folded"] is True
+
+
+def test_an_unmarked_reference_to_a_session_relation_is_reported_not_kept_silently():
+    """A document from an older producer names ``tv`` without the stamp. The fold cannot
+    resolve what it cannot recognise, so it says so instead of claiming completeness."""
+    document = _document(
+        "create temporary view tv as select id, flag, amt, dt from ods.real;\n"
+        "insert overwrite table mart.daily\n"
+        "select id, row_number() over (partition by id order by dt) as rn from tv",
+        schema=WIDE,
+    )
+    for item in document["end_to_end_lineage"]:
+        for entry in item.get("window_context_sources") or []:
+            entry.pop("session_scoped", None)
+            entry.pop("source_state", None)
+    row = _folded(document, "mart.daily", "rn")
+
+    assert row["value_sources_folded"] is False
+    assert "session_scoped_reference_unmarked" in row["fold_incomplete_reasons"]
+
+
+def test_an_orphan_session_relation_is_dropped():
+    """C2.3-2: nothing reads ``tv_orphan``, but it is still not a warehouse table."""
+    document = _document(
+        "create temporary view tv_orphan as select id from ods.real where amt > 0;\n"
+        "insert overwrite table mart.daily select id from ods.other",
+        schema=WIDE,
+    )
+    folded = fold_session_scoped(document)
+
+    assert {item["table"] for item in folded["end_to_end_lineage"]} == {"mart.daily"}
+    assert "tv_orphan" not in folded["final_table_states"]
+
+
+def test_a_count_through_two_views_counts_the_rows_behind_both():
+    """C2.3-3: the row set recurses through every hop and keeps each hop's condition."""
+    document = _document(
+        "create temporary view tv1 as select id from ods.real where amt > 0;\n"
+        "create temporary view tv2 as select id from tv1 where id > 10;\n"
+        "insert overwrite table mart.cnt select count(*) as n from tv2",
+        schema=WIDE,
+    )
+    row = _folded(document, "mart.cnt", "n")
+
+    assert [(s["source_kind"], s["table"]) for s in row["value_sources"]] == [
+        ("rowset", "ods.real")
+    ]
+    assert _pairs(row["row_membership_sources"]) == [("ods.real", "amt"), ("ods.real", "id")]
+    assert row["value_sources_folded"] is True
+
+
+def test_a_count_through_a_redefined_view_is_kept_not_guessed():
+    """Sentinel for C2.3-3: the inner view was replaced after the outer one read it, so the
+    surviving definition is not the rows that were counted."""
+    document = _document(
+        "create or replace temp view tv1 as select id from ods.real where amt > 0;\n"
+        "create or replace temp view tv2 as select id from tv1;\n"
+        "create or replace temp view tv1 as select id from ods.other;\n"
+        "insert overwrite table mart.cnt select count(*) as n from tv2",
+        schema=WIDE,
+    )
+    row = _folded(document, "mart.cnt", "n")
+
+    assert row["value_sources_folded"] is False
+    assert row["fold_incomplete_reasons"]
+
+
+def _chain(n):
+    lines = [
+        "create temporary view v0 as select a, b, c from ods.real "
+        "where a > 0 and b > 0 and c > 0;"
+    ]
+    for i in range(1, n + 1):
+        lines.append(
+            f"create temporary view v{i} as select a, b, c from v{i - 1} "
+            "where a > 0 and b > 0 and c > 0;"
+        )
+    lines.append(f"insert overwrite table mart.t select a from v{n} where b > 1")
+    return "\n".join(lines)
+
+
+def test_a_fanned_out_chain_folds_in_linear_work(monkeypatch):
+    """C2.3-4: each view's three conditions all read the previous view. Without a cache the
+    same sub-question was answered 3^N times; with one, each is answered once."""
+    import time
+
+    from scope_lineage.contract import fold
+
+    document = _document(_chain(13), schema=WIDE)
+    calls = {"n": 0}
+    original = fold.compose_hop
+
+    def counting(hop, leaf):
+        calls["n"] += 1
+        return original(hop, leaf)
+
+    monkeypatch.setattr(fold, "compose_hop", counting)
+    started = time.perf_counter()
+    row = _folded(document, "mart.t", "a")
+    elapsed = time.perf_counter() - started
+
+    assert _pairs(row["value_sources"]) == [("ods.real", "a")]
+    assert _pairs(row["row_membership_sources"]) == [
+        ("ods.real", "a"),
+        ("ods.real", "b"),
+        ("ods.real", "c"),
+    ]
+    assert row["value_sources_folded"] is True
+    assert calls["n"] < 50 * 14, calls["n"]
+    assert elapsed < 0.5, elapsed

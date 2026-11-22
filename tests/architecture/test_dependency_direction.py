@@ -16,6 +16,10 @@ PACKAGE_NAME = "scope_lineage"
 # First-level subpackages/modules whose edges are governed (`cli` also covers the cli_*
 # command modules). Other package-root leaf modules
 # (sqlglot_config, and any future ones) are usable from anywhere and not listed.
+# `table_identity` (audit WP5) is one on purpose: metadata lookup, the lineage target,
+# the table cards, the glossary and the catalog view must answer "same table?" one way,
+# and a leaf module is the only home every layer can reach without a new edge. It
+# imports nothing from scope_lineage, which keeps it a leaf.
 GOVERNED = {
     "catalog", "cli", "contract", "metadata", "questions", "render", "scope", "semantics",
     "serialize",

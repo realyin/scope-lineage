@@ -231,4 +231,4 @@ on tables not used while tuning, and run it once at the end.
 | --- | --- |
 | 0 | Success (warnings allowed) |
 | 1 | The file has errors, an id / table is not in the set, or the grades score an id the set does not have |
-| 2 | An input cannot be read (missing, not valid YAML / JSON, PyYAML not installed) |
+| 2 | An input cannot be read (missing, not valid YAML / JSON, top level not an object, PyYAML not installed) |

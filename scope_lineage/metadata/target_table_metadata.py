@@ -16,8 +16,10 @@ from .schema_metadata import (
     _normalize_table_detail,
     check_metadata_file,
     normalize_table_name,
+    schema_table_key,
 )
 from ..sqlglot_config import suppress_invalid_json_path_warnings
+from ..table_identity import same_table
 
 
 suppress_invalid_json_path_warnings()
@@ -98,27 +100,32 @@ def load_target_table_metadata(
     rejected: list[dict] = []
     provenance_by_file: dict[str, dict] = {}
     for file_path in files:
-        text = check_metadata_file(
-            file_path,
-            sanitize_nul=sanitize_nul,
-            provenance=provenance,
-            role=provenance_role,
-        )
         try:
-            document = json.loads(text)
-        except json.JSONDecodeError as exc:
+            item = _read_target_metadata_file(
+                file_path,
+                sanitize_nul=sanitize_nul,
+                provenance=provenance,
+                role=provenance_role,
+            )
+        except MetadataFileError as exc:
             # Skip this file rather than abandoning the directory: 0.1.6 set that rule for source
             # schema after two bad files among 3434 left every table without columns, and the
-            # same argument applies here. A load that produced no table at all still raises,
+            # same argument applies here -- to every reason a file is unusable (empty, not
+            # UTF-8, not JSON, not an object), not only to a JSON decode error. One named file
+            # still raises as it always did. A load that produced no table at all still raises,
             # below (META-ISOLATION-001).
+            if not root.is_dir() and not isinstance(exc, _InvalidJsonError):
+                raise
+            # The first line names the cause; the file is named by ``source_file``, so the
+            # path (which may be absolute) does not travel into the artifact.
+            issue = str(exc).splitlines()[0].replace(str(file_path), Path(file_path).name)
             rejected.append({
                 "table": "",
                 "source_file": Path(file_path).name,
                 "reason": "metadata_rejected",
-                "issues": [f"not valid JSON: line {exc.lineno}, column {exc.colno}: {exc.msg}"],
+                "issues": [issue],
             })
             continue
-        item = _target_table_metadata_from_document(document, file_path)
         key = normalize_table_name(item.table_name or item.full_table_name)
         if not key:
             rejected.append({
@@ -164,6 +171,37 @@ def load_target_table_metadata(
     return result
 
 
+class _InvalidJsonError(MetadataFileError):
+    """A file whose bytes read as text but not as JSON.
+
+    Kept apart because this one cause was always recorded as a rejection, even for a single
+    named file (where the nothing-loaded backstop then raises with every file named).
+    """
+
+
+def _read_target_metadata_file(
+    file_path: Path,
+    *,
+    sanitize_nul: bool,
+    provenance: list[dict] | None,
+    role: str,
+) -> TargetTableMetadata:
+    """One file's metadata, or ``MetadataFileError`` saying why the file is unusable."""
+    text = check_metadata_file(
+        file_path,
+        sanitize_nul=sanitize_nul,
+        provenance=provenance,
+        role=role,
+    )
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise _InvalidJsonError(
+            f"not valid JSON: line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    return _target_table_metadata_from_document(document, file_path)
+
+
 def lookup_target_table_metadata(
     metadata: Mapping[str, TargetTableMetadata] | None,
     table_name: str,
@@ -179,7 +217,10 @@ def lookup_target_table_metadata(
             return candidate
         if normalize_table_name(candidate.full_table_name) == normalized:
             return candidate
-    return None
+    # WP5: a spelling that differs only by qualification (``lake.mart.t`` against
+    # metadata keyed ``mart.t``) is the same table when exactly one entry could be it.
+    key = schema_table_key(metadata, table_name)
+    return metadata.get(key) if key != normalized else None
 
 
 def files_naming(files: Iterable[Path], tables: Iterable[str]) -> list[Path]:
@@ -282,7 +323,9 @@ def _target_table_metadata_from_document(
     )
 
     normalized_table = normalize_table_name(table_name)
-    if ddl_table and normalize_table_name(ddl_table) != normalized_table:
+    # The DDL may name the table with its catalog (``CREATE TABLE lake.db.t``) while the
+    # export's table_name is ``db.t``: the same table under the identity's suffix rule.
+    if ddl_table and not same_table(normalize_table_name(ddl_table), normalized_table):
         issues.append("schema_ddl_table_name_mismatch")
 
     return TargetTableMetadata(
@@ -445,6 +488,24 @@ def _spark_keywords() -> frozenset[str]:
     )
 
 
+def _comment_end(text: str, index: int) -> int | None:
+    """Where a SQL comment starting at ``index`` ends, or None when none starts there.
+
+    Called only outside quotes, so the scanners recognize comments and quotes in one pass:
+    a ``--`` inside ``COMMENT 'pk -- natural key'`` is text, while an apostrophe inside
+    ``-- user's id`` is comment and must not open a quote. Stripping comments first and
+    scanning afterwards gets the first case wrong. An unterminated block comment runs to
+    the end of the text.
+    """
+    if text.startswith("--", index):
+        newline = text.find("\n", index)
+        return len(text) if newline < 0 else newline
+    if text.startswith("/*", index):
+        close = text.find("*/", index + 2)
+        return len(text) if close < 0 else close + 2
+    return None
+
+
 def _column_list_bounds(ddl: str) -> tuple[int, int] | None:
     """Locate the top-level column list, or report that it could not be found.
 
@@ -464,6 +525,9 @@ def _column_list_bounds(ddl: str) -> tuple[int, int] | None:
                 continue
             if char == quote:
                 quote = ""
+        elif (skip := _comment_end(ddl, index)) is not None:
+            index = skip
+            continue
         elif char in "'\"`":
             quote = char
         elif char == "(":
@@ -495,6 +559,9 @@ def _split_column_definitions(region: str) -> list[str] | None:
                 continue
             if char == quote:
                 quote = ""
+        elif (skip := _comment_end(region, index)) is not None:
+            index = skip
+            continue
         elif char in "'\"`":
             quote = char
         elif char in "(<":
@@ -513,8 +580,26 @@ def _split_column_definitions(region: str) -> list[str] | None:
     return segments
 
 
+def _definition_start(segment: str) -> int:
+    """Index of the first character that is neither whitespace nor part of a comment.
+
+    A comment written after a column's comma -- ``id BIGINT, -- user's id`` -- opens the
+    next segment, so the name it precedes is found only by stepping over it.
+    """
+    index = 0
+    while index < len(segment):
+        if segment[index].isspace():
+            index += 1
+            continue
+        skip = _comment_end(segment, index)
+        if skip is None:
+            return index
+        index = skip
+    return index
+
+
 def _quoted_column_definition(segment: str, keywords: frozenset[str]) -> str:
-    stripped = segment.lstrip()
+    stripped = segment[_definition_start(segment):]
     if not stripped or not (stripped[0].isalpha() or stripped[0] == "_"):
         return segment
     name = ""

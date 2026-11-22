@@ -13,6 +13,7 @@ examples/
 ├── catalog-demo-corpus/    # the task JSON and schema that give that catalog its lineage evidence
 ├── catalog-fragments/      # a catalog fragment (catalog-fragment/1) adding one table to that catalog, for catalog merge
 ├── table-semantics/        # a hand-written table-semantics/1 document for a demo table, and confirmations for it
+├── domain-profile/         # a domain-profile/1 file: qualifiers, concept words, table-name suffix convention
 ├── metadata/
     ├── schema_info.json    # recommended: field indexes, DDL, types, and comments
     ├── schema_info.csv     # fallback: a compatible format read in row order
@@ -30,10 +31,16 @@ examples/
 | `sql/select_star_with_schema.sql` | Schema-dependent `SELECT *` expansion |
 | `sql/multi_statement_publish.sql` | Several write statements inside one task |
 | `sql/subscription_account_snapshot.sql` | A complex desensitized sample with 19 source tables, 20 JOINs, multi-level subqueries, conditional aggregation, a window function, and 112 target fields |
+| `sql/named_window_ranking.sql` | Named windows (`OVER w`, `WINDOW w AS (...)`), a window built on another |
+| `sql/qualify_latest_status.sql` | `QUALIFY ROW_NUMBER() ... = 1` keeping the latest row per key |
+| `sql/latest_order_by_struct.sql` | Members of a `MAX_BY(NAMED_STRUCT(...), ts)` result keep the aggregate and its ordering column |
+| `sql/pivot_pay_status.sql` | PIVOT with an implicit grouping column and two aggregates (`<value>_<alias>` columns) |
+| `sql/struct_access_nested_member.sql` | A three-segment STRUCT path read through a table alias (`c.contact.addr.city`): the source is the struct column, the trace is complete |
 | `catalog-demo/` | A synthetic ontology catalog (`catalog-yaml/1`) for a fictional lending shop: every element and binding type once; see [the catalog format](../docs/en/ontology-catalog.md) |
 | `catalog-demo-corpus/` | Eight synthetic scheduler tasks writing and reading the demo catalog's tables (one target spelt with a catalog prefix, one table only read), for `catalog build --lineage/--tables` and `semantic packet` |
 | `catalog-fragments/` | One `catalog-fragment/1` file adding a disbursement table's attributes, code set, constraint, terms and representation to the demo catalog; `catalog merge` merges it without validation errors; see [drafting](../docs/en/ontology-catalog.md) |
 | `table-semantics/` | A hand-written `table-semantics/1` document for `demo_dwd.dwd_party_customer_info_df` that passes `semantic validate` against the demo corpus's packet, and a `semantic-confirmations/1` file for it; see [table semantics](../docs/en/table-semantics.md) |
+| `domain-profile/domain-profile.json` | A synthetic retail `domain-profile/1` file: extra check-12 qualifiers, the `_df` / `_di` table-name suffix convention the demo corpus follows, and concept words; pass it with `--domain-profile` to `semantic packet`, `semantic validate` and `ontology`; see [domain profile](../docs/en/domain-profile.md) |
 | `tasks/**/*.json` | Real `meta/query_time/data_source` wrappers, task dependencies, and directory batch input |
 
 ## Running them

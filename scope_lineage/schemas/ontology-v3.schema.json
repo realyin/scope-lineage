@@ -12,6 +12,7 @@
     "concepts",
     "relations",
     "constraints",
+    "metrics",
     "terms",
     "representations"
   ],
@@ -1522,6 +1523,7 @@
               "rule": {
                 "enum": [
                   "grain_not_proven",
+                  "grain_not_exposed",
                   "grain_mismatch"
                 ]
               }
