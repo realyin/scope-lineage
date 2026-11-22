@@ -941,12 +941,23 @@ Beyond the JSON Schema shape check there are two more validation layers, answeri
 different questions:
 
 - `validate_cross_references(document)`: does every referenced id exist (returns a list
-  of violations);
+  of violations). In a statement document it checks `scope_graph.edges`,
+  `columns[].sources[].scope`, each scope's `depends_on` and `joins[].left_scope` /
+  `right_scope` (a scope or a scope_graph node; a MERGE's target may be a join side),
+  `input_edges[].source_id` when `source_type` is `scope` (must be a scope), and
+  `outputs[].source_logic_blocks` (must be ids in the same scope's `logic_blocks`). A task
+  document is also checked for every `source_state` in `end_to_end_lineage`'s
+  `value_sources`, `row_membership_sources`, `value_condition_sources` and
+  `window_context_sources`: each must be a `table_state_graph` node;
 - `validate_contract_invariants(document)`: **do independently derived views of the same
   fact agree with each other** — chain-layer vs end-to-end trace completeness, physical
   sources vs `source_tables` containment, sentinel-value semantics. Defects where every
   layer looks individually plausible but the conjunction is contradictory (such as an
-  AMBIGUOUS-rooted chain claiming completeness) are only caught here.
+  AMBIGUOUS-rooted chain claiming completeness) are only caught here. A task document is
+  checked through each embedded statement document and through its own
+  `end_to_end_lineage`: a row with `trace_complete: true` must not have a value,
+  row-membership or value-condition source whose `table` is `UNKNOWN` or `AMBIGUOUS` — a
+  placeholder belongs only in a row that says its trace is incomplete.
 
 The CLI runs all three layers in one pass, auditing existing artifacts on disk:
 

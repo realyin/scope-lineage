@@ -872,10 +872,19 @@ for field in document["end_to_end_lineage"]:
 
 除 JSON Schema 形状校验外还有两层校验，回答不同的问题：
 
-- `validate_cross_references(document)`：引用的每个 id 是否都存在（返回违例列表）；
+- `validate_cross_references(document)`：引用的每个 id 是否都存在（返回违例列表）。语句文档里检查
+  `scope_graph.edges`、`columns[].sources[].scope`、每个 scope 的 `depends_on` 和 `joins[].left_scope` /
+  `right_scope`（须是 scope 或 scope_graph 节点；MERGE 的目标表可以作 join 的一侧）、
+  `source_type` 为 `scope` 的 `input_edges[].source_id`（须是 scope），以及
+  `outputs[].source_logic_blocks`（须是同一 scope `logic_blocks` 里的 id）。任务文档另外检查
+  `end_to_end_lineage` 的 `value_sources`、`row_membership_sources`、`value_condition_sources`、
+  `window_context_sources` 里每个 `source_state` 都是 `table_state_graph` 的节点；
 - `validate_contract_invariants(document)`：**多路径推导的同一事实是否互相一致**——
   链层与 e2e 层的追溯完整性、物理来源与 `source_tables` 的包含关系、哨兵值语义等。
   各层单独看都合理但合取矛盾的缺陷（如 AMBIGUOUS 根链声明 complete）只有这层能抓住。
+  任务文档除了逐个检查内嵌的语句文档，还检查自己的 `end_to_end_lineage`：`trace_complete: true`
+  的行，其 value / row_membership / value_condition 来源里不能出现 `table` 为 `UNKNOWN` 或
+  `AMBIGUOUS` 的条目——占位名只能出现在声明追溯不完整的行里。
 
 命令行一次跑全三层（对已有产物做存量体检）：
 
