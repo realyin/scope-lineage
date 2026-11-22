@@ -35,17 +35,21 @@ Nothing here parses a contract document: the statements and their profiles come 
 ``semantic_profile`` and ``ontology.write_statements``, the JOIN key pairs from
 ``ontology.join_key_pairs`` and the schedule from ``table_cards.refresh_from_task_meta``.
 A table is matched on its last two dotted segments, because the catalog names tables
-``db.table`` and a corpus may spell the same table ``catalog.db.table``.
+``db.table`` and a corpus may spell the same table ``catalog.db.table``. When the names
+matched to one catalog table are not one table (``cat1.ods.t`` and ``cat2.ods.t`` with no
+catalog configured), the table gets the conflict ``table_identity_ambiguous`` and no
+lineage evidence.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from functools import partial
 from typing import NamedTuple, Optional
 
+from ..table_identity import canonical_table_name, group_spellings
 from .catalog_view import catalog_table_name, lookup_columns, realises
 from .ontology import join_key_pairs, write_statements
 from .semantic_profile import KEY_CONFIDENCE_PROVEN_UNEXPOSED, build_semantic_profile
@@ -103,6 +107,9 @@ class WriteStatement:
     refresh: Optional[str] = None
     grain: Mapping = dataclass_field(default_factory=lambda: dict(NO_GRAIN))
     partition: tuple = ()
+    # The table identity's spellings before the catalog fold (``cat1.ods.t``), so the
+    # merge can tell two tables folded onto one catalog entry apart (DECISIONS 4.3).
+    spellings: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -131,6 +138,8 @@ def _write_statement(record) -> WriteStatement:
     profile = record.profile
     task_block = profile.get("task") or {}
     target = task_block.get("target_table")
+    named = [target] if target else []
+    named += [item["table"] for item in profile.get("inputs") or [] if item.get("table")]
     return WriteStatement(
         task=record.task,
         statement_id=record.statement_id,
@@ -149,6 +158,7 @@ def _write_statement(record) -> WriteStatement:
         refresh=_cycle(task_block.get("meta")),
         grain=_grain(profile.get("output_shape") or {}),
         partition=tuple((task_block.get("partition") or {}).get("columns") or ()),
+        spellings=tuple(sorted({canonical_table_name(name) for name in named})),
     )
 
 
@@ -288,8 +298,15 @@ def _merge_lineage(evidence: dict, catalog: _Catalog, lineage: LineageFacts) -> 
             writers.setdefault(statement.target, []).append(statement)
         for table in statement.inputs:
             readers.setdefault(table, []).append(statement)
+    ambiguous = _ambiguous_tables(lineage.statements)
     matched = 0
     for table, rep in catalog.reps.items():
+        if table in ambiguous:
+            matched += 1
+            evidence["representations"].setdefault(table, {})["conflicts"] = [
+                {"rule": "table_identity_ambiguous", "names": ambiguous[table]}
+            ]
+            continue
         entry = _lineage_entry(rep, writers.get(table, []), readers.get(table, []))
         if not entry:
             continue
@@ -297,8 +314,9 @@ def _merge_lineage(evidence: dict, catalog: _Catalog, lineage: LineageFacts) -> 
         evidence["representations"].setdefault(table, {}).update(entry)
         for key, found in _binding_lineage(rep, writers.get(table, [])):
             evidence["bindings"].setdefault(key, {}).update(found)
-    evidence["relations"].update(_relation_joins(catalog, lineage.statements))
+    evidence["relations"].update(_relation_joins(catalog, lineage.statements, set(ambiguous)))
     checked = len(evidence["relations"])
+    writers = {table: found for table, found in writers.items() if table not in ambiguous}
     for relation_id, found in _source_joins(catalog, writers).items():
         evidence["relations"].setdefault(relation_id, {})["source_joins"] = found
     evidence["inputs"]["lineage"] = {
@@ -307,6 +325,27 @@ def _merge_lineage(evidence: dict, catalog: _Catalog, lineage: LineageFacts) -> 
         "representations_matched": matched,
         "relations_checked": checked,
     }
+
+
+def _ambiguous_tables(statements: Iterable[WriteStatement]) -> dict[str, list]:
+    """``{catalog table: the spellings folded onto it}`` where they are not one table.
+
+    The catalog key keeps a name's last two segments, so ``cat1.ods.t`` and
+    ``cat2.ods.t`` -- two tables when no catalog is configured (D1) -- both fold onto
+    ``ods.t``. Grouped by the table identity (``ods.t`` beside one ``cat1.ods.t`` is one
+    table), more than one group means the catalog cannot say which table it names, and
+    merging their statements would publish one table's facts as the other's.
+    """
+    folded: dict[str, set] = {}
+    for statement in statements:
+        for name in statement.spellings:
+            folded.setdefault(catalog_table_name(name), set()).add(name)
+    found = {}
+    for table, names in folded.items():
+        groups, _ = group_spellings(names)
+        if len(groups) > 1:
+            found[table] = sorted(names)
+    return found
 
 
 def _lineage_entry(rep: Mapping, writers: list, readers: list) -> dict:
@@ -408,9 +447,18 @@ def cut(text: str, limit: int = EXPRESSION_LIMIT) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _relation_joins(catalog: _Catalog, statements: Iterable[WriteStatement]) -> dict:
-    """``{relation id: {"joins": {count, samples}}}`` for relations with tables at both ends."""
-    statements = tuple(statements)
+def _relation_joins(
+    catalog: _Catalog, statements: Iterable[WriteStatement], ambiguous: frozenset | set = frozenset()
+) -> dict:
+    """``{relation id: {"joins": {count, samples}}}`` for relations with tables at both ends.
+
+    A JOIN touching a table in ``ambiguous`` -- a catalog table two corpus tables fold
+    onto -- is not counted: which of them it joins is unknown.
+    """
+    statements = tuple(
+        replace(s, joins=tuple(j for j in s.joins if not {j.left, j.right} & ambiguous))
+        for s in statements
+    )
     found = {}
     for relation in catalog.relations:
         ends = (catalog.by_concept.get(relation["from"]), catalog.by_concept.get(relation["to"]))

@@ -681,6 +681,14 @@
   `physical_source_fields` gain the FOR column. A pivot column inside a larger
   expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
   `partially_resolved`, as before.
+- **`catalog build --lineage` no longer merges two tables that differ only by an unconfigured
+  catalog.** The catalog names tables `db.table` and matched a corpus name by its last two
+  segments, so `cat1.ods.t` and `cat2.ods.t` both fed the evidence of `ods.t`, and a key proven
+  for one was published as the other's `grain_proof`. When the names matched to one catalog
+  table are not spellings of one table, the table now gets the conflict
+  `table_identity_ambiguous` (with the `names`) and no lineage evidence, and JOINs touching it
+  are not counted for relations. Configure `SCOPE_LINEAGE_CATALOG_PREFIXES` if they are one
+  table.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

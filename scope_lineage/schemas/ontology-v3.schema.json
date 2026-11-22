@@ -1524,8 +1524,17 @@
                 "enum": [
                   "grain_not_proven",
                   "grain_not_exposed",
-                  "grain_mismatch"
+                  "grain_mismatch",
+                  "table_identity_ambiguous"
                 ]
+              },
+              "names": {
+                "description": "table_identity_ambiguous: the corpus spellings folded onto this catalog table that are not one table",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             }
           }

@@ -102,6 +102,13 @@ def conflict_text(view: CatalogView, table: str, conflict: dict) -> str:
     if conflict["rule"] == "grain_not_proven":
         confidence = CONFIDENCE_TEXT.get(str(conflict.get("confidence")), "无")
         return f"{expr_span(table)}：目录声明粒度已证明，血缘只到{confidence}（{keys}）"
+    if conflict["rule"] == "table_identity_ambiguous":
+        names = "、".join(expr_span(name) for name in conflict.get("names") or [])
+        return (
+            f"{expr_span(table)}：血缘里的 {names} 都匹配到这张目录表，但不是同一张表，"
+            "没有挂血缘证据；实际是同一张表就配置 `SCOPE_LINEAGE_CATALOG_PREFIXES`，"
+            "确实是两张表则目录目前无法区分它们"
+        )
     if conflict["rule"] == "grain_not_exposed":
         return f"{expr_span(table)}：目录声明粒度已证明，血缘证明的键没有写到目标列上"
     declared = "、".join(expr_span(key) for key in conflict.get("declared") or [])
