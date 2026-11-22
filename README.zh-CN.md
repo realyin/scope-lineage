@@ -330,6 +330,19 @@ scope-lineage parse \
 4. 把 `set_op == "UNION_ALL"` 当作「这是集合运算」来读的消费者，改为接受 `UNION_ALL`、`UNION`、`EXCEPT`、`INTERSECT` 四个值；
    `EXCEPT` / `INTERSECT` 只从第一个分支取值。
 
+各层的表名现在走同一条表身份规则，并以 `SCOPE_LINEAGE_CATALOG_PREFIXES` 为准（见「配置 catalog 前缀规范化」）。
+目标表像读入的表一样转小写，已配置的 catalog 不论大小写都会剥掉。catalog 没配置的三段名，任何一层都不再截成最后两段，
+所以两个 catalog 下的同名表保持是两张表。
+
+5. 目标表写成大写或带大写 catalog 的（`INSERT INTO MART.Y`、`SPARK_CATALOG.mart.y`）重新跑 `parse`：
+   `target_table` 和表状态变为 `mart.y`。
+6. 字典 `column_ref`：归属是这张表在语料里的主名。读裸名的观察记到它唯一对应的带库名的表下（`orders.status` 变成
+   `ods.orders.status`），`cat1.ods.t` 和 `cat2.ods.t` 的码值不再记到一起。重建 `glossary`，按旧 `column_ref` 写的 overrides 改用新键。
+7. 两个 catalog 下的同名表：如果实际是同一张表，就配置 catalog 前缀；否则会得到两张表卡、两个字典归属，Schema 也按 catalog 分别查。
+   内联 Schema 里归一到同一表名的两种写法，会在 `metadata_conflicts` 记一条 `catalog_collision`，保留第一种。
+8. 目录匹配键：目录视图匹配前先去引号、转小写，catalog 只在配置了时才剥（没配置时照旧取最后两段）。
+   键为 `db.table` 的 Schema，在没有别的条目可能是它时，仍能描述读 `catalog.db.table` 的语句。
+
 ### 迁移到 0.11.0
 
 格式版本都不变，目录的改动全是增量：0.10.0 写的目录照样能校验、能构建。进行中的运行要跟着变的是材料包、

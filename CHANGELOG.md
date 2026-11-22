@@ -484,6 +484,31 @@
   with the `row_condition_source_unresolved` gap and an incomplete row, the same as an
   unqualified column no table can be proven to own; it used to be published as a table of
   that name.
+- **Breaking -- one table identity in every layer; a catalog is dropped only when configured.**
+  No format changes number; table names in existing outputs change. Four rules used to
+  disagree: metadata lookup cut any three-part name to its last two segments, table cards
+  grouped by dotted suffix, the glossary bucketed by the last two segments exactly, and the
+  catalog view kept the last two segments without dropping quotes. So the glossary filed
+  `cat2.ods.t`'s codes under `cat1.ods.t`, a bare `orders` read was one card but its own
+  glossary owner beside `ods.orders`, and two catalogs' columns were merged with no conflict.
+  The target table was not lower-cased either: `SPARK_CATALOG.mart.y` kept its catalog with
+  `spark_catalog` configured, and `MART.Y` and `mart.y` were two table states. The new
+  `scope_lineage.table_identity` module owns the rule and every layer calls it: quotes dropped,
+  lower case, a leading catalog dropped only when `SCOPE_LINEAGE_CATALOG_PREFIXES` names it;
+  spellings grouped by dotted suffix, a less qualified name joining only the one table it could
+  be (an `ods.t` beside `cat1.ods.t` and `cat2.ods.t` now joins neither and is flagged
+  `ambiguous_bare_name`). Lookups -- Schema, target metadata, metadata patches, column samples,
+  table cards, glossary value domains -- take an exact name first and otherwise the one
+  candidate the suffix rule allows, so Schema keyed `ods.t` still describes a `lake.ods.t`
+  read. `normalize_schema_map` records a `catalog_collision` in `metadata_conflicts` when two
+  spellings fold to one name, and keeps the first. The two card lookups share
+  `table_identity.find_card`. The catalog match key drops quotes and case and a configured
+  catalog, then keeps `db.table` (the catalog's own form). Who is affected: lineage whose
+  target was written in upper case; glossaries and overrides keyed by a `column_ref` whose
+  owner was a bare name or one of two catalogs; corpora with same-named tables in two
+  unconfigured catalogs. What to do: re-run `parse`, rebuild `tables` and `glossary`,
+  re-key overrides, and configure catalog prefixes where two catalogs are in fact one table
+  (see the READMEs' migration section).
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

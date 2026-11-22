@@ -207,6 +207,11 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 
 ### 值域观察（values[]）
 
+物理 `column_ref` 的 `<db.table>` 是这张表在语料里的主名，按表身份规则（和表卡同一条）归组：
+读裸名 `orders` 的观察记在语料同时写入的 `ods.orders` 名下；`cat1.ods.t` 和 `cat2.ods.t` 是两个归属，
+除非它们的 catalog 配进了 `SCOPE_LINEAGE_CATALOG_PREFIXES`。以前归属取表名最后两段，会把一个 catalog 的码值
+记到另一个 catalog 的表名下。
+
 `column_ref` 优先是物理列 `<db.table>.<column>`；**穿不透物理列时**写
 `<scope_id>.<column>` 并带 `logical: true`——CTE id 不是表名，把它写在 `table` 位置等于
 凭空造一张表。归属规则：该规则的 `fields[]` 里**恰好一个**同名列时才认物理表，

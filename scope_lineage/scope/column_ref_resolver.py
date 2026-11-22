@@ -14,7 +14,7 @@ from sqlglot.optimizer.scope import Scope
 _SET_OPERATION = getattr(exp, 'SetOperation', exp.Union)
 from .parser import (
     _qualified_table,
-    _normalize_table_name,
+    _schema_key,
 )
 from .pivot_columns import GROUP as PIVOT_GROUP, NAME as PIVOT_NAME, pivot_columns
 from .scope_types import (
@@ -267,7 +267,7 @@ def _pivoted_relation(
         upstream = result.scopes.get(getattr(source, _SCOPE_ID_ATTR, None) or "")
         names = [column.name for column in upstream.columns] if upstream else []
     elif isinstance(source, exp.Table) and schema:
-        names = list(schema.get(_normalize_table_name(_qualified_table(source)), []))
+        names = list(schema.get(_schema_key(schema, _qualified_table(source)), []))
     else:
         names = []
     return (alias, source, names) if names else None
@@ -720,7 +720,7 @@ def _source_column_state(alias: str, source: Scope | exp.Table, col_name: str, r
         return 'unknown'
     fq = _qualified_table(source)
     if schema is not None:
-        norm = _normalize_table_name(fq)
+        norm = _schema_key(schema, fq)
         if norm not in schema:
             return 'unknown'
         return 'present' if col_name in schema.get(norm, []) else 'absent'
@@ -764,7 +764,7 @@ def _materialized_star_column_state(
 
     states: list[str] = []
     for table in scope_data.star_schema_sources:
-        normalized = _normalize_table_name(table)
+        normalized = _schema_key(schema, table)
         if schema is None or normalized not in schema:
             states.append('unknown')
         elif col_name in schema.get(normalized, []):

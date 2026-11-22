@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Callable, Optional
 
 from ..catalog.index import attribute_code_set_ids
+from ..table_identity import canonical_table_name
 
 ONTOLOGY_FORMAT = "ontology-json/3"
 
@@ -76,12 +77,15 @@ WINDOW_END = ("end", "expire", "exp", "expiry", "to")
 
 
 def catalog_table_name(name) -> str:
-    """The ``db.table`` a spelling names: its last two dotted segments.
+    """The ``db.table`` a spelling names in the catalog: the match key (WP5).
 
-    The catalog names every table ``db.table``; a corpus or a reader may spell the same
-    table ``catalog.db.table``. Both the evidence merge and ``catalog query`` match on this.
+    The table identity's normalization first (:func:`canonical_table_name`: identifier
+    quotes dropped, lower case, a configured catalog dropped), then the catalog's own
+    contract: the catalog names every table ``db.table``, so a name still qualified past
+    that is matched by its last two segments -- the one entry of a ``db.table`` catalog it
+    could be. Both the evidence merge and ``catalog query`` match on this.
     """
-    return ".".join(str(name or "").split(".")[-2:])
+    return ".".join(canonical_table_name(name).split(".")[-2:])
 
 
 def concept_slug(concept_id: str) -> str:

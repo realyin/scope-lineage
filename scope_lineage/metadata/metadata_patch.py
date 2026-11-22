@@ -52,6 +52,7 @@ from .schema_metadata import (
     _blank_to_none,
     _normalize_table_detail,
     normalize_table_name,
+    schema_table_key,
 )
 
 
@@ -101,11 +102,22 @@ class MetadataPatch:
     def __bool__(self) -> bool:
         return bool(self.tables or self.columns)
 
+    def key_for(self, table: str) -> str:
+        """The patch's own key for ``table``: the table identity's rule (WP5).
+
+        The normalized name when the patch spells it so; otherwise the one patch key it
+        differs from only by qualification (``lake.ods.t`` against a patch for
+        ``ods.t``), never one of two.
+        """
+        known = {key: None for key in self.tables}
+        known.update({table_key: None for table_key, _column in self.columns})
+        return schema_table_key(known, table)
+
     def table_detail(self, table: str) -> dict:
-        return self.tables.get(normalize_table_name(table)) or {}
+        return self.tables.get(self.key_for(table)) or {}
 
     def column_comment(self, table: str, column: str) -> str | None:
-        return self.columns.get((normalize_table_name(table), str(column).lower()))
+        return self.columns.get((self.key_for(table), str(column).lower()))
 
     def mark_matched(self, key) -> None:
         self._matched.add(key)
@@ -288,7 +300,7 @@ def _patch_column_detail(detail, table: str, patch: MetadataPatch) -> int:
         return 0
     detail["comment"] = comment
     detail["comment_source"] = COMMENT_SOURCE_PATCH
-    patch.mark_matched((normalize_table_name(table), name.lower()))
+    patch.mark_matched((patch.key_for(table), name.lower()))
     return 1
 
 
@@ -301,7 +313,7 @@ def _patch_table(item: dict, table: str, patch: MetadataPatch) -> int:
         **detail,
         TABLE_PATCH_MARKER: True,
     }
-    patch.mark_matched(normalize_table_name(table))
+    patch.mark_matched(patch.key_for(table))
     return 1
 
 
@@ -331,7 +343,7 @@ def _patch_field_usage(usage: dict, patch: MetadataPatch) -> None:
             **detail,
             TABLE_PATCH_MARKER: True,
         }
-        patch.mark_matched(normalize_table_name(table))
+        patch.mark_matched(patch.key_for(table))
 
 
 def statement_documents(document: Mapping) -> Iterator[Mapping]:

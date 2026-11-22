@@ -23,8 +23,8 @@ from sqlglot.optimizer.scope import traverse_scope, walk_in_scope, Scope
 
 from .parser import (
     _ORIGINALLY_ANONYMOUS_PROJECTION_META,
-    _normalize_table_name,
     _qualified_table,
+    _schema_key,
     _unwrap_target,
 )
 from .related_metadata import build_related_metadata
@@ -295,7 +295,7 @@ def script_local_schema(
     """
     if result.stmt_kind != "CTAS" or result.parse_status != "ok":
         return
-    table = _normalize_table_name(result.target_table)
+    table = _schema_key(schema, result.target_table)
     if not table or (schema is not None and table in schema):
         return
     root = result.scopes.get("ROOT")

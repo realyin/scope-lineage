@@ -11,11 +11,19 @@ import csv
 import hashlib
 import io
 import json
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Protocol
+
+from ..table_identity import (
+    DEFAULT_CATALOG_PREFIXES as DEFAULT_CATALOG_PREFIXES,
+    canonical_table_name,
+    catalog_prefixes as catalog_prefixes,
+    same_table,
+    strip_catalog_prefix as strip_catalog_prefix,
+    table_bucket,
+)
 
 
 def _raise_csv_field_size_limit() -> None:
@@ -103,54 +111,86 @@ class DictSchemaProvider:
         return lookup_columns(self.schema, table_name)
 
 
-# Catalog stripping is deployment-specific. Public Core has no built-in catalog vocabulary;
-# callers opt in through the environment variable below.
-DEFAULT_CATALOG_PREFIXES: tuple[str, ...] = ()
-
-
-def catalog_prefixes() -> frozenset:
-    """Catalog segments to strip from qualified names.
-
-    3-segment strings are ambiguous (catalog.db.table vs db.table.field), so
-    stripping must be vocabulary-conditioned, never unconditional. Configure
-    SCOPE_LINEAGE_CATALOG_PREFIXES with a comma-separated allowlist when needed.
-    """
-    env = os.environ.get("SCOPE_LINEAGE_CATALOG_PREFIXES")
-    if env is not None:
-        return frozenset(part.strip().lower() for part in env.split(",") if part.strip())
-    return frozenset(DEFAULT_CATALOG_PREFIXES)
-
-
-def strip_catalog_prefix(value: str) -> str:
-    """Drop a LEADING known-catalog segment (safe for db.table.field refs)."""
-    parts = [part for part in str(value or "").split(".") if part]
-    if len(parts) >= 3 and parts[0] in catalog_prefixes():
-        parts = parts[1:]
-    return ".".join(parts)
-
-
 def normalize_table_name(name: str) -> str:
-    """Normalize table names for metadata lookup.
+    """Normalize a table name for metadata lookup: :func:`canonical_table_name` (WP5).
 
-    Current SQL output usually uses two-part names (``db.table``). When a
-    three-part name looks like ``catalog.db.table``, we strip the catalog for
-    lookup. We also lower-case because sqlglot normalizes many unquoted
-    identifiers to lower-case.
+    Quotes dropped and lower case, because sqlglot normalizes unquoted identifiers to
+    lower case; a leading catalog dropped only when ``SCOPE_LINEAGE_CATALOG_PREFIXES``
+    names it. A three-part name used to lose its first segment unconditionally, which
+    merged two catalogs' ``ods.t`` into one table's columns. A spelling that differs from
+    the metadata's key only by a catalog is still found, by :func:`schema_table_key`.
     """
+    return canonical_table_name(name)
 
-    name = (name or "").strip().strip("`")
-    parts = [part.strip("`") for part in name.split(".") if part]
-    if len(parts) >= 3:
-        parts = parts[-2:]
-    return ".".join(parts).lower()
+
+def schema_table_key(schema: Mapping, table_name: str) -> str:
+    """The key ``schema`` holds ``table_name`` under, or its normalized name when none.
+
+    The normalized name when the schema has it; otherwise the one key the table identity's
+    suffix rule relates it to -- ``lake.ods.t`` finds an export keyed ``ods.t``, and
+    ``ods.t`` finds one keyed ``lake.ods.t`` -- with two segments at least on both sides,
+    so a bare ``t`` borrows nothing. Two candidates (``cat1.ods.t`` and ``cat2.ods.t``
+    against an ``ods.t`` read) find neither: whose columns they are is unknown.
+    """
+    key = normalize_table_name(table_name)
+    if not key or key in schema or key.count(".") < 1:
+        return key
+    found = [
+        item for item in _schema_buckets(schema).get(table_bucket(key), ())
+        if item.count(".") >= 1 and same_table(key, item)
+    ]
+    return found[0] if len(found) == 1 else key
+
+
+def _schema_keys(schema: Mapping) -> set:
+    keys = set(schema)
+    keys.update(getattr(schema, "column_details", {}) or {})
+    keys.update(getattr(schema, "table_details", {}) or {})
+    return keys
+
+
+def _schema_buckets(schema: Mapping) -> dict[str, list[str]]:
+    """``last segment -> keys``, cached on a :class:`SchemaMap` until it changes size."""
+    stamp = (
+        len(schema),
+        len(getattr(schema, "column_details", {}) or {}),
+        len(getattr(schema, "table_details", {}) or {}),
+    )
+    cached = getattr(schema, "_identity_buckets", None)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    buckets: dict[str, list[str]] = {}
+    for item in sorted(_schema_keys(schema)):
+        buckets.setdefault(table_bucket(item), []).append(item)
+    if isinstance(schema, SchemaMap):
+        schema._identity_buckets = (stamp, buckets)
+    return buckets
 
 
 def normalize_schema_map(schema: Mapping[str, Iterable[str]]) -> SchemaMap:
+    """A parser-ready map of an inline ``{table: columns}`` mapping.
+
+    WP5: two spellings that normalize to one key -- two configured catalogs' ``ods.t`` --
+    are two tables' columns that cannot both be this one. The first spelling is kept
+    whole and the clash is a ``catalog_collision`` in ``metadata_conflicts``; merging the
+    two column lists described no real table, and said nothing about it.
+    """
     normalized: SchemaMap = SchemaMap()
+    spelled: dict[str, str] = {}
     for table, columns in schema.items():
         key = normalize_table_name(table)
         if not key:
             continue
+        if key in spelled and spelled[key] != str(table):
+            normalized.metadata_conflicts.append({
+                "table": key,
+                "reason": "catalog_collision",
+                "kept_spelling": spelled[key],
+                "dropped_spelling": str(table),
+                "resolution": "kept_first",
+            })
+            continue
+        spelled[key] = str(table)
         # An inline mapping may describe the table as well as its columns; the same keys
         # a rich JSON document uses, read by the same normalizer.
         _append_table_detail(normalized, key, columns if isinstance(columns, Mapping) else None)
@@ -165,8 +205,7 @@ def lookup_columns(schema: Mapping[str, Iterable[str]], table_name: str) -> list
 
     if table_name in schema:
         return list(schema[table_name])
-    normalized = normalize_table_name(table_name)
-    cols = schema.get(normalized)
+    cols = schema.get(schema_table_key(schema, table_name))
     return list(cols) if cols is not None else None
 
 
@@ -755,7 +794,7 @@ def partition_columns_for_table(schema: Mapping, table_name: str) -> list[str] |
     None is "the metadata does not say", never "the table has no partitions": most
     exports flag nothing, and a reader must fall back rather than conclude.
     """
-    known = getattr(schema, "partition_columns", {}).get(normalize_table_name(table_name))
+    known = getattr(schema, "partition_columns", {}).get(schema_table_key(schema, table_name))
     return list(known) if known else None
 
 
@@ -951,7 +990,7 @@ def _merge_column_details(schema: SchemaMap, table_key: str, details: Iterable[d
 
 def column_details_for_table(schema: Mapping[str, Iterable[str]], table_name: str) -> list[dict]:
     """Return column metadata details for a table, defaulting type/comment to null."""
-    key = normalize_table_name(table_name)
+    key = schema_table_key(schema, table_name)
     details_by_table = getattr(schema, "column_details", {})
     details = details_by_table.get(key)
     if details is not None:
@@ -963,7 +1002,7 @@ def column_details_for_table(schema: Mapping[str, Iterable[str]], table_name: st
 
 def table_details_for_table(schema: Mapping[str, Iterable[str]], table_name: str) -> dict:
     """Return table-level metadata for a table, if attached to the schema."""
-    key = normalize_table_name(table_name)
+    key = schema_table_key(schema, table_name)
     details_by_table = getattr(schema, "table_details", {})
     detail = details_by_table.get(key)
     if detail is not None:

@@ -12,10 +12,10 @@ Three rules make the file safe to publish from.
    ever reads, so every value passes through :func:`~scope_lineage.redaction.redact` on
    the way in and there is no flag that turns it off. A long value is cut as well: a
    card publishes what a value *looks like*, not a whole record.
-2. **The table name is normalized the way the cards normalize it.** ``mart.t`` in the
-   export and ``spark_catalog.mart.t`` on the card are one table, which is the same
-   dotted-suffix reading ``table_cards.same_table`` and ``glossary_values.table_key``
-   give, and case is ignored for the same reason ``normalize_table_name`` ignores it.
+2. **The table name is read by the one table identity** (``scope_lineage.table_identity``,
+   WP5). ``mart.t`` in the export and ``spark_catalog.mart.t`` on the card are one table
+   when the export has no other ``mart.t`` it could be; quotes and case are ignored, and
+   two catalogs' ``mart.t`` rows stay two tables.
 3. **A row nobody claimed is reported, not dropped.** :meth:`ColumnSamples.unmatched`
    names every ``table.column`` the corpus never asked for, in the file's own spelling:
    a typo in a hand-made export is exactly what its author cannot see.
@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from ..redaction import redact
+from ..table_identity import canonical_table_name, resolve_key
 
 
 DOC_FORMAT = "samples/1"
@@ -78,8 +79,12 @@ class ColumnSamples:
     def values(self, tables: Iterable[str], column) -> list[str]:
         """The published values for one column of one table, under any of its spellings."""
         name = str(column).strip().lower()
+        known = {table for table, _column in self._rows}
         for table in tables:
-            key = (table_key(table), name)
+            found = resolve_key(table, known, min_depth=2)
+            if found is None:
+                continue
+            key = (found, name)
             rows = self._rows.get(key)
             if rows is None:
                 continue
@@ -96,16 +101,13 @@ class ColumnSamples:
         )
 
 
-def table_key(name) -> tuple[str, ...]:
-    """The last two dotted segments, lower-cased: what makes ``hive.ods.t`` and ``ods.t`` one.
+def table_key(name) -> str:
+    """The table's normalized name (:func:`canonical_table_name`): how a row is filed.
 
-    The same suffix reading ``table_cards.same_table`` applies between qualified names,
-    expressed as a key so a lookup is a dict hit rather than a scan. Case is folded
-    because an export is written by hand and sqlglot lower-cases unquoted identifiers.
+    Lookups resolve a card's spelling against these keys by the identity's suffix rule,
+    so ``hive.ods.t`` on a card still finds rows filed under ``ods.t``.
     """
-    parts = [part.strip().strip("`") for part in str(name or "").split(".")]
-    kept = [part for part in parts if part]
-    return tuple(part.lower() for part in kept[-2:])
+    return canonical_table_name(name)
 
 
 def load_column_samples(

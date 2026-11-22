@@ -16,8 +16,10 @@ from .schema_metadata import (
     _normalize_table_detail,
     check_metadata_file,
     normalize_table_name,
+    schema_table_key,
 )
 from ..sqlglot_config import suppress_invalid_json_path_warnings
+from ..table_identity import same_table
 
 
 suppress_invalid_json_path_warnings()
@@ -215,7 +217,10 @@ def lookup_target_table_metadata(
             return candidate
         if normalize_table_name(candidate.full_table_name) == normalized:
             return candidate
-    return None
+    # WP5: a spelling that differs only by qualification (``lake.mart.t`` against
+    # metadata keyed ``mart.t``) is the same table when exactly one entry could be it.
+    key = schema_table_key(metadata, table_name)
+    return metadata.get(key) if key != normalized else None
 
 
 def files_naming(files: Iterable[Path], tables: Iterable[str]) -> list[Path]:
@@ -318,7 +323,9 @@ def _target_table_metadata_from_document(
     )
 
     normalized_table = normalize_table_name(table_name)
-    if ddl_table and normalize_table_name(ddl_table) != normalized_table:
+    # The DDL may name the table with its catalog (``CREATE TABLE lake.db.t``) while the
+    # export's table_name is ``db.t``: the same table under the identity's suffix rule.
+    if ddl_table and not same_table(normalize_table_name(ddl_table), normalized_table):
         issues.append("schema_ddl_table_name_mismatch")
 
     return TargetTableMetadata(

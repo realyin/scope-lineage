@@ -12,8 +12,8 @@ from sqlglot import exp
 from sqlglot.optimizer.scope import Scope
 
 from .parser import (
-    _normalize_table_name,
     _qualified_table,
+    _schema_key,
 )
 from .scope_types import (
     AMBIGUOUS_SCOPE_ID,
@@ -833,7 +833,7 @@ def _regex_selection_input_columns(
                 ]
         elif isinstance(source, exp.Table) and schema is not None:
             table = _qualified_table(source)
-            columns = schema.get(_normalize_table_name(table))
+            columns = schema.get(_schema_key(schema, table))
             if columns:
                 names[table] = list(columns)
     return names
@@ -1656,7 +1656,7 @@ def _resolve_merge_unqualified(
 def _merge_target_columns(result, schema: dict | None) -> list[str] | None:
     if not schema or not result.target_table:
         return None
-    columns = schema.get(_normalize_table_name(result.target_table))
+    columns = schema.get(_schema_key(schema, result.target_table))
     if not columns:
         return None
     return [c["name"] if isinstance(c, dict) else str(c) for c in columns]

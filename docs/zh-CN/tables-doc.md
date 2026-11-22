@@ -246,6 +246,11 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 表与它后缀匹配时并入那张卡；有多张时它自成一张卡，并在该卡的 `findings` 里记
 `ambiguous_bare_name`，由人来确认脚本实际读写的是哪一张。
 
+再往上一级也是同样的规则。表名先规范化（去引号、转小写，首段 catalog 只在
+`SCOPE_LINEAGE_CATALOG_PREFIXES` 配置了时才剥），所以带引号的 `` `ODS`.`Orders` `` 写方和读 `ods.orders`
+的读方是同一张卡；catalog 没配置时，`cat1.ods.t` 和 `cat2.ods.t` 是两张卡。同时出现的 `ods.t` 两张都可能是，
+它自成一张卡并记 `ambiguous_bare_name`（表名虽带库名，finding 仍用这个名字）。
+
 ### 样例值（`--samples`）
 
 Core 不连数据库，所以「这一列的值长什么样」只能由**别人导出**再传进来。`--samples` 接三种写法：
@@ -268,8 +273,9 @@ mart.customer_daily,country_code,CN,10
 }
 ```
 
-- **表名按表卡的规则匹配**：取最后两段、忽略大小写，所以 `spark_catalog.MART.t` 与卡上的
-  `mart.t` 是同一张表；列名也忽略大小写。
+- **表名按表身份规则匹配**：忽略引号和大小写，剥掉已配置的 catalog；只差限定级别的写法，在文件里
+  不可能是别的表时才算匹配。所以卡上的 `spark_catalog.MART.t` 能找到 `mart.t` 的样例值，
+  而 `cat1.mart.t` 和 `cat2.mart.t` 的样例值各归各的卡。列名也忽略大小写。
 - **每列最多 N 个不同的值**（默认 5，`--samples-top` 可改）：文件给了 `count` 就按 `count`
   从大到小排，没给就按文件里的先后顺序；重复的值只占一个位置。
 - **永远脱敏，没有关掉它的开关**：样例值是本工具见过的最容易带个人信息的输入，每个值都先去掉
