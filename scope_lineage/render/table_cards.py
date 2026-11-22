@@ -1375,10 +1375,20 @@ def _card_index(cards: dict) -> list[dict]:
 
 
 def _lookup(index: Sequence[dict], table: str) -> dict | None:
+    """The card for ``table``: an exact spelling first, else the one suffix match (WP2d).
+
+    A suffix match that hits several cards -- a bare name two qualified tables could be
+    -- finds none rather than the first in sort order.
+    """
     for card in index:
-        if any(same_table(table, name) for name in [card["table"], *card["aliases"]]):
+        if table in [card["table"], *card["aliases"]]:
             return card
-    return None
+    found = [
+        card
+        for card in index
+        if any(same_table(table, name) for name in [card["table"], *card["aliases"]])
+    ]
+    return found[0] if len(found) == 1 else None
 
 
 def _apply_statement(profile: dict, index: Sequence[dict]) -> dict:

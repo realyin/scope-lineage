@@ -99,6 +99,7 @@ from .semantic_profile import (
     driving_table,
     grouped_uniqueness,
     join_blocks,
+    join_pair_right_is_bare,
     join_side_columns,
     ranking_partition_keys,
     ranking_uniqueness,
@@ -1571,9 +1572,14 @@ def _key_pairs_by_table(
     product of both sides' fields, and each product member belongs to exactly one table
     pair. A pierced pair that degenerates to ``t.c = t.c`` is dropped, exactly as the
     mapping document drops it.
+
+    Audit WP2g: a pair whose right side is not a bare column (``t.region =
+    substr(u.user_id, 1, 2)``) relates no key of the right table, so it is left out.
     """
     grouped: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for pair in detail.get("join_key_pairs") or []:
+        if not join_pair_right_is_bare(pair):
+            continue
         left = _pair_endpoints(document, pair, "left", sides["left"][0])
         right = _pair_endpoints(document, pair, "right", sides["right"][0])
         for left_table, left_column in left:

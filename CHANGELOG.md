@@ -69,6 +69,34 @@
   that still survives fails the test suite and, in production, is stripped after a Python
   warning (`ShieldPlaceholderLeak`). Both shields also compare alias names case-insensitively,
   as Spark and sqlglot do, so `SELECT 'ALL' AS BIZ ... WHERE biz = ...` keeps its filter.
+- **`join_key_pairs[].left` / `.right` gain an optional `bare` field; uniqueness proofs only
+  read pairs whose right side is a bare column.** `ON t.region = substr(u.user_id, 1, 2)` is
+  still recorded as a key pair (so `trace_status` and warnings do not change), but many right
+  rows share one prefix, and the fan-out verdict and the ontology's table relations used to
+  prove the JOIN safe / `many_to_one proven` from it. Both now skip a pair whose right side is
+  not a bare column; a contract written before the field existed is read by parsing the pair's
+  `expression`, and an expression that does not parse counts as not bare. The incremental
+  cache payload version is bumped, so cached facts are recomputed once. Not breaking: existing
+  fields keep their values. Some fan-out verdicts change from `safe` to `risk`.
+- **Uniqueness proofs no longer borrow evidence about other rows** (`describe`, `tables`,
+  `ontology`). A `row_number() ... = 1` filter now proves a JOIN's right side unique only when
+  it reads the window column through that JOIN's own right input -- a sibling CTE filtering the
+  same window, or `WHERE r.rn = 1` beside a second alias `r2`, no longer counts; `rn = 1` under
+  an OR, a NOT or a CASE no longer counts anywhere; and a ROOT `WHERE r.rn = 1` on a joined side
+  no longer makes ROOT's output "deduplicated by the partition key". An equality pin
+  (`WHERE a.status = 'X'`) now drops only the grouping key read from the same input (by
+  `input_ref_id`), so `GROUP BY a.user_id, b.status` keeps `b.status`; an `AMBIGUOUS` column
+  pins nothing, and `ORDER BY b.dt` over `WHERE a.dt = ...` is no longer read as ordering by a
+  pinned column. A bare table name that several qualified tables in the corpus could be no
+  longer borrows the first one's card key. Some `candidate_keys`, `key_confidence`, fan-out and
+  window-intent values change toward the weaker, correct answer.
+- **`catalog build --lineage`: no false `grain_mismatch` for a renamed or pinned key.** The
+  evidence compared the catalog's declared grain (target columns) with the logical keys of the
+  scope that decides the grain -- a CTE's own column names, keys a WHERE pins included -- so a
+  write that renames its key in the outer SELECT, or pins one grouping column, was reported as a
+  mismatch. `grain_proof.keys` now reads the statement's `candidate_keys` at every confidence. A
+  key that holds but is not written on target columns (`proven_unexposed`) reports the new
+  conflict rule `grain_not_exposed` instead of `grain_not_proven`.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the

@@ -99,6 +99,8 @@ def conflict_text(view: CatalogView, table: str, conflict: dict) -> str:
     if conflict["rule"] == "grain_not_proven":
         confidence = CONFIDENCE_TEXT.get(str(conflict.get("confidence")), "无")
         return f"{expr_span(table)}：目录声明粒度已证明，血缘只到{confidence}（{keys}）"
+    if conflict["rule"] == "grain_not_exposed":
+        return f"{expr_span(table)}：目录声明粒度已证明，血缘证明的键没有写到目标列上"
     declared = "、".join(expr_span(key) for key in conflict.get("declared") or [])
     proven = "、".join(expr_span(key) for key in conflict.get("proven") or [])
     return f"{expr_span(table)}：目录声明粒度 {declared}，血缘证明的是 {proven}"

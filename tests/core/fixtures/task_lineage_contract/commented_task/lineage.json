@@ -694,14 +694,16 @@
                       "column": "channel_code",
                       "qualifier": "s",
                       "binding_scope_id": "ROOT",
-                      "input_ref_id": "input:ROOT:001"
+                      "input_ref_id": "input:ROOT:001",
+                      "bare": true
                     },
                     "right": {
                       "scope": "dim.channel",
                       "column": "channel_code",
                       "qualifier": "d",
                       "binding_scope_id": "ROOT",
-                      "input_ref_id": "input:ROOT:002"
+                      "input_ref_id": "input:ROOT:002",
+                      "bare": true
                     },
                     "left_fields": [
                       {

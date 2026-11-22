@@ -45,7 +45,7 @@ from __future__ import annotations
 import re
 from collections import Counter, OrderedDict
 from dataclasses import replace
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, NamedTuple, Sequence
 
 from . import claims, glossary_values, semantic_text, values_rows
 from .diagnostics_view import all_warnings, fact_gaps_for, warnings_for
@@ -4094,12 +4094,19 @@ def _root_dedup_evidence(document: dict) -> list[str]:
     A ``row_number() = 1`` inside a JOIN's ON clause deduplicates the *right side* of
     that join, not ROOT's output, so it is deliberately not read here -- it is read by
     the fan-out rule instead.
+
+    Audit WP2h: the same holds for ``FROM orders o JOIN ranked r ... WHERE r.rn = 1``.
+    The window counts only when it sits on ROOT's driving path -- ROOT's FROM item, its
+    FROM item, and so on down -- whether or not a level also carries a JOIN.
     """
     distinct = _blocks_of_type(document, _ROOT, "distinct")
     if distinct:
         return _block_ids(distinct)
+    driving = _from_item_path(document)
     evidence: list[str] = []
     for scope_id, block_id, spec in _ranking_window_specifications(document):
+        if scope_id not in driving:
+            continue
         output = str(spec.get("output_field") or "")
         for entry in spec.get("filter_after_window") or []:
             if entry.get("scope_id") == _ROOT and _entry_keeps_first_row(entry, output):
@@ -4110,6 +4117,34 @@ def _root_dedup_evidence(document: dict) -> list[str]:
             if _predicate_block_keeps_first_row(block, output):
                 evidence.extend([block_id, str(block.get("logic_block_id"))])
     return _dedupe(evidence)
+
+
+def _from_item_path(document: dict) -> set[str]:
+    """ROOT and every scope reached by following each level's FROM item (WP2h).
+
+    Unlike :func:`_single_input_chain`, a level that also JOINs is descended: a JOIN
+    there is the fan-out rule's business, and the FROM item still drives the rows. When
+    :func:`_scope_from_item` cannot decide (a WHERE ``IN (SELECT ...)`` is an input
+    too), the scope's single ``position: from`` input edge names the FROM item.
+    """
+    path = [_ROOT]
+    current: str | None = _ROOT
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        found, _reason = _scope_from_item(document, str(current))
+        current = found or _from_edge(document, str(current))
+        if current is None or current in path:
+            break
+        path.append(current)
+    return set(path)
+
+
+def _from_edge(document: dict, scope_id: str) -> str | None:
+    edges = [
+        str(edge.get("source_id"))
+        for edge in (_scopes(document).get(scope_id) or {}).get("input_edges") or []
+        if edge.get("position") == "from" and edge.get("source_id")
+    ]
+    return edges[0] if len(edges) == 1 else None
 
 
 def _ranking_window_specifications(
@@ -4591,26 +4626,70 @@ def _wraps_whole(value: str) -> bool:
 # ------------------------------------------------- equality-pinned columns (B9)
 
 
-def _scope_pins(document: dict, scope_id: str) -> dict[str, str]:
-    """``lowered column -> the value text`` for one scope's own WHERE equality pins.
+class _Pin(NamedTuple):
+    """One equality pin: the published ``record`` and the input it fixes (audit WP2c).
+
+    ``refs`` / ``scopes`` name the input *as the queried scope reads it*: the pinned
+    field's ``input_ref_id`` and ``scope`` for a pin in that scope's own WHERE, or the
+    scope's driving FROM item for a pin carried up from below it. Either may be empty.
+    """
+
+    record: dict
+    refs: frozenset[str]
+    scopes: frozenset[str]
+
+
+#: Field scopes the engine publishes when it could not bind a column to one input.
+_UNBOUND_FIELD_SCOPES = frozenset({"AMBIGUOUS", "UNKNOWN"})
+
+
+def _fields_reach(fields: Iterable[Mapping]) -> tuple[frozenset[str], frozenset[str]] | None:
+    """``(input_ref_ids, scopes)`` the fields read, or None when one of them is unbound."""
+    refs: set[str] = set()
+    scopes: set[str] = set()
+    for field in fields:
+        scope = str(field.get("scope") or "")
+        if not scope or scope.upper() in _UNBOUND_FIELD_SCOPES:
+            return None
+        scopes.add(scope)
+        if field.get("input_ref_id"):
+            refs.add(str(field["input_ref_id"]))
+    return frozenset(refs), frozenset(scopes)
+
+
+def _scope_pins(
+    document: dict, scope_id: str
+) -> list[tuple[str, str, tuple[frozenset[str], frozenset[str]]]]:
+    """``(lowered column, value text, input reach)`` for one scope's own WHERE equality pins.
 
     Only the contract's AND-split ``conjuncts`` are read, so a predicate nested inside an
     OR is never a pin: the contract splits on ``AND`` alone, which leaves ``a = 1 OR
     b = 2`` whole, and an OR does not parse as an equality. HAVING is a separate logic
     type and is not read here -- it filters groups that already exist.
+
+    WP2c: the pin keeps the input its column was read from; a column the engine left
+    ``AMBIGUOUS`` or ``UNKNOWN`` pins nothing, because which input it fixes is unknown.
     """
-    pins: dict[str, str] = {}
+    pins: list[tuple[str, str, tuple[frozenset[str], frozenset[str]]]] = []
     for block in _blocks_of_type(document, scope_id, "filter"):
         detail = block.get("filter_predicate_detail") or {}
         for conjunct in detail.get("conjuncts") or []:
             parsed = semantic_text.equality_conjunct(conjunct.get("expression"))
-            if parsed and parsed[2] in _PINNING_VALUE_KINDS:
-                pins.setdefault(parsed[0].lower(), parsed[1])
+            if not parsed or parsed[2] not in _PINNING_VALUE_KINDS:
+                continue
+            column = parsed[0].lower()
+            reach = _fields_reach(
+                field
+                for field in conjunct.get("fields") or []
+                if str(field.get("column") or "").lower() == column
+            )
+            if reach is not None:
+                pins.append((column, parsed[1], reach))
     return pins
 
 
-def _pinned_columns(document: dict, scope_id: str) -> dict[str, dict]:
-    """Every column that cannot vary inside ``scope_id``, as ``lowered name -> record``.
+def _pinned_columns(document: dict, scope_id: str) -> dict[str, list[_Pin]]:
+    """Every column that cannot vary inside ``scope_id``, as ``lowered name -> pins``.
 
     B9. A scope's own WHERE is read first, then the walk follows the FROM item down: a
     column a CTE pins and passes through unchanged is just as constant one layer up, and
@@ -4618,23 +4697,137 @@ def _pinned_columns(document: dict, scope_id: str) -> dict[str, dict]:
     scope on the way that renames or rewrites the column ends the descent *for that
     column*, so a pin can never be carried across an expression that could map two days
     onto one value.
+
+    WP2c: a name can be pinned on one input and free on another, so each pin names its
+    input (:class:`_Pin`). A pin carried up from below fixes the column only as read from
+    ``scope_id``'s driving FROM item, and only when every scope on the way publishes it
+    from its own FROM item (:func:`_carried_from_below`).
     """
-    pinned: dict[str, dict] = {}
+    pinned: dict[str, list[_Pin]] = {}
     crossed: list[str] = []
+    driving: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
     item = scope_id
     for _ in range(GRAIN_DEPTH_LIMIT):
         if item not in _scopes(document) or item in crossed:
             break
-        for column, value in _scope_pins(document, item).items():
-            if column in pinned or not _carried_through(document, crossed, column):
+        for column, value, reach in _scope_pins(document, item):
+            if item != scope_id:
+                if not _carried_from_below(document, [*crossed, item], column):
+                    continue
+                reach = driving
+            found = pinned.setdefault(column, [])
+            if any((pin.refs, pin.scopes) == reach for pin in found):
                 continue
-            pinned[column] = {"scope_id": item, "column": column, "value": value}
+            found.append(_Pin({"scope_id": item, "column": column, "value": value}, *reach))
         following, _ = _scope_from_item(document, item)
         if following is None:
             break
+        if item == scope_id:
+            driving = (_input_refs_of(document, item, following), frozenset({following}))
         crossed.append(item)
         item = following
     return pinned
+
+
+def _input_refs_of(document: dict, scope_id: str, source_id: str) -> frozenset[str]:
+    """The ``input_ref_id`` values by which ``scope_id`` reads ``source_id`` as its FROM item."""
+    refs = [
+        ref
+        for ref in (_scopes(document).get(scope_id) or {}).get("input_source_refs") or []
+        if str(ref.get("source_id")) == source_id and ref.get("input_ref_id")
+    ]
+    from_refs = [
+        ref for ref in refs if (ref.get("relation_position") or ref.get("position")) == "from"
+    ]
+    return frozenset(str(ref["input_ref_id"]) for ref in from_refs or refs)
+
+
+def _carried_from_below(document: dict, path: Sequence[str], column: str) -> bool:
+    """Every scope on ``path`` (top first) but the last publishes ``column`` unchanged
+    *from the next one down* -- the same name, a bare reference, read through that input.
+
+    A scope that joins can publish a column of the same name from its other input; that
+    column is not the one pinned below.
+    """
+    for upper, lower in zip(path, path[1:]):
+        if not _carries_column_unchanged(document, upper, column):
+            return False
+        if not _output_reads_input(document, upper, column, lower):
+            return False
+    return True
+
+
+def _output_reads_input(document: dict, scope_id: str, column: str, source_id: str) -> bool:
+    outputs = (_scopes(document).get(scope_id) or {}).get("outputs") or []
+    refs = _input_refs_of(document, scope_id, source_id)
+    for output in outputs:
+        if str(output.get("name") or "").lower() != column:
+            continue
+        sources = output.get("sources") or []
+        return all(
+            str(source.get("input_ref_id")) in refs
+            if refs and source.get("input_ref_id")
+            else str(source.get("scope")) == source_id
+            for source in sources
+        )
+    return True
+
+
+def _pin_for(
+    pins: Mapping[str, Sequence[_Pin]],
+    name: str | None,
+    reach: tuple[frozenset[str], frozenset[str]] | None,
+    single_input: bool,
+) -> dict | None:
+    """The pin record fixing column ``name`` as read through ``reach``, if any.
+
+    Inputs compare by ``input_ref_id`` when both sides carry one, else by ``scope``. A
+    side that names no input at all (an unbound key, a pin without fields) matches only
+    in a scope that reads a single input, where the bare name cannot mean two columns.
+    """
+    for pin in pins.get(name or "") or []:
+        if reach is not None and pin.refs and reach[0]:
+            if pin.refs & reach[0]:
+                return pin.record
+        elif reach is not None and pin.scopes and reach[1]:
+            if pin.scopes & reach[1]:
+                return pin.record
+        elif single_input:
+            return pin.record
+    return None
+
+
+def _key_reach(document: dict, key: Mapping) -> tuple[frozenset[str], frozenset[str]] | None:
+    """The input a logical key reads, from the logic-block item or output that wrote it.
+
+    Keys do not carry ``input_ref_id`` themselves; the GROUP BY item, PARTITION BY item
+    or output whose text is the key's ``expression`` does, in its ``source_fields`` /
+    ``sources``.
+    """
+    scope_id = str(key.get("scope_id"))
+    target = _normalized_expression(key.get("expression") or "")
+    if not target:
+        return None
+    for texts, fields in _key_sources(document, scope_id):
+        if target in {_normalized_expression(text) for text in texts if text}:
+            return _fields_reach(fields)
+    return None
+
+
+def _key_sources(document: dict, scope_id: str):
+    """``(written forms, fields)`` of every item a key of ``scope_id`` can come from."""
+    for block in _scope_blocks(document, scope_id):
+        for item in (block.get("aggregation_detail") or {}).get("group_by_items") or []:
+            yield (item.get("expression_sql"),), item.get("source_fields") or []
+        spec = block.get("window_specification") or {}
+        for item in spec.get("partition_by") or []:
+            yield (item.get("expression_sql"), _item_label(item)), item.get("source_fields") or []
+    for output in (_scopes(document).get(scope_id) or {}).get("outputs") or []:
+        yield (output.get("expression"),), output.get("sources") or []
+
+
+def _reads_single_input(document: dict, scope_id: str) -> bool:
+    return len(_scope_inputs(document, scope_id)) == 1
 
 
 def _carried_through(document: dict, scopes: Sequence[str], column: str) -> bool:
@@ -4681,11 +4874,12 @@ def _unpinned_keys(
 ) -> tuple[list[dict], list[dict]]:
     """``(the keys that can still vary, the pin records for the ones that cannot)``."""
     pinned = _pinned_columns(document, scope_id)
+    single = _reads_single_input(document, scope_id)
     kept: list[dict] = []
     dropped: list[dict] = []
     for key in keys:
         name = _key_column_name(key)
-        record = pinned.get(name) if name else None
+        record = _pin_for(pinned, name, _key_reach(document, key), single) if name else None
         if record is None:
             kept.append(key)
         elif record not in dropped:
@@ -4711,13 +4905,18 @@ def _with_pinned_keys(document: dict, grain: dict) -> dict:
     *unique* key set drops it instead -- that is what the fan-out verdict and
     :func:`_target_key_columns` read, through this same marker.
     """
-    pins: dict[str, dict] = {}
+    pins: dict[str, dict[str, list[_Pin]]] = {}
     keys = []
     for key in grain.get("keys") or []:
         scope_id = str(key.get("scope_id"))
         if scope_id not in pins:
             pins[scope_id] = _pinned_columns(document, scope_id)
-        record = pins[scope_id].get(_key_column_name(key) or "")
+        record = _pin_for(
+            pins[scope_id],
+            _key_column_name(key),
+            _key_reach(document, key),
+            _reads_single_input(document, scope_id),
+        )
         keys.append({**key, "pinned": {"value": record["value"]}} if record else key)
     return {**grain, "keys": keys}
 
@@ -5563,16 +5762,27 @@ def _card_lookup(table_cards: Mapping | None):
         return None
 
     def lookup(name):
-        for card in index:
-            spellings = [card.get("table"), *(card.get("aliases") or [])]
-            if any(
-                spelling and glossary_values.same_table(name, spelling)
-                for spelling in spellings
-            ):
-                return card
-        return None
+        # Audit WP2d: an exact spelling wins; a suffix match is taken only when it names
+        # one card. A bare ``orders`` beside ``dwd.orders`` and ``ods.orders`` is neither.
+        exact = [card for card in index if name in _card_spellings(card)]
+        if exact:
+            return exact[0]
+        found = [
+            card
+            for card in index
+            if any(glossary_values.same_table(name, item) for item in _card_spellings(card))
+        ]
+        return found[0] if len(found) == 1 else None
 
     return lookup
+
+
+def _card_spellings(card: Mapping) -> list[str]:
+    return [str(item) for item in [card.get("table"), *(card.get("aliases") or [])] if item]
+
+
+#: The table-card finding that says a bare name could be several tables (WP2d).
+_AMBIGUOUS_BARE_NAME = "ambiguous_bare_name"
 
 
 #: The writes that replace what the reader will see. An ``INSERT`` keeps every earlier
@@ -5592,8 +5802,14 @@ def _card_key_claim(card) -> claims.Claim | None:
     per key per day is many rows per key across days. The corpus holding every writer of
     the table is the premise ``A-WRITERS-CLOSED``, stated rather than hidden.
 
-    None when no producer offers a key at all -- there is nothing to carry or limit.
+    None when no producer offers a key at all -- there is nothing to carry or limit, and
+    None for a card flagged ``ambiguous_bare_name``: which table it is, is unknown.
     """
+    if any(
+        str(finding.get("kind")) == _AMBIGUOUS_BARE_NAME
+        for finding in (card or {}).get("findings") or []
+    ):
+        return None
     producers = list((card or {}).get("produced_by") or [])
     offered = next(
         (
@@ -5811,18 +6027,44 @@ def _physical_key_note(keys: Sequence[dict]) -> str:
 
 
 def _join_side_columns(detail: dict, side: str) -> list[str]:
-    """One side's join keys as the column names that side's own scope publishes them by."""
+    """One side's join keys as the column names that side's own scope publishes them by.
+
+    Only pairs whose right side is a bare column count (:func:`_uniqueness_key_pairs`).
+    """
     return _dedupe(
         str((pair.get(side) or {}).get("column"))
-        for pair in detail.get("join_key_pairs") or []
+        for pair in _uniqueness_key_pairs(detail)
         if (pair.get(side) or {}).get("column")
+    )
+
+
+def _uniqueness_key_pairs(detail: Mapping) -> list[dict]:
+    """The JOIN's key pairs a right-side uniqueness proof may read (audit WP2g).
+
+    ``t.region = substr(u.user_id, 1, 2)`` is a key pair -- the JOIN is on those
+    columns -- but many ``user_id`` values match one ``region``, so "the right side is
+    unique by ``user_id``" says nothing about this JOIN. A pair counts only when its
+    right side is a bare column; the left side may be wrapped (``trim(t.id) = u.id``).
+    """
+    return [
+        pair for pair in detail.get("join_key_pairs") or [] if join_pair_right_is_bare(pair)
+    ]
+
+
+def join_pair_right_is_bare(pair: Mapping) -> bool:
+    """The pair's ``right.bare``; read from its ``expression`` when the field is absent."""
+    right = pair.get("right") or {}
+    if "bare" in right:
+        return bool(right["bare"])
+    return semantic_text.equality_side_is_bare(
+        pair.get("expression"), right.get("column"), right.get("qualifier")
     )
 
 
 def _join_side_keys(detail: dict, side: str) -> list[str]:
     """One side's join keys as ``table.column``, falling back to ``scope.column``."""
     keys: list[str] = []
-    for pair in detail.get("join_key_pairs") or []:
+    for pair in _uniqueness_key_pairs(detail):
         physical = [
             f"{field.get('table')}.{field.get('field')}"
             for field in pair.get(f"{side}_fields") or []
@@ -5893,10 +6135,74 @@ def _ranking_key_claim(
         ]
         if not _comparable(_logical_key_names(keys)) <= _comparable(join_columns):
             continue
-        consumer = _keeps_first_row_consumer(document, scope_id, spec, [join_block])
+        scoped_spec, scoped_join = _filters_read_through_join_right(spec, join_block)
+        consumer = _keeps_first_row_consumer(document, scope_id, scoped_spec, [scoped_join])
         if consumer:
             return _ranking_claim(scope_id, spec, consumer)
     return _lower_ranking_claim(document, scope_id, join_columns, functions)
+
+
+def _filters_read_through_join_right(
+    spec: dict, join_block: tuple[str, dict]
+) -> tuple[dict, tuple[str, dict]]:
+    """``spec`` and ``join_block`` keeping only the ``= 1`` filters read through this JOIN's right.
+
+    Audit WP2a: a ``filter_after_window`` entry or an ON-clause ``condition_filters``
+    entry proves *this* join's right side unique only when its window column is read
+    through that right input. A sibling CTE filtering the same window, or ``WHERE
+    r.rn = 1`` next to a second alias ``r2`` of the same CTE, filters other rows. The
+    input is matched by ``input_ref_id`` (taken from ``join_key_pairs[].right``); a
+    field without one falls back to ``scope`` plus ``qualifier``. The window scope's own
+    WHERE is not narrowed: it sits inside the right side.
+    """
+    block_id, detail = join_block
+    output = str(spec.get("output_field") or "")
+    references, identities = _join_right_identity(detail)
+
+    def reads_right(entry: Mapping) -> bool:
+        for field in entry.get("fields") or []:
+            if str(field.get("column")) != output:
+                continue
+            reference = field.get("input_ref_id")
+            if reference and references:
+                if reference in references:
+                    return True
+                continue
+            identity = (str(field.get("scope")), str(field.get("qualifier") or "").lower())
+            if identity in identities:
+                return True
+        return False
+
+    scoped_spec = {
+        **spec,
+        "filter_after_window": [
+            entry for entry in spec.get("filter_after_window") or [] if reads_right(entry)
+        ],
+    }
+    scoped_detail = {
+        **detail,
+        "condition_filters": [
+            entry for entry in detail.get("condition_filters") or [] if reads_right(entry)
+        ],
+    }
+    return scoped_spec, (block_id, scoped_detail)
+
+
+def _join_right_identity(detail: Mapping) -> tuple[set[str], set[tuple[str, str]]]:
+    """This JOIN's right input as ``input_ref_id`` values and ``(scope, qualifier)`` pairs."""
+    references: set[str] = set()
+    identities: set[tuple[str, str]] = set()
+    for pair in detail.get("join_key_pairs") or []:
+        right = pair.get("right") or {}
+        if right.get("input_ref_id"):
+            references.add(str(right["input_ref_id"]))
+        if right.get("scope"):
+            identities.add((str(right["scope"]), str(right.get("qualifier") or "").lower()))
+    if detail.get("right_input"):
+        identities.add(
+            (str(detail["right_input"]), str(detail.get("right_alias") or "").lower())
+        )
+    return references, identities
 
 
 def _ranking_claim(scope_id: str, spec: dict, consumer: str) -> claims.Claim:
@@ -6911,7 +7217,12 @@ def _order_is_pinned(document: dict, scope_id: str, order: Sequence[dict]) -> bo
     if not names or not all(names):
         return False
     pinned = _pinned_columns(document, scope_id)
-    return all(name in pinned for name in names)
+    single = _reads_single_input(document, scope_id)
+    # WP2c: ``ORDER BY b.dt`` over ``WHERE a.dt = …`` still orders the rows.
+    return all(
+        _pin_for(pinned, name, _fields_reach(item.get("source_fields") or []), single)
+        for name, item in zip(names, order)
+    )
 
 
 def _string_order_column(document: dict, intent: str, spec: dict) -> str | None:

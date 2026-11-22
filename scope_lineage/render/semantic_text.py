@@ -667,6 +667,9 @@ def equals_one_predicate(expression: str | None, column: str) -> bool:
     rather than by matching text: ``WHERE `r`.`rn` = 1`` and ``1 = rn`` are the same
     fact, and ``rn = 10`` is not. A leading WHERE/HAVING keyword is stripped because
     ``filter_after_window`` entries quote the clause, not the bare predicate.
+
+    Only a top-level AND conjunct counts (audit WP2b): ``rn = 1 OR vip``, ``NOT (rn =
+    1)`` and ``CASE WHEN rn = 1 ...`` all keep more than one row per partition.
     """
     if not expression or not column:
         return False
@@ -678,7 +681,8 @@ def equals_one_predicate(expression: str | None, column: str) -> bool:
     node = parse_expression(text)
     if node is None:
         return False
-    for candidate in [node, *node.find_all(exp.EQ)]:
+    for candidate in _and_conjuncts(node):
+        candidate = _unwrap(candidate)
         if not isinstance(candidate, exp.EQ):
             continue
         sides = (candidate.this, candidate.expression)
@@ -691,6 +695,29 @@ def equals_one_predicate(expression: str | None, column: str) -> bool:
                 and str(literal.this) == "1"
             ):
                 return True
+    return False
+
+
+def equality_side_is_bare(expression: str | None, column, qualifier=None) -> bool:
+    """True when one operand of the equality ``expression`` is just the column named.
+
+    Audit WP2g: the reading a ``join_key_pairs`` side without a ``bare`` field gets (a
+    contract written before the field existed). Anything that does not parse as one
+    equality counts as not bare: a key that cannot be read proves nothing unique.
+    """
+    node = parse_expression(expression)
+    if not isinstance(node, exp.EQ) or not column:
+        return False
+    name, table = str(column).lower(), str(qualifier or "").lower()
+    for operand in (node.this, node.expression):
+        while isinstance(operand, exp.Paren):
+            operand = operand.this
+        if (
+            isinstance(operand, exp.Column)
+            and operand.name.lower() == name
+            and (not operand.table or not table or operand.table.lower() == table)
+        ):
+            return True
     return False
 
 

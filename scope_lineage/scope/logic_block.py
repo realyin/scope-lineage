@@ -884,13 +884,37 @@ def _join_key_pair_dict(
     right_ref: SourceRef,
 ) -> dict[str, object]:
     return {
-        "left": _source_ref_to_dict(left_ref),
-        "right": _source_ref_to_dict(right_ref),
+        "left": {**_source_ref_to_dict(left_ref), "bare": _ref_is_bare_operand(expr, left_ref)},
+        "right": {**_source_ref_to_dict(right_ref), "bare": _ref_is_bare_operand(expr, right_ref)},
         "left_fields": _physical_source_fields_from_refs([left_ref]),
         "right_fields": _physical_source_fields_from_refs([right_ref]),
         "operator": "=",
         "expression": expr.sql(dialect=DIALECT),
     }
+
+
+def _ref_is_bare_operand(expr: exp.Expression, ref: SourceRef) -> bool:
+    """True when one operand of the equality ``expr`` is exactly the column ``ref`` names.
+
+    Audit WP2g: ``t.region = substr(u.user_id, 1, 2)`` joins on ``user_id`` but not by
+    it -- many ``user_id`` values share one prefix -- so a consumer proving the right
+    side unique by its key columns must know which sides are plain columns. A
+    parenthesised column is still bare; any function, cast or comparison around it is
+    not.
+    """
+    if not isinstance(expr, exp.EQ):
+        return False
+    qualifier = (ref.qualifier or "").lower()
+    for operand in (expr.this, expr.expression):
+        while isinstance(operand, exp.Paren):
+            operand = operand.this
+        if (
+            isinstance(operand, exp.Column)
+            and operand.name.lower() == ref.column.lower()
+            and (not operand.table or not qualifier or operand.table.lower() == qualifier)
+        ):
+            return True
+    return False
 
 
 def _source_ids_from_refs(refs: list[SourceRef]) -> list[str]:

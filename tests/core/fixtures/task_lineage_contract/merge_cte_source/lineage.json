@@ -659,14 +659,16 @@
                       "column": "account_id",
                       "qualifier": "e",
                       "binding_scope_id": "cte:staged",
-                      "input_ref_id": "input:cte:staged:001"
+                      "input_ref_id": "input:cte:staged:001",
+                      "bare": true
                     },
                     "right": {
                       "scope": "dim.accounts",
                       "column": "account_id",
                       "qualifier": "a",
                       "binding_scope_id": "cte:staged",
-                      "input_ref_id": "input:cte:staged:002"
+                      "input_ref_id": "input:cte:staged:002",
+                      "bare": true
                     },
                     "left_fields": [
                       {

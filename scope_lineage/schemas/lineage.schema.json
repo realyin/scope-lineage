@@ -1881,6 +1881,7 @@
         },
         "join_key_pairs": {
           "type": "array",
+          "description": "One entry per top-level AND equality between the two sides. left / right carry an optional boolean bare: whether that side of the equality is exactly one column. Uniqueness rules read only pairs whose right side is bare.",
           "items": {
             "type": "object"
           }
