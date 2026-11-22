@@ -218,7 +218,9 @@ def _matches(key: str, word: str, text: str) -> bool:
 
 
 def _texts_for(key: str, texts: dict) -> list[str]:
-    return texts["qualifier"] if key == QUALIFIER_KEY else texts["concept"]
+    if key == QUALIFIER_KEY:
+        return texts["qualifier"]
+    return texts["votes"] if key.split(".", 1)[-1] in _VOTE_KINDS else texts["names"]
 
 
 def _grounded_word(key: str, word: str, texts: dict) -> bool:

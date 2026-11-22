@@ -139,6 +139,27 @@ def test_a_measure_suffix_only_in_the_middle_has_no_ground():
     assert result.errors
 
 
+def test_a_kind_word_only_in_key_comments_has_no_ground():
+    # The concept layer votes on a member's table name and table comment only; a word only
+    # a key column's comment holds can never cast a vote.
+    draft = _profile(concept_words={"entity": ["销量"]})
+    result = _check(draft, _reasons(("concept_words.entity", "销量")))
+    assert any("concept_words.entity" in error for error in result.errors)
+
+
+def test_a_kind_word_in_a_table_comment_is_grounded():
+    draft = _profile(concept_words={"entity": ["门店"]})
+    assert _check(draft, _reasons(("concept_words.entity", "门店"))).errors == []
+
+
+def test_name_words_are_grounded_by_key_comments_but_not_by_table_tokens():
+    # Name candidates come from table and key-column comments, not from table-name words.
+    draft = _profile(concept_words={"filter_words": ["销"]})
+    assert _check(draft, _reasons(("concept_words.filter_words", "销"))).errors == []
+    token_only = _profile(concept_words={"filter_words": ["shop"]})
+    assert _check(token_only, _reasons(("concept_words.filter_words", "shop"))).errors
+
+
 def test_an_entry_without_a_reason_line_is_an_error():
     result = _check(GOOD, _reasons(("qualifier_terms", "运费")))
     assert any("concept_words.event" in error for error in result.errors)

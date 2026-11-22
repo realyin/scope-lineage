@@ -238,9 +238,9 @@ one the downstream command can use:
 | a `table_name_convention.incremental` suffix | the evidence suggests `incremental`, or `confirmed.json` accepts this entry |
 | a `table_name_convention.full` suffix | `confirmed.json` accepts this entry |
 | a `qualifier_terms` word | it hits at least one comment of the qualifier material under check 12's word rule |
-| `concept_words.event` / `entity` / `summary` | it hits at least one entry of the concept material under the concept vote's rule (Chinese as a substring, latin as a whole word in any case) |
-| `concept_words.measure_suffixes` | some concept material ends with it |
-| `concept_words.filter_words` | some concept material contains it |
+| `concept_words.event` / `entity` / `summary` | it hits at least one **table-name word or table comment** under the concept vote's rule (Chinese as a substring, latin as a whole word in any case). Key-column comments do not count: the concept layer votes on a member's table name and table comment only |
+| `concept_words.measure_suffixes` | some **table or key-column comment** ends with it (name candidates come from those two) |
+| `concept_words.filter_words` | some **table or key-column comment** contains it |
 
 Errors (any one exits 1; grounding errors are all listed): a bad format; an entry without ground; a draft entry without a line
 in the written section; a malformed `confirmed.json`, or an entry it accepts that is not in the draft; an entry it rejects

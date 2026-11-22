@@ -208,9 +208,9 @@ Evidence for 12 corpus table(s), 12 found in metadata (100%): 4 suffix(es) -- 1 
 | `table_name_convention.incremental` 的后缀 | 证据的建议是 `incremental`，或 `confirmed.json` 里有这一条的 `accept` |
 | `table_name_convention.full` 的后缀 | `confirmed.json` 里有这一条的 `accept` |
 | `qualifier_terms` 的词 | 按第 12 项的成词规则，在修饰词材料里至少命中一条注释 |
-| `concept_words.event` / `entity` / `summary` | 按概念层投票的规则（中文按子串，拉丁字母按整词、不分大小写），在概念词材料里至少命中一条 |
-| `concept_words.measure_suffixes` | 某条概念词材料以它结尾 |
-| `concept_words.filter_words` | 某条概念词材料包含它 |
+| `concept_words.event` / `entity` / `summary` | 按概念层投票的规则（中文按子串，拉丁字母按整词、不分大小写），在**表名词元或表注释**里至少命中一条。键列注释不算：概念层只按表名和表注释投票 |
+| `concept_words.measure_suffixes` | 某条**表注释或键列注释**以它结尾（名字候选从这两处来） |
+| `concept_words.filter_words` | 某条**表注释或键列注释**包含它 |
 
 错误（任何一条都退出 1，依据错误一次全部列出）：格式不对；某个条目没有依据；草稿里的某个条目在「已写入」里没有对应行；
 `confirmed.json` 格式不对，或其中 `accept` 的条目不在草稿里；`confirmed.json` 里 `reject` 的条目出现在草稿里。`accept` 只放行后缀的归类，

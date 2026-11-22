@@ -387,16 +387,22 @@ def _token_material(tables: Iterable[str]) -> list[dict]:
 
 
 def material_texts(evidence: dict) -> dict[str, list[str]]:
-    """The texts each kind of word is judged against: ``qualifier`` (column and table
-    comments) and ``concept`` (table-name words, table comments, key comments)."""
+    """The texts each kind of word is judged against, as the reading command reads them:
+    ``qualifier`` (column and table comments, check 12); ``votes`` (table-name words and
+    table comments -- the concept layer votes a kind on a member's table name and table
+    comment only); ``names`` (table and key-column comments -- where name candidates, which
+    measure suffixes and filter words demote, come from)."""
     qualifier = evidence.get("qualifier_material") or {}
     concept = evidence.get("concept_material") or {}
+
+    def comments(*parts: str) -> list[str]:
+        return [e["comment"] for part in parts for e in concept.get(part) or []]
+
     return {
         "qualifier": [e["comment"] for part in ("columns", "tables")
                       for e in qualifier.get(part) or []],
-        "concept": ([e["token"] for e in concept.get("table_tokens") or []]
-                    + [e["comment"] for part in ("table_comments", "key_comments")
-                       for e in concept.get(part) or []]),
+        "votes": [e["token"] for e in concept.get("table_tokens") or []] + comments("table_comments"),
+        "names": comments("table_comments", "key_comments"),
     }
 
 
