@@ -18,6 +18,7 @@ from .parser import unbound_table_parameters
 from .scope_types import CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID, ScopeLineageResult
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
+from .multi_insert import MultiTableInsert, split_multi_table_inserts
 from .scope_builder import (
     _is_ctas,
     _schema_with_script_local_tables,
@@ -433,6 +434,51 @@ def _repair_disclosure_warnings(
     return warnings
 
 
+def _multi_table_insert_split_warnings(found: list[MultiTableInsert]) -> list[dict]:
+    """Declare each FROM-first multi-table insert that was split before parsing.
+
+    Same reason as the repairs above: the statements a reader sees -- one per target, each
+    with the shared FROM clause -- are not the text the author wrote.
+    """
+    return [
+        {
+            "statement_id": f"stmt:{item.statement_index + 1:03d}",
+            "type": "multi_table_insert_split",
+            "scope": "TASK",
+            "msg": (
+                f"split one FROM-first multi-table insert into {len(item.targets)} "
+                "statements, one per target, each reading the shared FROM clause: "
+                + ", ".join(item.targets)
+            ),
+        }
+        for item in found
+        if item.split
+    ]
+
+
+def _multi_table_insert_unsupported_gaps(found: list[MultiTableInsert]) -> list[dict]:
+    """One gap per FROM-first multi-table insert that could not be split (audit 1.2).
+
+    The parse keeps only ``SELECT * FROM <source>`` of such a statement, so without this
+    every target it writes would be missing from the document with no word about which.
+    """
+    return [
+        {
+            "gap_type": "multi_table_insert_unsupported",
+            "statement_id": f"stmt:{item.statement_index + 1:03d}",
+            "targets": list(item.targets),
+            "reason": item.reason,
+            "root_impact": True,
+            "needed_fact": (
+                "lineage of each target of the multi-table insert; rewrite it as one "
+                "INSERT ... SELECT ... FROM per target"
+            ),
+        }
+        for item in found
+        if not item.split
+    ]
+
+
 def parse_task_lineage(
     sql: str,
     task_name: str,
@@ -497,6 +543,9 @@ def _parse_task_lineage(
     statement_lineage: dict[str, object] = {}
     warnings: list[dict] = _repair_disclosure_warnings(ctas_repairs, quoted_identifiers)
     gaps: list[dict] = []
+    multi_inserts = split_multi_table_inserts(sql)[1]
+    warnings.extend(_multi_table_insert_split_warnings(multi_inserts))
+    gaps.extend(_multi_table_insert_unsupported_gaps(multi_inserts))
     # Columns proved by a CREATE ... AS SELECT earlier in this script, so the statements
     # that consume it are not modelled against a table nobody can describe.
     script_local: dict[str, list[str]] = {}

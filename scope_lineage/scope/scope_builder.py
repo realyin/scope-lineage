@@ -50,6 +50,7 @@ from .sqlglot_walk import _find_alias_in_parent, render_sql_or_none
 # this module instead of through ._shared. Nothing in this module uses them.
 from .sqlglot_walk import _source_item_from_ast_node
 from .lineage_fact_gaps import _mark_gaps_from_recovered_syntax
+from .multi_insert import split_multi_table_inserts
 from .sql_comments import (
     merge_comments,
     node_comments,
@@ -203,12 +204,18 @@ def _collect_insert_trees(
 
 
 def _normalize_directory_insert_sql(sql: str) -> str:
-    """Normalize Spark directory writes into a form sqlglot keeps with SELECT."""
+    """Normalize Spark/Hive write forms sqlglot cannot parse into forms it keeps.
+
+    Directory writes get ``STORED AS`` in place of ``USING``; a FROM-first multi-table
+    insert is split into one ``INSERT ... SELECT ... FROM`` per target (audit 1.2, see
+    :mod:`.multi_insert`). Every parse path calls this one function, so all of them see
+    the same statements.
+    """
     pattern = re.compile(
         r"(INSERT\s+OVERWRITE\s+(?:LOCAL\s+)?DIRECTORY\s+('[^']+'|\"[^\"]+\"))\s+USING\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?=SELECT|WITH)",
         re.IGNORECASE,
     )
-    return pattern.sub(r"\1 STORED AS \3 ", sql)
+    return split_multi_table_inserts(pattern.sub(r"\1 STORED AS \3 ", sql))[0]
 
 
 def _is_ctas(tree: exp.Expression) -> bool:

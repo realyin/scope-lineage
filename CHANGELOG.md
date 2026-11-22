@@ -265,6 +265,16 @@
   `with_rollup`, `mixed`; absent for a plain GROUP BY), and the profile lowers such keys to
   `candidate` with the reason in `key_evidence`: subtotal rows carry NULL in the rolled-up keys,
   and a NULL already in the data shares a key tuple with one.
+- **Fixed: Hive's FROM-first multi-table insert is modelled.** `FROM src INSERT OVERWRITE TABLE
+  t1 SELECT ... INSERT ... t2 SELECT ...` is not parsed by sqlglot: every INSERT clause was
+  dropped and the task reported one unsupported `SELECT` with no word about the targets. The
+  statement is now split before parsing, on sqlglot's tokens, into one `INSERT ... SELECT
+  <projection> FROM <shared FROM> <branch clauses>` per target, disclosed by the new task
+  warning `multi_table_insert_split`; statement ids and `table_state_graph` follow the split
+  statements, and the script keeps its line count. A statement whose targets the shared FROM
+  also reads is not split (Hive reads the source once; sequential INSERTs would read the first
+  branch's output) and gets the new task gap `multi_table_insert_unsupported` listing every
+  target.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
