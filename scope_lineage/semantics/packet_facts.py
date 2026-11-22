@@ -517,6 +517,38 @@ def input_time_facts(
     ``convention`` is the caller's table-name convention; a table is a ``full`` snapshot
     -- and an equality read of one partition a ``full_snapshot`` -- only by it.
     """
+    found = read_facts(table, rules, columns)
+    named = _name_convention(table, convention)
+    return {
+        **found,
+        "name_convention": named,
+        "full_snapshot": found["partition_read"] == "equality" and named == "full",
+    }
+
+
+def time_columns(declared: list[dict], used: Sequence[str], partition_columns) -> list[dict]:
+    """``[{name, type, comment, partition}]`` of one input: its declared columns in order,
+    then each column read that the declaration lacks. The column list the time readings
+    (:func:`read_facts`) judge a date column by, built one way for the packet and for
+    ``domain-profile evidence``."""
+    names = [str(column.get("name")) for column in declared]
+    every = list(declared) + [{"name": name} for name in used if name not in names]
+    partitions = {str(name) for name in partition_columns or ()}
+    return [
+        {"name": str(column.get("name")), "type": column.get("type"),
+         "comment": column.get("comment"), "partition": str(column.get("name")) in partitions}
+        for column in every
+    ]
+
+
+def read_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
+    """How one input's partitions are read (``partition_read``, ``partition_filters``) and
+    its non-partition business-date filters (``date_filters``), each with its ``shape``.
+
+    ``rules`` are the statement's rules (:func:`statement_rules`) after
+    :func:`mark_partition_filters`; ``columns`` is :func:`time_columns`. Shared by the
+    packet's inputs and by ``domain-profile evidence``, so both read a table one way.
+    """
     partition = [expression for expression, _rule in partition_filter_rules(table, rules)]
     by_name = {column["name"]: column for column in columns}
     dated = [
@@ -530,14 +562,10 @@ def input_time_facts(
         and not (by_name.get(name) or {}).get("partition")
     ]
     _mark_date_shapes(dated, _batch_values(partition))
-    read = _partition_read(partition)
-    named = _name_convention(table, convention)
     return {
-        "partition_read": read,
+        "partition_read": _partition_read(partition),
         "partition_filters": partition,
         "date_filters": dated,
-        "name_convention": named,
-        "full_snapshot": read == "equality" and named == "full",
     }
 
 
