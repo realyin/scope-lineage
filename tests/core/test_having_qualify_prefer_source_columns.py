@@ -49,17 +49,24 @@ def test_having_reads_the_source_column_under_a_join():
     assert _fields(block) == {("ods.x", "amt")}
 
 
+# sqlglot 30.0 leaves the column inside an expanded alias unqualified; 30.16+ qualifies it.
+# Both readings resolve the alias to the same source field, which is what these tests pin.
+_EXPANDED_ALIAS = {"HAVING MAX(`x`.`fee`) > 0", "HAVING MAX(`fee`) > 0"}
+
+
 def test_having_still_expands_an_alias_no_source_has():
     block = _block(_HAVING, {"ods.x": ["g", "fee"]}, "HAVING")
 
-    assert block.raw_expression == "HAVING MAX(`x`.`fee`) > 0"
+    assert block.raw_expression in _EXPANDED_ALIAS
+    assert [(field.scope, field.column) for field in block.fields] == [("ods.x", "fee")]
 
 
 def test_having_without_a_schema_keeps_the_alias_reading():
     """Unknown source columns leave the name to the alias, as GROUP BY and the SELECT list do."""
     block = _block(_HAVING, None, "HAVING")
 
-    assert block.raw_expression == "HAVING MAX(`x`.`fee`) > 0"
+    assert block.raw_expression in _EXPANDED_ALIAS
+    assert [(field.scope, field.column) for field in block.fields] == [("ods.x", "fee")]
 
 
 _QUALIFY = (
