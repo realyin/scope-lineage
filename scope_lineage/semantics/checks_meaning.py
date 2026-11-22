@@ -278,13 +278,31 @@ def _mentions(text: str, names: list[str]) -> bool:
 # 11 ------------------------------------------------------------------ derived codes
 
 # A meaning that names a single good state; "没有成功…" and an aside "（有效期外）" do not.
-_SUCCESS_LIKE = re.compile(r"(?<!没有)(?<![不未非无没])(?:成功|正常|通过|有效)")
+_SUCCESS_WORD = re.compile(r"成功|正常|通过|有效")
+# A negation written straight before the word (未成功, 不通过) ...
+_NEGATION_CHARS = "不未非无没"
+# ... or a negating phrase a little before it (未能通过, 无法正常使用, 未能正常通过). A
+# phrase is matched whole, so 非常成功 ("very successful") is not read as 非 + 成功.
+_NEGATION_PHRASES = ("未能", "无法", "不曾", "没能", "未曾", "不能", "没有", "尚未", "从未")
+_NEGATION_WINDOW = 4
+_CLAUSE_BREAK = re.compile(r"[，,；;。、：:！!？?\s]")
 # A parenthetical aside, full-width or ASCII; check 12 drops it too.
 ASIDE = re.compile(r"（[^）]*）|\([^)]*\)")
 
 
 def success_like(meaning: str) -> bool:
-    return bool(_SUCCESS_LIKE.search(ASIDE.sub("", meaning)))
+    """Whether a meaning names a good state that no nearby negation takes back."""
+    text = ASIDE.sub("", meaning)
+    return any(not _negated(text[:match.start()]) for match in _SUCCESS_WORD.finditer(text))
+
+
+def _negated(before: str) -> bool:
+    """A negation char right before the word, or a negating phrase in the clause's last
+    few characters before it."""
+    window = _CLAUSE_BREAK.split(before[-_NEGATION_WINDOW:])[-1]
+    return before.endswith(tuple(_NEGATION_CHARS)) or any(
+        phrase in window for phrase in _NEGATION_PHRASES
+    )
 
 
 def check_derived_codes(document: dict, packet: dict) -> list[dict]:
@@ -312,14 +330,19 @@ def _case_outputs(packet: dict) -> dict[str, dict[str, dict]]:
                 if output.get("else") == "computed":
                     continue
                 values = merged.setdefault(entry["column"], {})
-                seen = values.setdefault(output["value"], {**output, "when": []})
+                seen = values.setdefault(
+                    output["value"], {**output, "when": [], "source_values": None, "many": False}
+                )
                 seen["when"] += [w for w in output["when"] if w not in seen["when"]]
                 seen["catch_all"] = seen["catch_all"] or output["catch_all"]
-                if seen["source_values"] is not None and output["source_values"] is not None:
+                # A producer that cannot list its source values (a range, a computed
+                # test) says nothing about how many there are; it must not erase the
+                # list another producer gives -- that erased the warning it earned.
+                sources = output["source_values"]
+                if sources is not None:
                     seen["source_values"] = list(dict.fromkeys(
-                        seen["source_values"] + output["source_values"]))
-                else:
-                    seen["source_values"] = None
+                        (seen["source_values"] or []) + sources))
+                seen["many"] = seen["many"] or output["catch_all"] or len(sources or []) > 1
     return merged
 
 
@@ -334,7 +357,8 @@ def _derived_code(ci: int, column: dict, output: dict, watched: set) -> list[dic
             "没有这个值；补上它和它的含义（依据分支条件与注释），拿不准含义就标 "
             "unconfirmed: true 并在 questions 里提问"))]
     passed = result("derived_codes", "pass", f"columns[{ci}].code_values")
-    many = output["catch_all"] or len(output["source_values"] or []) > 1
+    many = (output.get("many") or output["catch_all"]
+            or len(output["source_values"] or []) > 1)
     if not (many and success_like(code["meaning"])):
         return [passed]
     if column.get("watch") or f"column:{name}" in watched:
