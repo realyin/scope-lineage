@@ -257,6 +257,14 @@
   lineage of statements with a DISTINCT UNION, EXCEPT or INTERSECT. What to do: accept the four
   values, read EXCEPT / INTERSECT values from the first branch only, and re-run `parse` (see
   the READMEs' migration section).
+- **Fixed: `GROUP BY CUBE / ROLLUP / GROUPING SETS` keeps its keys and no longer proves a
+  single row.** sqlglot keeps those keys outside `group.expressions`, so the scope had no
+  GROUP BY and the semantic profile published `single_row` with a `proven` empty key -- a wrong
+  uniqueness claim that reached table cards. The keys are now read from every form, the scope
+  gains the optional field `grouping_kind` (`cube`, `rollup`, `grouping_sets`, `with_cube`,
+  `with_rollup`, `mixed`; absent for a plain GROUP BY), and the profile lowers such keys to
+  `candidate` with the reason in `key_evidence`: subtotal rows carry NULL in the rolled-up keys,
+  and a NULL already in the data shares a key tuple with one.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

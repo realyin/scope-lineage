@@ -22,6 +22,7 @@ from .scope_types import (
 from .column_ref_resolver import _resolve_column_refs_in_expr
 from ._constants import DIALECT, PARSE_OPTS, _SCOPE_ID_ATTR
 from .expression_text import _function_names
+from .grouping import group_by_item_expressions
 from .sequences import _extend_unique, _unique_ordered
 from .source_refs import _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _source_ref_binding_key, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id
 from .column_expression_resolution import _expression_resolution_for_scope_column
@@ -339,7 +340,7 @@ def _aggregation_detail_for_scope(
     if isinstance(sg_scope.expression, exp.Select):
         group = sg_scope.expression.args.get("group")
         if group is not None:
-            group_expressions = list(group.expressions if hasattr(group, "expressions") else [group])
+            group_expressions = group_by_item_expressions(group)
 
     group_by_items = _aggregation_group_by_items(scope_data, group_expressions)
     aggregate_items = [

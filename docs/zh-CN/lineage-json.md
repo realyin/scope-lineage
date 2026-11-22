@@ -216,6 +216,7 @@ GROUP BY c.customer_id;
 | `joins[]` | array<object> | 兼容性 JOIN 结构，保留左右输入、类型、ON 表达式和字段。精确关系优先读 `logic_blocks[].join_relation_detail`。 |
 | `filters[]` | array<object> | 兼容性 WHERE 条件和引用字段。精确条件拆分优先读 `filter_predicate_detail`。 |
 | `group_by[]` / `having[]` | array | 分组和聚合后过滤的结构化子句事实。 |
+| `grouping_kind` | string | 只在 GROUP BY 不是普通分组时出现：`cube`、`rollup`、`grouping_sets`、`with_cube`、`with_rollup`，几种写法同时出现时为 `mixed`。此时 `group_by[]` 列出子句里写到的全部键，包括 CUBE / ROLLUP / GROUPING SETS 里面的。这几种写法会加出小计行，小计行的汇总键为 NULL，所以语义画像把它们的键给成 `candidate`，不给 `proven`。没有这个键表示普通 GROUP BY 或没有 GROUP BY。 |
 | `order_by[]` | array<object> | 排序表达式、字段和方向。窗口内部排序同时位于 `window_specification`。 |
 | `distinct` | boolean | 当前 SELECT 是否使用 DISTINCT。 |
 | `lateral_views[]` | array<object> | LATERAL VIEW/UDTF 的结构化事实。 |

@@ -27,6 +27,7 @@ from ._constants import DIALECT, _SCOPE_ID_ATTR
 from ..function_catalog import _KNOWN_UDAFS
 from .sequences import _unique_ordered
 from .source_refs import _constant_sources, _source_ref_binding_key
+from .grouping import group_by_item_expressions, grouping_kind
 from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node
 from .column_ref_resolver import (
     _bound_source_ref,
@@ -70,10 +71,11 @@ def _resolve_select_scope(
     group = sel.args.get("group")
     if group:
         scope_data.group_by_item_refs = _resolve_expr_items(
-            group.expressions if hasattr(group, "expressions") else [group],
+            group_by_item_expressions(group),
             sg_scope, result, schema,
         )
         scope_data.group_by = _unique_refs(scope_data.group_by_item_refs)
+        scope_data.grouping_kind = grouping_kind(group)
 
     # Resolve HAVING
     having = sel.args.get("having")
@@ -712,7 +714,7 @@ def _scope_local_column_refs(sg_scope: Scope) -> list[exp.Column]:
             roots.append(node)
     group = expr.args.get("group")
     if group is not None:
-        roots.extend(group.expressions if hasattr(group, "expressions") else [group])
+        roots.extend(group_by_item_expressions(group))
     order = expr.args.get("order")
     if order is not None:
         roots.extend(order.expressions if hasattr(order, "expressions") else [order])

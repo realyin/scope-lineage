@@ -231,6 +231,7 @@ happened in.
 | `joins[]` | array<object> | A compatibility JOIN structure preserving left and right inputs, type, ON expression, and fields. For exact relations prefer `logic_blocks[].join_relation_detail`. |
 | `filters[]` | array<object> | Compatibility WHERE conditions and referenced fields. For an exact condition breakdown prefer `filter_predicate_detail`. |
 | `group_by[]` / `having[]` | array | Structured clause facts for grouping and post-aggregate filtering. |
+| `grouping_kind` | string | Present only when the GROUP BY is not a plain one: `cube`, `rollup`, `grouping_sets`, `with_cube`, `with_rollup`, or `mixed` when several of these forms meet. `group_by[]` then lists every key named in the clause, inside CUBE / ROLLUP / GROUPING SETS too. These forms add subtotal rows whose rolled-up keys are NULL, so the semantic profile publishes their keys as `candidate`, never `proven`. Absent means a plain GROUP BY or none. |
 | `order_by[]` | array<object> | Sort expressions, fields, and directions. Ordering inside a window also appears in `window_specification`. |
 | `distinct` | boolean | Whether this SELECT uses DISTINCT. |
 | `lateral_views[]` | array<object> | Structured facts for LATERAL VIEW/UDTF. |

@@ -272,6 +272,8 @@ def _scope_data_to_dict(sd: ScopeData) -> dict:  # noqa: C901 - legacy exemption
         d["filters"] = [to_dict(f) for f in sd.filters]
     if sd.group_by:
         d["group_by"] = [to_dict(g) for g in sd.group_by]
+    if sd.grouping_kind and sd.grouping_kind != "plain":
+        d["grouping_kind"] = sd.grouping_kind
     if sd.having:
         d["having"] = [to_dict(h) for h in sd.having]
     if sd.order_by:
