@@ -18,6 +18,7 @@ SCHEMA = {"ods.src": ["k", "v", "amt"]}
 PIVOTED = """INSERT INTO mart.t
 SELECT p.A AS a_val, p.B AS b_val
 FROM (SELECT k, v, amt FROM ods.src) PIVOT (max(amt) FOR k IN ('A', 'B')) p"""
+AMT_AND_FOR_COLUMN = [{"table": "ods.src", "field": "amt"}, {"table": "ods.src", "field": "k"}]
 
 
 def _root(sql, schema=SCHEMA):
@@ -37,7 +38,8 @@ def test_a_reference_to_a_pivoted_column_resolves_to_the_aggregated_column():
 
     resolution = outputs["a_val"].expression_resolution or {}
     assert resolution.get("status") == "resolved"
-    assert resolution.get("physical_source_fields") == [{"table": "ods.src", "field": "amt"}]
+    # The aggregate's input and the FOR column, which picks the rows (audit 1.7).
+    assert resolution.get("physical_source_fields") == AMT_AND_FOR_COLUMN
     assert result.diagnostics.lineage_fact_gaps == []
 
 
@@ -58,7 +60,7 @@ FROM (SELECT k, v, amt FROM ods.src) PIVOT (max(amt) FOR k IN ('A' AS x)) p"""
 
     resolution = outputs["x_val"].expression_resolution or {}
     assert resolution.get("status") == "resolved"
-    assert resolution.get("physical_source_fields") == [{"table": "ods.src", "field": "amt"}]
+    assert resolution.get("physical_source_fields") == AMT_AND_FOR_COLUMN
 
 
 def test_a_non_literal_in_list_reports_a_gap_rather_than_a_guess():
