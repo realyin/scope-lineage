@@ -1574,27 +1574,14 @@ def _looks_schema_expanded_from_physical(scope_data) -> bool:
     coverage gap, which is actionable ("supply the column"). Rewriting those refs to UNKNOWN
     would destroy that signal, so the sweep below leaves them alone; the audit still reports
     them, as `schema_incomplete_column_ref` rather than a structural break.
+
+    The star expansion records the tables whose schema it enumerated
+    (``star_schema_sources``), and that marker is the answer. The expression text used to
+    stand in for it (`expression in (None, "", name)`), but a real expansion writes `a.x`,
+    so the exemption never applied to one and applied instead to bare columns no star had
+    produced (audit 1.13-g).
     """
-    columns = scope_data.columns or []
-    if not columns:
-        return False
-    physical_sources = set()
-    direct_from_physical = 0
-    for col in columns:
-        for source in col.sources or []:
-            scope_name = source.scope or ""
-            if scope_name.startswith(("cte:", "subq:", "union:", "udtf:", "ROOT", "UNKNOWN")):
-                continue
-            physical_sources.add(scope_name)
-            if (
-                col.transform == "DIRECT"
-                and col.name == source.column
-                and col.expression in (None, "", col.name)
-            ):
-                direct_from_physical += 1
-    if not physical_sources:
-        return False
-    return direct_from_physical >= max(3, len(columns) // 2)
+    return bool(scope_data.star_schema_sources)
 
 
 def _drop_dangling_column_refs(result: ScopeLineageResult) -> None:
