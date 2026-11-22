@@ -293,7 +293,8 @@ constraints:
 `time_window`（文字）、`dimensions`（可下钻的维度：`on` 的属性，或与 `on` 相连的概念——事件的参与者、
 关系的另一端）、`additivity`（同属性）、`unit` 与通用字段。
 `on` 必须是概念，`measure` 必须是属性，每个维度必须是属性或与 `on` 相连的概念，每个约束必须存在（`metric_on`、`metric_measure`、
-`metric_dimension`、`metric_constraint`）。
+`metric_dimension`、`metric_constraint`）。用作 `measure` 或维度的属性必须属于 `on` 或与 `on` 相连的概念；相连的角色连同它的
+扮演者一起算，因为角色的表把扮演者的属性当作自己的来绑定。
 
 ```yaml
 metrics:
@@ -517,7 +518,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `duplicate_code_value` | 码值集里同一个值出现两次 |
 | `relation_endpoint` | 关系的 `from` / `to` 不是概念 |
 | `constraint_on` | `on` 不是概念、属性、关系或标识符 |
-| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | 指标的 `on` 不是概念，`measure` 不是属性，某个维度既不是属性、也不是与 `on` 相连的概念，`constraints` 里某项不是约束 |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | 指标的 `on` 不是概念，`measure` 不是属性，某个维度既不是属性、也不是与 `on` 相连的概念，`constraints` 里某项不是约束；用作 `measure` 或维度的属性既不属于 `on`，也不属于与它相连的概念（相连的角色连同扮演者） |
 | `term_refers_to` | `refers_to` 不存在 |
 | `representation_concept` | 表现的 `concept` 不是概念 |
 | `representation_grain` | 粒度里有一项不是标识符 |
@@ -550,6 +551,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `binding_key_without_key_column` | 绑定的 `holds` 含 `key`，其码值集却没有一个带 `key_column` 的 `lookup`，也没有带 `key` 的 `values`——目录翻不了这个代理键 |
 | `binding_lang_unknown` | 绑定的 `lang` 不是其码值集 `lookup` 里任何含义列的语言（只列取值的码值集不查） |
 | `unmapped_binding` | 某列绑定为 `to: unmapped` |
+| `grain_identifier_unbound` | 表现表的 grain 写了一个本表没有任何列绑定的标识（`identifier` 或 `foreign_identifier`）；不检查它是谁的标识，汇总表的粒度本来就可能是别的概念的标识 |
 | `self_reference_relation_unnamed` | 自关联列没写 `relation`，而该概念有两条或更多自关联——说不清它实现哪一条，会被归给每一条 |
 | `unknown_file` | 布局里没有的文件；已忽略 |
 

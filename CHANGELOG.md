@@ -304,6 +304,12 @@
   `index.md` (whole document) and each concept's `governance.md` row and page line left them
   out. A metric now counts on the document and on the concept it is `on`. The ontology-json/3
   schema lists `metrics` under `required`; `catalog build` has always written it.
+- **`catalog validate` checks whose attributes a metric uses.** A metric's `measure` and its
+  attribute dimensions must belong to `on` or to a concept linked to `on` (a linked role with
+  its player); otherwise `metric_measure` / `metric_dimension` is an error. Catalogs whose
+  metrics measured or broke down by an unrelated concept's attribute used to pass and now fail.
+  New warning `grain_identifier_unbound`: a representation's grain names an identifier no
+  column of the table binds.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

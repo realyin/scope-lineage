@@ -328,7 +328,9 @@ or concepts linked to `on` -- an event's participants, the other end of a relati
 `additivity` (as on an attribute), `unit`, and the common fields. `on` must be a concept,
 `measure` an attribute, each dimension an attribute or a concept linked to `on`, each
 constraint a constraint (`metric_on`, `metric_measure`, `metric_dimension`,
-`metric_constraint`).
+`metric_constraint`). An attribute used as `measure` or as a dimension must belong to `on` or
+to a concept linked to `on`; a linked role counts with its player, whose attributes its
+tables bind as their own.
 
 ```yaml
 metrics:
@@ -588,7 +590,7 @@ directory, no manifest, YAML without PyYAML).
 | `duplicate_code_value` | a code set lists the same value twice |
 | `relation_endpoint` | a relation's `from` / `to` is not a concept |
 | `constraint_on` | `on` is not a concept, attribute, relation or identifier |
-| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | a metric's `on` is not a concept, its `measure` not an attribute, a dimension neither an attribute nor a concept linked to `on`, a `constraints` entry not a constraint |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | a metric's `on` is not a concept, its `measure` not an attribute, a dimension neither an attribute nor a concept linked to `on`, a `constraints` entry not a constraint; an attribute used as `measure` or dimension belongs to neither `on` nor a concept linked to it (a linked role with its player) |
 | `term_refers_to` | `refers_to` does not exist |
 | `representation_concept` | the representation's `concept` is not a concept |
 | `representation_grain` | a grain identifier is not an identifier |
@@ -622,6 +624,7 @@ identifier (the demo's installment loan lists `id:loan_no`).
 | `binding_key_without_key_column` | a binding's `holds` has `key`, and none of its code sets has a `lookup` with a `key_column` or `values` carrying a `key` -- the catalog cannot translate that key |
 | `binding_lang_unknown` | a binding's `lang` is not the language of any meaning column of its code sets' `lookup`s (code sets listing their values are not checked) |
 | `unmapped_binding` | a column is bound `to: unmapped` |
+| `grain_identifier_unbound` | a representation's grain names an identifier that no column of the table binds (`identifier` or `foreign_identifier`); whose identifier it is is not checked, a summary table's grain may be another concept's |
 | `self_reference_relation_unnamed` | a self-referencing column names no `relation` while its concept has two or more self relations — which one it realises cannot be told, so it is attributed to each |
 | `unknown_file` | a file the layout does not name; it was ignored |
 

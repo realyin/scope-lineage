@@ -230,7 +230,8 @@ constraints:
 `time_window`（文字）、`dimensions`（可下钻的维度：`on` 的属性，或与 `on` 相连的概念——事件的参与者、
 关系的另一端）、`additivity`（同属性）、`unit` 与通用字段。
 `on` 必须是概念，`measure` 必须是属性，每个维度必须是属性或与 `on` 相连的概念，每个约束必须存在（`metric_on`、`metric_measure`、
-`metric_dimension`、`metric_constraint`）。
+`metric_dimension`、`metric_constraint`）。用作 `measure` 或维度的属性必须属于 `on` 或与 `on` 相连的概念；相连的角色连同它的
+扮演者一起算，因为角色的表把扮演者的属性当作自己的来绑定。
 
 ```yaml
 metrics:
