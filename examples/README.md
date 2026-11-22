@@ -13,6 +13,7 @@ examples/
 ├── catalog-demo-corpus/    # the task JSON and schema that give that catalog its lineage evidence
 ├── catalog-fragments/      # a catalog fragment (catalog-fragment/1) adding one table to that catalog, for catalog merge
 ├── table-semantics/        # a hand-written table-semantics/1 document for a demo table, and confirmations for it
+├── domain-profile/         # a domain-profile/1 file: qualifiers, concept words, table-name suffix convention
 ├── metadata/
     ├── schema_info.json    # recommended: field indexes, DDL, types, and comments
     ├── schema_info.csv     # fallback: a compatible format read in row order
@@ -38,6 +39,7 @@ examples/
 | `catalog-demo-corpus/` | Eight synthetic scheduler tasks writing and reading the demo catalog's tables (one target spelt with a catalog prefix, one table only read), for `catalog build --lineage/--tables` and `semantic packet` |
 | `catalog-fragments/` | One `catalog-fragment/1` file adding a disbursement table's attributes, code set, constraint, terms and representation to the demo catalog; `catalog merge` merges it without validation errors; see [drafting](../docs/en/ontology-catalog.md) |
 | `table-semantics/` | A hand-written `table-semantics/1` document for `demo_dwd.dwd_party_customer_info_df` that passes `semantic validate` against the demo corpus's packet, and a `semantic-confirmations/1` file for it; see [table semantics](../docs/en/table-semantics.md) |
+| `domain-profile/domain-profile.json` | A synthetic retail `domain-profile/1` file: extra check-12 qualifiers, the `_df` / `_di` table-name suffix convention the demo corpus follows, and concept words; pass it with `--domain-profile` to `semantic packet`, `semantic validate` and `ontology`; see [domain profile](../docs/en/domain-profile.md) |
 | `tasks/**/*.json` | Real `meta/query_time/data_source` wrappers, task dependencies, and directory batch input |
 
 ## Running them

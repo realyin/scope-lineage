@@ -687,6 +687,7 @@ def build_ontology(
     concept_override_files: Sequence[str] | None = None,
     artifact_root: str | None = None,
     legacy_keys: bool = False,
+    concept_words: Mapping[str, Sequence[str]] | None = None,
 ) -> dict:
     """Build one corpus's ontology candidate.
 
@@ -703,6 +704,8 @@ def build_ontology(
     order given with ``concept_override_files`` naming them.
     ``legacy_keys`` additionally publishes the deprecated ``ontology-json/1`` spellings
     of the renamed keys (``LEGACY_KEY_ALIASES``), for consumers mid-migration.
+    ``concept_words`` is the caller's ``domain-profile/1`` ``concept_words``, added to
+    the concept layer's generic word lists.
     """
     documents = [dict(document) for document in documents]
     profiles = (
@@ -757,7 +760,7 @@ def build_ontology(
     _apply_overrides(ontology, overrides or {})
     # After the confirmations, never before: an override that raises a candidate key to
     # `confirmed` is exactly the evidence K1 seeds a concept on.
-    ontology.update(build_concepts(ontology, cards))
+    ontology.update(build_concepts(ontology, cards, concept_words))
     # K4b before K3, deliberately: a reviewed merge moves one concept's tables onto
     # another, and folding the edges first would leave them on an id nothing publishes.
     apply_concept_overrides(

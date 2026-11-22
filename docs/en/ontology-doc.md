@@ -529,7 +529,7 @@ The cascade runs from the most specific evidence to the least, first match wins:
 | `increment_with_event_time` | `event` | the member is a `_di` / `_hi` increment and carries a non-partition time column |
 | `all_members_summary` | `summary` | every member's role is `summary` **and** the concept's own key carries a period column (K2d): a plain time column such as `dt` / `date` / `month`, never a validity window. What makes a summary a summary is its grain -- 客户日汇总 is one row per customer **per day**. Tables that merely look like reports are not: 「机构放款日报」 keyed by the 机构 and the window it was valid in is three copies of the 机构, and calling the concept a summary would tell everyone downstream to aggregate something that never aggregated |
 | `all_members_full_snapshot` | `entity` | K2b: every non-`reference` member is a full snapshot (no `_di` / `_hi` period-increment suffix), no member's key holds a time or event column outside the partitions, no member's name or comment carries an event word, and at least one of them says 信息 / 档案 / 主数据 / 维 / `dim` / `info` about itself. Under that shape `driving_rows_over_log_source` does **not** vote: a snapshot rebuilt one row per row of a change log says how it is built, not what it holds -- which is exactly how a 机构-shaped concept came out an `event`. A table that says nothing about itself has not claimed to be a dimension, so the log evidence still stands for it |
-| `word_hint` | any of the three | words in the name and the comment. Chinese matches as a **substring**: 发送/回款/交易/日志/记录/流水/事件 → `event`; 信息/档案/主数据/维 → `entity`; 汇总/日报/统计 → `summary`. From K2c latin matches as a **whole word**, case-insensitively, over the table name and the comment alike (`.`, `_` and spaces all separate words): log/event/hist/history/record/txn/transaction/send/sent/recv/click/expo/exposure/resp/response → `event`; agent/org/organization/dept/department/staff/user/customer/product/channel/dim/dimension/info/master → `entity`; agg/report → **no concept-kind vote at all** (K2d: 汇总 / 日报 / 统计 / `report` / `agg` decide that table's `role` instead, in the role table above -- a table being a daily report does not make the thing it reports on an aggregate). Whole words are the point -- `catalogue` is not a `log`, and reading it as one turned a dimension into an event -- and the latin lists were widened at the same time, because a corpus whose comments are all latin matched no dimension word at all and so never satisfied `all_members_full_snapshot`. **Secondary evidence**: it never decides once a structural signal has spoken |
+| `word_hint` | any of the three | words in the name and the comment. Chinese matches as a **substring**: 发送/交易/日志/记录/流水/事件 → `event`; 信息/档案/主数据/维 → `entity`; 汇总/日报/统计 → `summary`. From K2c latin matches as a **whole word**, case-insensitively, over the table name and the comment alike (`.`, `_` and spaces all separate words): log/event/hist/history/record/txn/transaction/send/sent/recv/click/expo/exposure/resp/response → `event`; agent/org/organization/dept/department/staff/user/customer/product/channel/dim/dimension/info/master → `entity`; agg/report → **no concept-kind vote at all** (K2d: 汇总 / 日报 / 统计 / `report` / `agg` decide that table's `role` instead, in the role table above -- a table being a daily report does not make the thing it reports on an aggregate). Whole words are the point -- `catalogue` is not a `log`, and reading it as one turned a dimension into an event -- and the latin lists were widened at the same time, because a corpus whose comments are all latin matched no dimension word at all and so never satisfied `all_members_full_snapshot`. **Secondary evidence**: it never decides once a structural signal has spoken |
 
 `event` among the structural signals wins; otherwise `summary` among them; otherwise the
 word hints decide, and an unvoted concept is an `entity`. When **every** signal voted the
@@ -564,12 +564,17 @@ concept. Three of them:
 | `junk_reason` | Matches | Example |
 | --- | --- | --- |
 | `names_a_period` | starts with a digit, or with 本月/当月/上月/本年/当年/本期/当期/当日/昨日/今日 | `2月时段合同`, `2024年…` |
-| `names_a_filter` | carries 已到期/未到期/已还/未还/已结清/未结清/首期/当日/本月 | `已到期合同欠款`, `未到期合同首期欠款` |
-| `names_a_measure` | ends in 欠款/金额/目标/分数据/统计/数量/次数/率 | `合同欠款`, `合同分数据` |
+| `names_a_filter` | carries 当日/本月, or a `filter_words` entry of the `--domain-profile` | `当日合同`, `已发货订单` (with 已发货 configured) |
+| `names_a_measure` | ends in 金额/目标/分数据/统计/数量/次数/率, or a `measure_suffixes` entry of the `--domain-profile` | `合同金额`, `合同分数据` |
+
+The package ships generic words only. The word votes above and these two lists take a
+business's own words -- its lifecycle states, its measures, its event names -- from
+`ontology --domain-profile` (`concept_words`; see [Domain profile](domain-profile.md)),
+added to the generic ones; a latin word votes as a whole word.
 
 A candidate carrying one ranks below **every** clean candidate -- the key column
 comment, a plain table comment and the stem all come first -- so three tables sharing
-one 「已到期…」 table comment no longer outvote the single key column comment on `count`.
+one 「当日…」 table comment no longer outvote the single key column comment on `count`.
 It is still published, because it is genuinely evidence about those members; it is only
 not the concept's name.
 
@@ -579,7 +584,7 @@ is the warehouse's spelling, not a business word. When the first candidate's sou
 and its measure tail taken off; among the results that still hold **two or more Chinese
 characters and are no longer junk**, the **shortest** goes to the head of the candidates
 and becomes `name`, keeping the source and `name_evidence` of the candidate it came out
-of. 「2月时段合同欠款」 was never about 2月 and never about the 欠款: it was about 合同. The
+of. 「2月时段合同金额」 was never about 2月 and never about the 金额: it was about 合同. The
 comment it was recovered from stays in the list with its `junk_reason` -- it is evidence,
 not a mistake.
 

@@ -223,7 +223,7 @@ def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
     return {
         **entry,
         **({"producer_columns": written} if written else {}),
-        **facts.input_time_facts(entry["table"], rules, columns),
+        **facts.input_time_facts(entry["table"], rules, columns, corpus.name_convention),
         "columns": columns,
     }
 

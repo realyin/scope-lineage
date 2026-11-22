@@ -44,7 +44,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 #: The three kinds a concept can be. ``event`` and ``entity`` are deliberately siblings.
@@ -246,8 +248,9 @@ DRIVING_ROLE = "driving"
 #: own when a structural signal spoke, and it is always published as its own vote.
 #:
 #: Chinese matches as a substring, because the language writes no word boundaries.
+#: Generic words only; a business's own words come from the caller (``concept_words``).
 WORD_HINTS = (
-    (CONCEPT_EVENT, ("发送", "回款", "交易", "日志", "记录", "流水", "事件")),
+    (CONCEPT_EVENT, ("发送", "交易", "日志", "记录", "流水", "事件")),
     (CONCEPT_ENTITY, ("信息", "档案", "主数据", "维")),
     (CONCEPT_SUMMARY, ("汇总", "日报", "统计")),
 )
@@ -373,15 +376,64 @@ NAME_PERIOD_PREFIXES = (
     "本月", "当月", "上月", "本年", "当年", "本期", "当期", "当日", "昨日", "今日",
 )
 #: A candidate that ends in one of these is a number *about* the concept.
-NAME_MEASURE_SUFFIXES = ("欠款", "金额", "目标", "分数据", "统计", "数量", "次数", "率")
-#: A candidate carrying one of these names a *slice* of the concept -- 已到期合同欠款 is
-#: not what 合同 is called, it is which 合同 this table kept.
-NAME_FILTER_WORDS = (
-    "已到期", "未到期", "已还", "未还", "已结清", "未结清", "首期", "当日", "本月",
-)
+NAME_MEASURE_SUFFIXES = ("金额", "目标", "分数据", "统计", "数量", "次数", "率")
+#: A candidate carrying one of these names a *slice* of the concept -- 当日合同 is not
+#: what 合同 is called, it is which 合同 this table kept. Generic words only: a
+#: business's lifecycle states (which of its records are open, settled, due ...) come
+#: from the caller (``concept_words``).
+NAME_FILTER_WORDS = ("当日", "本月")
+
+
+@dataclass(frozen=True)
+class _Words:
+    """The word lists one build reads: the generic ones plus the caller's."""
+
+    hints: tuple = WORD_HINTS
+    latin_hints: tuple = LATIN_WORD_HINTS
+    measure_suffixes: tuple[str, ...] = NAME_MEASURE_SUFFIXES
+    filter_words: tuple[str, ...] = NAME_FILTER_WORDS
+
+
+#: The lists in force. A context variable rather than a parameter: the words are read
+#: six calls deep, by helpers every rule shares, and one build sets them once
+#: (``concept_words``) for exactly as long as it runs.
+_WORDS: ContextVar[_Words] = ContextVar("concept_words", default=_Words())
+
+
+@contextmanager
+def concept_words(extra: Mapping[str, Sequence[str]] | None) -> Iterator[None]:
+    """Add a caller's words -- ``domain-profile/1``'s ``concept_words`` -- to the generic
+    lists while the block runs: ``event`` / ``entity`` / ``summary`` votes,
+    ``measure_suffixes`` and ``filter_words``."""
+    extra = extra or {}
+    added = {kind: [str(word) for word in extra.get(kind, ())] for kind, _ in WORD_HINTS}
+    words = _Words(
+        # A word written in latin votes as a whole word, like the built-in latin ones.
+        hints=tuple(
+            (kind, tuple(dict.fromkeys((*chinese, *(w for w in added[kind] if not w.isascii())))))
+            for kind, chinese in WORD_HINTS
+        ),
+        latin_hints=tuple(
+            (kind, latin | {w.lower() for w in added[kind] if w.isascii()})
+            for kind, latin in LATIN_WORD_HINTS
+        ),
+        measure_suffixes=tuple(
+            dict.fromkeys((*NAME_MEASURE_SUFFIXES, *extra.get("measure_suffixes", ())))
+        ),
+        filter_words=tuple(
+            dict.fromkeys((*NAME_FILTER_WORDS, *extra.get("filter_words", ())))
+        ),
+    )
+    token = _WORDS.set(words)
+    try:
+        yield
+    finally:
+        _WORDS.reset(token)
+
+
 #: K2c: the period a junk candidate opens with, as much of it as there is. What is left
 #: after it -- and after the filters and the measure -- is the phrase the comment was
-#: naming all along: 「2月时段合同欠款」 was never about 2月, it was about 合同.
+#: naming all along: 「2月时段合同金额」 was never about 2月, it was about 合同.
 _PERIOD_HEAD_RE = re.compile(
     r"\A(?:\d+[年月日号周]?|本月|当月|上月|本年|当年|本期|当期|当日|昨日|今日|时段|期间)+"
 )
@@ -546,7 +598,9 @@ def _table_stem(table: str) -> str:
     return "_".join(parts)
 
 
-def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
+def build_concepts(
+    ontology: Mapping, cards: Mapping, words: Mapping[str, Sequence[str]] | None = None
+) -> dict:
     """``{"concepts": [...], "provisional_count": N, ...}`` for one corpus's ontology.
 
     ``ontology`` is the document being built -- entities, their identities, and the
@@ -558,7 +612,18 @@ def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
     edge. M2 dropped the ``unassigned_tables[]`` this replaced: every table is in a
     concept now, and a key that is empty by construction only invites a consumer to keep
     reading it.
+
+    ``words`` is the caller's ``concept_words`` (``domain-profile/1``), added to the
+    generic word lists for this build; without them the lists in force are read (the
+    generic ones, unless a ``concept_words`` block around the call added some).
     """
+    if words is None:
+        return _build_concepts(ontology, cards)
+    with concept_words(words):
+        return _build_concepts(ontology, cards)
+
+
+def _build_concepts(ontology: Mapping, cards: Mapping) -> dict:
     entities = list(ontology.get("tables") or [])
     index = {str(card.get("table")): card for card in cards.get("tables") or []}
     synonyms = synonym_folding(entities)
@@ -1320,10 +1385,10 @@ def _member_text(seed: _Seed, index: Mapping[str, Mapping]) -> str:
 
 def _word_votes(text: str) -> list[str]:
     lowered = str(text or "").lower()
-    words = set(_LATIN_WORD_RE.findall(lowered))
+    words, lists = set(_LATIN_WORD_RE.findall(lowered)), _WORDS.get()
     return [
         kind
-        for (kind, chinese), (_, latin) in zip(WORD_HINTS, LATIN_WORD_HINTS)
+        for (kind, chinese), (_, latin) in zip(lists.hints, lists.latin_hints)
         if any(word in lowered for word in chinese) or words & latin
     ]
 
@@ -1401,7 +1466,7 @@ def _recovered_name(ranked: Sequence[dict]) -> dict | None:
     """The Chinese phrase hiding inside a junk candidate, when the stem would win (K2c).
 
     Only when every candidate but the stem was ranked junk, because otherwise a real
-    name already won. 「2月时段合同欠款」 was never about 2月 and never about the 欠款: take
+    name already won. 「2月时段合同金额」 was never about 2月 and never about the 金额: take
     the period, the filters and the measure off and 合同 is what the comment was naming.
     The shortest one wins -- the least this layer can claim the comment said -- and the
     comment it came out of keeps its own place in the evidence, junk reason and all.
@@ -1429,11 +1494,12 @@ def _recovered_name(ranked: Sequence[dict]) -> dict | None:
 
 def _without_junk(text: str) -> str:
     """A candidate with its period, its filters and its measure taken off (K2c)."""
+    words = _WORDS.get()
     current = _PERIOD_HEAD_RE.sub("", str(text))
-    for word in NAME_FILTER_WORDS:
+    for word in words.filter_words:
         current = current.replace(word, "")
-    while current.endswith(NAME_MEASURE_SUFFIXES):
-        suffix = next(item for item in NAME_MEASURE_SUFFIXES if current.endswith(item))
+    while current.endswith(words.measure_suffixes):
+        suffix = next(item for item in words.measure_suffixes if current.endswith(item))
         current = current[: -len(suffix)]
     return _trim_edges(_PERIOD_HEAD_RE.sub("", current))
 
@@ -1448,16 +1514,17 @@ def _junk_reason(text: str) -> str | None:
 
     Three shapes a wide corpus put at the head of the ranking, because several tables
     agreed on them and ``count`` is read before the source: a period (2月时段…), a
-    measure (…欠款, …目标), and a filter (已到期…, 未到期…首期…) -- which is *which* 合同 a
-    table kept, not what 合同 is called. Published rather than dropped: the comment is
-    still evidence about that member, it is only not a name.
+    measure (…金额, …目标), and a filter (当日…, or a lifecycle state the caller's
+    ``concept_words`` lists) -- which is *which* 合同 a table kept, not what 合同 is
+    called. Published rather than dropped: the comment is still evidence about that
+    member, it is only not a name.
     """
-    current = str(text)
+    current, words = str(text), _WORDS.get()
     if current[:1].isdigit() or current.startswith(NAME_PERIOD_PREFIXES):
         return JUNK_PERIOD
-    if any(word in current for word in NAME_FILTER_WORDS):
+    if any(word in current for word in words.filter_words):
         return JUNK_FILTER
-    if current.endswith(NAME_MEASURE_SUFFIXES):
+    if current.endswith(words.measure_suffixes):
         return JUNK_MEASURE
     return None
 

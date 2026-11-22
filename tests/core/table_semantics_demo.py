@@ -22,6 +22,9 @@ EXAMPLES = ROOT / "examples" / "table-semantics"
 DEMO_TABLE = "demo_dwd.dwd_party_customer_info_df"
 EXAMPLE = EXAMPLES / f"{DEMO_TABLE}.json"
 CONFIRMATIONS = EXAMPLES / "confirmations.json"
+# The demo corpus names its tables by the `_df` / `_di` convention; the packets are built
+# with it configured, the way the docs pack the demo (WP11: off unless a caller sets it).
+DEMO_PROFILE = ROOT / "examples" / "domain-profile" / "domain-profile.json"
 
 
 def run(*argv: str) -> int:
@@ -39,10 +42,13 @@ def parse_corpus(corpus: Path, target: Path) -> Path:
     return target
 
 
-def pack(corpus: Path, lineage: Path, out: Path, *extra: str) -> int:
+def pack(
+    corpus: Path, lineage: Path, out: Path, *extra: str, profile: Path | None = DEMO_PROFILE
+) -> int:
     return run(
         "semantic", "packet", "--lineage", lineage, "--tasks", corpus / "tasks",
         "--schema", corpus / "schema_info.json", "--out", out, *extra,
+        *(["--domain-profile", profile] if profile else []),
     )
 
 

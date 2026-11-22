@@ -24,6 +24,7 @@ import pytest
 from scope_lineage.contract.lineage import to_lineage_dict
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 from scope_lineage.semantics import CHECKS, validate_document
+from scope_lineage.semantics.checks_documented import QUALIFIER_TERMS
 from scope_lineage.semantics.checks_meaning import check_fan_out, success_like
 from scope_lineage.semantics.packet import build_packets
 
@@ -43,6 +44,11 @@ def packet(packets: Path) -> dict:
 @pytest.fixture
 def document(packets: Path) -> dict:
     return example(packets)
+
+
+# 冲正 is a payment-domain qualifier the package no longer ships (WP11); these tests
+# bring it the way a caller's domain profile does.
+_WITH_REVERSAL = {"qualifier_terms": (*QUALIFIER_TERMS, "冲正")}
 
 
 def _problems(report: dict, check: str, status: str = "fail") -> list[dict]:
@@ -650,10 +656,12 @@ def test_a_qualifier_of_a_source_column_must_reach_that_column(
     document: dict, packet: dict
 ) -> None:
     _source_column(packet, "register_ts")["comment"] = "冲正后的注册时间戳"
-    (warning,) = _problems(validate_document(document, packet), "documented_meaning", "warn")
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    (warning,) = _problems(report, "documented_meaning", "warn")
     assert warning["at"] == "columns[3]"
     _column(document, "register_time")["derivation"] += "取冲正后的时间。"
-    assert _problems(validate_document(document, packet), "documented_meaning", "warn") == []
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    assert _problems(report, "documented_meaning", "warn") == []
 
 
 def _shout_inputs(packet: dict) -> None:
@@ -680,7 +688,8 @@ def test_a_qualifier_of_an_upper_case_source_column_must_reach_that_column(
 ) -> None:
     _source_column(packet, "register_ts")["comment"] = "冲正后的注册时间戳"
     _shout_inputs(packet)
-    (warning,) = _problems(validate_document(document, packet), "documented_meaning", "warn")
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    (warning,) = _problems(report, "documented_meaning", "warn")
     assert warning["at"] == "columns[3]"
 
 
@@ -699,11 +708,12 @@ def test_one_qualifier_over_several_columns_is_one_warning_naming_them(
 ) -> None:
     _source_column(packet, "cust_no")["comment"] = "冲正后的客户号"
     _source_column(packet, "verified_no")["comment"] = "冲正后的实名客户号"
-    (warning,) = _problems(validate_document(document, packet), "documented_meaning", "warn")
+    report = validate_document(document, packet, **_WITH_REVERSAL)
+    (warning,) = _problems(report, "documented_meaning", "warn")
     assert warning["at"] == "columns[0]"
     assert "customer_id" in warning["message"] and "verified_customer_no" in warning["message"]
     _column(document, "verified_customer_no")["meaning"] += "（冲正后）"
-    report = validate_document(document, packet)
+    report = validate_document(document, packet, **_WITH_REVERSAL)
     assert _problems(report, "documented_meaning", "warn") == []
 
 

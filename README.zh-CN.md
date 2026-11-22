@@ -345,6 +345,14 @@ HAVING 和 QUALIFY 按同一条「源列优先」规则：其中的名字既是�
    内联 Schema 里归一到同一表名的两种写法，会在 `metadata_conflicts` 记一条 `catalog_collision`，保留第一种。
 8. 目录匹配键：目录视图匹配前先去引号、转小写，catalog 只在配置了时才剥（没配置时照旧取最后两段）。
    键为 `db.table` 的 Schema，在没有别的条目可能是它时，仍能描述读 `catalog.db.table` 的语句。
+包里不再把数仓的表名后缀约定和业务领域词当作默认值。`semantic packet` 不经配置就不读表名后缀，所以名为 `…_df` 的输入表
+不再仅凭名字算全量快照，第 9 项也不再据此判 `incremental` 的文档失败；第 12 项只找成词的 增值税 / 税 / 手续费 / 测试
+（纳税人识别号 不再算带「税」限定）；概念层里的借贷词已移除。
+
+9. 想保持原来的读法，写一份 `domain-profile/1` 文件（从 `examples/domain-profile/domain-profile.json` 改起，它的
+   `table_name_convention` 就是原来的后缀列表），用 `--domain-profile` 传给 `semantic packet`、`semantic validate` 和
+   `ontology`。一次运行的材料包要带着它重建：不带它生成的材料包 `name_convention`、`full_snapshot` 和 `packet_digest`
+   都不同。见 [docs/zh-CN/domain-profile.md](docs/zh-CN/domain-profile.md)。
 
 ### 迁移到 0.11.0
 

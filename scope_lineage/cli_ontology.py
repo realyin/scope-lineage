@@ -16,6 +16,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from .cli_semantic import add_domain_profile, read_domain_profile
 from .corpus_cache import (
     add_incremental_arguments,
     open_cache,
@@ -162,6 +163,12 @@ def add_ontology_parser(subcommands) -> None:
             "and the table-level edges moved to `table_relations`"
         ),
     )
+    add_domain_profile(
+        ontology_cmd,
+        "its concept_words are added to the concept layer's generic word votes "
+        "(event / entity / summary) and name-ranking lists (measure_suffixes, "
+        "filter_words)",
+    )
     add_incremental_arguments(ontology_cmd)
 
 
@@ -276,6 +283,9 @@ def run_ontology(args: argparse.Namespace) -> int:
     from .cli import _discover_lineage_documents, _load_contract_documents
     from .cli_glossary import load_overrides
 
+    profile = read_domain_profile(args)
+    if isinstance(profile, int):
+        return profile
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
         return overrides
@@ -310,6 +320,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         tables,
         glossary,
         chosen_exports,
+        profile.concept_words,
     ]
     # N1a: the digest is over the documents, not the paths -- but the *order* they
     # apply in is part of the answer, and the list above already carries it.
@@ -334,6 +345,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         concept_override_files=override_files,
         artifact_root=root,
         legacy_keys=bool(getattr(args, "legacy_keys", False)),
+        concept_words=profile.concept_words,
     )
     # P7: one card file per entity. Cards merged in from another corpus that this one
     # never touched lent their evidence to the build; they are not tables of this model.

@@ -1,7 +1,8 @@
 """Cross checks 12-13: what the material already says, passed on to the reader.
 
 - 12 ``documented_meaning`` -- a value whose meaning a column comment spells out, or
-  the glossary confirms, is not a question (fail); a distinctive qualifier of the upstream -- 增值税, 手续费, 测试 ... --
+  the glossary confirms, is not a question (fail); a distinctive qualifier of the upstream -- 增值税, 手续费, 测试, or
+  a term the caller's domain profile adds --
   that the target's own comments drop must reach the summary or the columns it affects
   (warn);
 - 13 ``header_facts`` -- a lifecycle or data volume the script header states belongs in
@@ -11,6 +12,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 from .checks import confirmed_values, result, source_comments
 from .checks_meaning import ASIDE
@@ -19,10 +21,21 @@ from .names import bare_table
 
 # 12 ------------------------------------------------------------------ documented meaning
 
-# Qualifiers that change what a number or a row means. Kept short on purpose: every term
-# here is one a reader would misread the table without. Pass ``terms`` to use another list.
-QUALIFIER_TERMS = ("增值税", "税", "手续费", "罚息", "冲正", "测试")
+# Qualifiers that change what a number or a row means. Kept short and generic on purpose:
+# every term here is one a reader would misread the table without, in any business. A
+# business's own qualifiers come from the caller (``semantic validate --domain-profile``)
+# and are added to these through ``terms``.
+QUALIFIER_TERMS = ("增值税", "税", "手续费", "测试")
 PENDING = "待确认"
+
+# A Chinese term counts where it reads as a qualifier: the character after it is no Chinese
+# character, or one that makes it one (签约税后收入, 收入税率, 手续费金额, 测试客户,
+# 增值税发票); or the character before it does (含税总金额, 剔税额). So 纳税人识别号,
+# 税务登记号, 税号 and 测试结果 are not read as qualified by 税 or 测试. A latin term (from
+# a profile) matches as a whole word, case-insensitively.
+_CJK = "\u4e00-\u9fff"
+_QUALIFIER_BEFORE = "含扣除免去计减剔退"
+_QUALIFIER_AFTER = "前后额率费金款价收支发票数用客户账订单环标"
 
 
 def check_documented_meaning(
@@ -144,9 +157,26 @@ def _main_comments(document: dict, packet: dict) -> list[tuple[str, str]]:
 
 
 def _distinct_terms(comment: str, terms: tuple[str, ...], known: str) -> list[str]:
-    """The terms in ``comment`` the target's comments lack, a term inside a longer one once."""
-    found = [term for term in terms if term in comment and term not in known]
+    """The terms in ``comment`` the target's comments lack."""
+    stated = set(qualifier_hits(known, terms))
+    return [term for term in qualifier_hits(comment, terms) if term not in stated]
+
+
+def qualifier_hits(text: str, terms: tuple[str, ...]) -> list[str]:
+    """The terms that qualify ``text``, in ``terms`` order; a term inside a longer one
+    that also hits is counted once, as the longer one."""
+    found = [term for term in dict.fromkeys(terms) if _term_pattern(term).search(text or "")]
     return [term for term in found if not any(term != other and term in other for other in found)]
+
+
+@lru_cache(maxsize=256)
+def _term_pattern(term: str) -> re.Pattern:
+    if term.isascii():
+        return re.compile(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", re.IGNORECASE)
+    return re.compile(
+        rf"(?<=[{_QUALIFIER_BEFORE}]){re.escape(term)}"
+        rf"|{re.escape(term)}(?:(?![{_CJK}])|(?=[{_QUALIFIER_AFTER}]))"
+    )
 
 
 def _column_text(document: dict, columns: list[dict]) -> str:
