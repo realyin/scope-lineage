@@ -15,6 +15,8 @@ silently returned the original table's columns.
 
 from __future__ import annotations
 
+import pytest
+
 from scope_lineage import parse_scope_lineage, to_dict
 
 SCHEMA = {
@@ -128,3 +130,57 @@ def test_a_pivot_is_keyed_by_its_grouping_columns_not_a_single_row():
     shape = profile["output_shape"]
     assert shape["grain"]["basis"] == "group_by"
     assert shape["candidate_keys"] == ["dept"]
+
+
+# The PIVOT-alias reference (`p.dept`) used to come out UNKNOWN (audit verify-B side
+# note 1). The subquery form is resolved since WP3f; these pin it, with and without a
+# schema, so a later change cannot silently bring the UNKNOWN back.
+
+
+def test_a_pivot_alias_reference_resolves_without_a_schema():
+    lineage = to_dict(parse_scope_lineage(
+        f"INSERT INTO m.t SELECT p.dept AS dept FROM {PIVOTED} p", "pivot", schema=None,
+    ))
+
+    assert "unresolved_alias" not in _warning_types(lineage)
+    assert _columns(lineage)["dept"]["transform"] == "DIRECT"
+    assert _physical(lineage, "dept") == {"dept"}
+
+
+def test_a_pivot_alias_reference_to_a_pivoted_column_reads_the_aggregate_argument():
+    lineage = _lineage(f"INSERT INTO m.t SELECT p.q1 AS q1 FROM {PIVOTED} p")
+
+    assert "amt" in _physical(lineage, "q1")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "A PIVOT written straight on a table with an alias (`FROM s.sales PIVOT(...) p`) "
+        "makes sqlglot's qualify raise 'Unknown column: p' after it has already rewritten "
+        "the tree into `sales.p.dept FROM (SELECT * FROM s.sales AS sales PIVOT(...)) AS p`; "
+        "_qualify_ast (scope/scope_builder.py) falls back to that mutated tree, so `p.dept` "
+        "reads a physical column `p`. Fix: qualify a copy and fall back to the original."
+    ),
+)
+def test_a_pivot_alias_on_a_physical_table_reads_the_grouping_column():
+    lineage = _lineage(
+        "INSERT INTO m.t SELECT p.dept AS dept FROM s.sales "
+        "PIVOT (SUM(amt) FOR quarter IN ('Q1', 'Q2')) p"
+    )
+
+    assert _physical(lineage, "dept") == {"dept"}
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "An alias reference resolves to one SourceRef (_first_column_ref in "
+        "scope/column_ref_resolver.py), so `p.q1` keeps the aggregate argument but drops "
+        "the FOR column that `SELECT *` over the same PIVOT carries."
+    ),
+)
+def test_a_pivot_alias_reference_to_a_pivoted_column_also_reads_the_for_column():
+    lineage = _lineage(f"INSERT INTO m.t SELECT p.q1 AS q1 FROM {PIVOTED} p")
+
+    assert _physical(lineage, "q1") == {"amt", "quarter"}
