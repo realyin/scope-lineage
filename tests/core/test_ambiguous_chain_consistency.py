@@ -64,7 +64,10 @@ def test_ambiguous_root_marks_chain_incomplete_even_when_expansion_resolved() ->
     assert chain["trace_status"] == "incomplete"
     assert "ambiguous_unqualified:begin_date" in chain["missing_reasons"]
     assert "ambiguous_unqualified:begin_time" in chain["missing_reasons"]
-    assert chain["chain_status"] == "partially_resolved"
+    # The expansion no longer reads sqlglot's guessed ``o.begin_date`` as a binding, so
+    # nothing of the expression is resolved (it used to be "partially_resolved", the
+    # downgrade of a guessed "resolved").
+    assert chain["chain_status"] == "unresolved"
 
 
 def test_ambiguous_rooted_chains_agree_with_end_to_end_layer() -> None:

@@ -2147,6 +2147,9 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
                     source_id = alias_to_source.get(qualifier)
                 if not source_id or not _is_internal_scope_id(source_id):
                     continue
+                if _left_ambiguous(output, source_id, field):
+                    _extend_unique(missing_reasons, [_AMBIGUOUS_REASON])
+                    continue
                 upstream = output_lookup.get((source_id, field))
                 if upstream is None:
                     upstream_fact = _star_passthrough_output_fact(result, source_id, field, output_lookup)
@@ -2252,6 +2255,8 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
                 )
                 resolved_internal_ref = True
             if not resolved_internal_ref:
+                if _AMBIGUOUS_REASON in missing_reasons:
+                    output.expression_resolution = _ambiguous_resolution(current_resolution)
                 continue
             physical_fields = (
                 (
@@ -2304,6 +2309,49 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
                 **({"scope_output_trace": scope_output_trace} if scope_output_trace else {}),
                 **source_anchor,
             }
+
+
+def _left_ambiguous(output: ScopeOutputField, source_id: str, field: str) -> bool:
+    """Whether the column layer left this reference ambiguous between ``source_id`` and another.
+
+    sqlglot's ``qualify`` rewrites a bare column to the one source whose columns it knows,
+    ignoring a joined table without metadata, so the expression text says ``c.v`` where
+    column resolution kept the author's bare ``v`` open between both sources
+    (LINEAGE-002). The text is no proof of the binding; the ``AMBIGUOUS`` ref is the fact.
+    """
+    name = field.lower()
+    return any(
+        source.scope == AMBIGUOUS_SCOPE_ID
+        and source.column.lower() == name
+        and any(candidate.get("scope") == source_id for candidate in source.candidates)
+        for source in output.sources
+    )
+
+
+_AMBIGUOUS_REASON = "ambiguous_unqualified"
+
+
+def _ambiguous_resolution(current: dict) -> dict:
+    """``current`` with the ambiguity as its reason instead of a generic "no fields found".
+
+    The reason is the end-to-end layer's own word for an ``AMBIGUOUS`` terminal, so the
+    row reports one reason, not the cause and a symptom of it.
+    """
+    reasons = [
+        reason
+        for reason in current.get("missing_reasons") or []
+        if reason != "no_physical_source_fields"
+    ]
+    has_fields = bool(
+        current.get("physical_source_fields")
+        or current.get("generated_sources")
+        or current.get("rowset_sources")
+    )
+    return {
+        **current,
+        "status": "partially_resolved" if has_fields else "unresolved",
+        "missing_reasons": _unique_ordered([*reasons, _AMBIGUOUS_REASON]),
+    }
 
 
 # Asked once per reference per pass over the same expressions, and in a profiled run those

@@ -562,6 +562,17 @@
   `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
   (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
   word in a package string literal.
+- **An output's `expression_resolution` no longer settles a column the column layer left
+  ambiguous.** In `WITH c AS (...) SELECT CONCAT('p', v) FROM c JOIN s.b b ...` with no
+  metadata for `s.b`, the bare `v` is `AMBIGUOUS` between `cte:c` and `s.b` and the
+  end-to-end row is `trace_complete: false`, but sqlglot had already rewritten the text to
+  `c.v` and the internal-scope expansion read that text as a binding: the output said
+  `expression_resolution.status: resolved` with the CTE's physical field, an expanded
+  expression through it, and `consumer_readiness: ready`. Such a reference is no longer
+  expanded; the resolution is `unresolved` (or `partially_resolved` beside other resolved
+  references) with the reason `ambiguous_unqualified`, readiness is `blocked`, and the
+  field mapping chain's `chain_status` is `unresolved` instead of `partially_resolved`.
+  Metadata that rules the joined table out still resolves it, as does a qualified `c.v`.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
