@@ -8,7 +8,9 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-FORBIDDEN_PARTS = {".claude", ".claude-plugin", "dev-notes", "docs", "skills", "tests", "__pycache__"}
+FORBIDDEN_PARTS = {
+    ".claude", ".claude-plugin", "dev-notes", "docs", "service", "skills", "tests", "__pycache__",
+}
 REQUIRED_CORE_PATHS = {
     "scope_lineage/schemas/catalog-code-sets.schema.json",
     "scope_lineage/schemas/catalog-concepts.schema.json",

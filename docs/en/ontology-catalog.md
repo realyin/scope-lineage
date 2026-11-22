@@ -1330,6 +1330,24 @@ which entries are answered. It records and reports; it never edits the catalog o
 - 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
 ```
 
+## Serving the answers: HTTP and MCP
+
+`search`, `context`, `query`, `check-sql` and `pending list/add` can also be answered by a long-running
+server instead of the command line. The servers live in this repository's [`service/`](../../service/README.md)
+directory, packaged separately (`scope-lineage-service`); the core package gains no dependency from them. The
+HTTP server uses the standard library only and binds `127.0.0.1` by default; the MCP server speaks stdio,
+built on the official Python SDK. Both call the very functions the command line calls
+(`scope_lineage.cli_catalog_answers`), so the same input gets the JSON `--json` prints, and the exit codes keep
+their meaning (found / nothing found / input unusable). Neither runs SQL; the only file either writes is the
+pending file it was started with. A file that changes on disk is read again on the next request, with no
+restart.
+
+```bash
+pip install -e . -e service
+scope-lineage-service http out/ontology.json --semantics semantics/ --pending pending.jsonl
+scope-lineage-service mcp out/ontology.json --semantics semantics/
+```
+
 ## Drafting: `catalog digest` and `catalog merge`
 
 Once a batch of tables has [table semantics](table-semantics.md) (`table-semantics/1`), a

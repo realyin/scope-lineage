@@ -1,0 +1,487 @@
+"""A read-only HTTP server for the catalog answer commands, on the standard library.
+
+Every answer body is, byte for byte, what ``scope-lineage catalog <command> ... --json``
+prints for the same input on the files the server was started with (``?format=text``:
+what it prints without ``--json``). The command's exit code travels in the
+``X-Scope-Lineage-Exit-Code`` header and in the status:
+
+- exit 0 -> 200; exit 1 "nothing found" (search, query, context) -> 404 with the answer
+  body; for ``check-sql`` (an error or a warning) and ``pending`` list (a line that is not
+  an entry) exit 1 is still 200, the findings or problems being the answer;
+- exit 2, an input the command refuses -> 400 ``{"error": {"kind": "bad_input", ...}}``;
+  a pending add the command declines (exit 1, nothing written) -> 422;
+- a started-with file that cannot be read now -> 503 ``input_unavailable``.
+
+Safety: binds 127.0.0.1 unless told otherwise; requests name no path, the server reads only
+the files it was started with; POST bodies are capped (``max_body``) and must declare
+their length; a request whose Host or Origin is not this machine (or an allowed host) is
+refused, which keeps a web page elsewhere from reaching the server through DNS rebinding;
+``POST /api/pending`` takes only ``application/json``, which a browser cannot send to
+another origin without a preflight this server never grants. No endpoint runs SQL, and
+the pending file is the only thing written.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
+
+from scope_lineage.cli_catalog_answers import CatalogAnswerError
+from scope_lineage.render.catalog_query import QUERY_KINDS
+from scope_lineage.render.catalog_search import SEARCH_KINDS
+
+from . import __version__
+from .state import CatalogState, PendingNotConfigured
+
+EXIT_HEADER = "X-Scope-Lineage-Exit-Code"
+DEFAULT_MAX_BODY = 1024 * 1024
+LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
+PENDING_FIELDS = {
+    "question": str, "missing": str, "sql": str, "sql_name": str, "term": str,
+    "tables": list, "columns": list, "proposed": str, "date": str,
+}
+
+FORMAT_PARAM = {"format": "json (default: what --json prints) or text (what the command prints)"}
+ENDPOINTS = [
+    {
+        "method": "GET", "path": "/health",
+        "description": "Whether the started-with files load now, their paths and counts.",
+        "params": {},
+    },
+    {
+        "method": "GET", "path": "/api",
+        "description": "This list of endpoints.",
+        "params": {},
+    },
+    {
+        "method": "GET", "path": "/api/search",
+        "description": (
+            "From a business word or a whole question to the catalog's own names: rank "
+            "concepts, metrics, attributes, identifiers, code sets and tables "
+            "(catalog search). 404 when nothing is close."
+        ),
+        "params": {
+            "text": "required: a word, a column name or a question",
+            "kind": f"repeatable: only these kinds ({', '.join(SEARCH_KINDS)})",
+            "limit": "how many hits, an integer >= 1 (default 10)",
+            **FORMAT_PARAM,
+        },
+        "cli": "catalog search ONTOLOGY TEXT [--semantics DIR] [--kind K]... [--limit N] --json",
+    },
+    {
+        "method": "GET", "path": "/api/context",
+        "description": (
+            "Everything one question needs about a few tables, columns and concepts in one "
+            "pack (catalog context). Name at least one table, column or concept. 404 when "
+            "nothing matches."
+        ),
+        "params": {
+            "table": "repeatable: db.table",
+            "column": "repeatable: db.table.column, answered in full",
+            "columns": "repeatable: comma-separated columns of the one table given",
+            "concept": "repeatable: a concept id, name, synonym or term",
+            "brief": "true/false: the short table pack",
+            "focus": "true/false: narrow watch items and rules to the requested columns",
+            **FORMAT_PARAM,
+        },
+        "cli": (
+            "catalog context ONTOLOGY [--semantics DIR] [--table T]... [--column C]... "
+            "[--columns COLS]... [--concept X]... [--brief] [--focus] --json"
+        ),
+    },
+    {
+        "method": "GET", "path": "/api/query",
+        "description": "Answer one exact question from the catalog (catalog query). 404 when nothing matches.",
+        "params": {
+            "kind": f"required: {', '.join(QUERY_KINDS)}",
+            "term": "required: an id, a name, a synonym, db.table or db.table.column",
+            **FORMAT_PARAM,
+        },
+        "cli": "catalog query ONTOLOGY KIND TERM --json",
+    },
+    {
+        "method": "POST", "path": "/api/check-sql",
+        "description": (
+            "Check hand-written SELECTs against the catalog (catalog check-sql). The SQL is "
+            "parsed, never run. Exit code 1 in the header when there is an error or a warning."
+        ),
+        "params": {
+            "body": "the SQL as text/plain, or application/json {\"sql\": \"...\"}",
+            **FORMAT_PARAM,
+        },
+        "cli": "catalog check-sql ONTOLOGY FILE --json",
+    },
+    {
+        "method": "GET", "path": "/api/pending", "pending": True,
+        "description": (
+            "The missing definitions recorded in the pending file, grouped, with the "
+            "catalog objects and table-semantics questions that now answer them "
+            "(catalog pending list)."
+        ),
+        "params": dict(FORMAT_PARAM),
+        "cli": "catalog pending list PENDING --ontology ONTOLOGY [--semantics DIR] --json",
+    },
+    {
+        "method": "POST", "path": "/api/pending", "pending": True,
+        "description": (
+            "Append one missing definition (missing) or one line a 待确认 placeholder of "
+            "the SQL given (sql) to the pending file (catalog pending add). 201 with the "
+            "lines written; 422 when the SQL has no placeholder."
+        ),
+        "params": {
+            "body": (
+                "application/json: question (required), and exactly one of missing or sql; "
+                "with missing: term, tables[], columns[], proposed; with sql: sql_name; "
+                "date YYYY-MM-DD (default today)"
+            ),
+        },
+        "cli": "catalog pending add PENDING --question Q (--missing M | --from-sql FILE) ...",
+    },
+]
+
+
+class RequestError(Exception):
+    def __init__(self, status: int, kind: str, message: str, exit_code: int | None = None):
+        super().__init__(message)
+        self.status, self.kind, self.message, self.exit_code = status, kind, message, exit_code
+
+
+def _bad(message: str) -> RequestError:
+    return RequestError(400, "bad_input", message, 2)
+
+
+class _Params:
+    """A query string, held to the parameters an endpoint knows."""
+
+    def __init__(self, query: str, allowed: set[str]) -> None:
+        try:
+            self.values = parse_qs(query, keep_blank_values=True, strict_parsing=False,
+                                   errors="strict")
+        except UnicodeDecodeError as error:
+            raise _bad(f"the query string is not UTF-8: {error}") from error
+        unknown = sorted(set(self.values) - allowed - {"format"})
+        if unknown:
+            raise _bad(f"unknown parameter(s): {', '.join(unknown)}")
+
+    def many(self, name: str) -> list[str]:
+        return self.values.get(name, [])
+
+    def one(self, name: str, required: bool = False) -> str | None:
+        values = self.many(name)
+        if len(values) > 1:
+            raise _bad(f"{name} is given more than once")
+        if not values or values[0] == "":
+            if required:
+                raise _bad(f"{name} is required")
+            return None
+        return values[0]
+
+    def flag(self, name: str) -> bool:
+        value = self.one(name)
+        if value is None:
+            return False
+        lowered = value.lower()
+        if lowered in ("1", "true", "yes"):
+            return True
+        if lowered in ("0", "false", "no"):
+            return False
+        raise _bad(f"{name} takes true or false, not {value!r}")
+
+    def format(self) -> str:
+        value = self.one("format") or "json"
+        if value not in ("json", "text"):
+            raise _bad(f"format takes json or text, not {value!r}")
+        return value
+
+
+def _host_of(value: str) -> str:
+    value = value.strip().lower()
+    if value.startswith("["):
+        return value[1:].split("]", 1)[0]
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+class CatalogHandler(BaseHTTPRequestHandler):
+    server_version = f"scope-lineage-service/{__version__}"
+    protocol_version = "HTTP/1.1"
+    timeout = 30  # a client that stops sending does not hold a thread for ever
+
+    # The server instance carries: state, max_body, allowed_hosts, quiet.
+
+    def log_message(self, format, *args):
+        if not self.server.quiet:
+            sys.stderr.write(f"{self.address_string()} - {format % args}\n")
+
+    # ------------------------------------------------------------------ dispatch
+
+    def do_GET(self) -> None:
+        self._dispatch("GET")
+
+    def do_POST(self) -> None:
+        self._dispatch("POST")
+
+    def _dispatch(self, method: str) -> None:
+        if method == "GET" and self.headers.get("Content-Length", "0") != "0":
+            self.close_connection = True  # a GET body is never read
+        try:
+            self._check_host()
+            path, _, query = self.path.partition("?")
+            routes = self._routes()
+            if path not in routes:
+                raise RequestError(404, "not_found", f"no endpoint {path}; GET /api lists them")
+            handler = routes[path].get(method)
+            if handler is None:
+                allowed = ", ".join(sorted(routes[path]))
+                raise RequestError(405, "method_not_allowed", f"{path} takes {allowed}")
+            handler(query)
+        except RequestError as error:
+            headers = {}
+            if error.status == 405:
+                path = self.path.partition("?")[0]
+                headers["Allow"] = ", ".join(sorted(self._routes()[path]))
+            self._send_error(error, headers)
+        except PendingNotConfigured as error:
+            self._send_error(RequestError(404, "not_configured", error.message))
+
+    def _routes(self) -> dict:
+        routes = {
+            "/": {"GET": self._endpoints},
+            "/health": {"GET": self._health},
+            "/api": {"GET": self._endpoints},
+            "/api/search": {"GET": self._search},
+            "/api/context": {"GET": self._context},
+            "/api/query": {"GET": self._query},
+            "/api/check-sql": {"POST": self._check_sql},
+            # Answered 404 not_configured when the server has no pending file.
+            "/api/pending": {"GET": self._pending_list, "POST": self._pending_add},
+        }
+        return routes
+
+    def _check_host(self) -> None:
+        allowed = self.server.allowed_hosts
+        host = self.headers.get("Host")
+        if host is not None and _host_of(host) not in allowed:
+            raise RequestError(403, "forbidden_host", f"Host {host!r} is not served here")
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            netloc = urlsplit(origin).netloc
+            if not netloc or _host_of(netloc) not in allowed:
+                raise RequestError(403, "forbidden_origin", f"Origin {origin!r} is not served here")
+
+    # ------------------------------------------------------------------ endpoints
+
+    def _endpoints(self, query: str) -> None:
+        _Params(query, set())
+        configured = self.server.state.pending_path is not None
+        listing = [
+            {key: value for key, value in item.items() if key != "pending"}
+            for item in ENDPOINTS
+            if configured or not item.get("pending")
+        ]
+        self._send_json(200, {
+            "service": "scope-lineage-service", "version": __version__,
+            "read_only": True, "executes_sql": False,
+            "exit_code_header": EXIT_HEADER, "endpoints": listing,
+        })
+
+    def _health(self, query: str) -> None:
+        _Params(query, set())
+        self._send_json(200, self.server.state.health())
+
+    def _search(self, query: str) -> None:
+        params = _Params(query, {"text", "kind", "limit"})
+        text = params.one("text", required=True)
+        kinds = params.many("kind")
+        for kind in kinds:
+            if kind not in SEARCH_KINDS:
+                raise _bad(f"kind must be one of {', '.join(SEARCH_KINDS)}, not {kind!r}")
+        limit = params.one("limit") or "10"
+        try:
+            number = int(limit)
+        except ValueError:
+            raise _bad(f"limit takes an integer, not {limit!r}") from None
+        if number < 1:
+            raise _bad("limit takes an integer >= 1")
+        fmt = params.format()
+        self._answer(lambda: self.server.state.search(text, kinds or None, number), fmt,
+                     nothing_found=404)
+
+    def _context(self, query: str) -> None:
+        params = _Params(query, {"table", "column", "columns", "concept", "brief", "focus"})
+        request = dict(
+            tables=params.many("table"), columns=params.many("column"),
+            columns_of_table=params.many("columns"), concepts=params.many("concept"),
+            brief=params.flag("brief"), focus=params.flag("focus"),
+        )
+        fmt = params.format()
+        self._answer(lambda: self.server.state.context(**request), fmt, nothing_found=404)
+
+    def _query(self, query: str) -> None:
+        params = _Params(query, {"kind", "term"})
+        kind = params.one("kind", required=True)
+        term = params.one("term", required=True)
+        fmt = params.format()
+        self._answer(lambda: self.server.state.query(kind, term), fmt, nothing_found=404)
+
+    def _check_sql(self, query: str) -> None:
+        params = _Params(query, set())
+        fmt = params.format()
+        body, content_type = self._read_body()
+        if content_type == "application/json":
+            payload = self._json_object(body)
+            if set(payload) != {"sql"} or not isinstance(payload["sql"], str):
+                raise _bad('a JSON body is {"sql": "..."}')
+            sql = payload["sql"]
+        else:
+            sql = self._utf8(body)
+        self._answer(lambda: self.server.state.check_sql(sql), fmt, nothing_found=200)
+
+    def _pending_list(self, query: str) -> None:
+        params = _Params(query, set())
+        fmt = params.format()
+        self._answer(self.server.state.pending_list, fmt, nothing_found=200)
+
+    def _pending_add(self, query: str) -> None:
+        _Params(query, set())
+        body, content_type = self._read_body()
+        if content_type != "application/json":
+            raise RequestError(415, "unsupported_media_type",
+                               "POST /api/pending takes application/json")
+        payload = self._json_object(body)
+        unknown = sorted(set(payload) - set(PENDING_FIELDS))
+        if unknown:
+            raise _bad(f"unknown field(s): {', '.join(unknown)}")
+        for name, value in payload.items():
+            expected = PENDING_FIELDS[name]
+            if value is None:
+                continue
+            if not isinstance(value, expected) or (
+                expected is list and not all(isinstance(item, str) for item in value)
+            ):
+                kind = "a list of strings" if expected is list else "a string"
+                raise _bad(f"{name} takes {kind}")
+        if not isinstance(payload.get("question"), str):
+            raise _bad("question is required")
+        request = {key: value for key, value in payload.items() if value is not None}
+        try:
+            lines = self.server.state.pending_add(**request)
+        except CatalogAnswerError as error:
+            status, kind = (422, "not_added") if error.exit_code == 1 else (400, "bad_input")
+            raise RequestError(status, kind, error.message, error.exit_code) from None
+        self._send_json(201, {"appended": len(lines), "lines": lines}, exit_code=0)
+
+    # ------------------------------------------------------------------ helpers
+
+    def _answer(self, produce, fmt: str, nothing_found: int) -> None:
+        """Run one answer; a refusal of the started-with files is 503, of the request 400."""
+        state: CatalogState = self.server.state
+        try:
+            state.inputs()
+        except CatalogAnswerError as error:
+            raise RequestError(503, "input_unavailable", error.message, error.exit_code) from None
+        try:
+            answer = produce()
+        except CatalogAnswerError as error:
+            raise RequestError(400, "bad_input", error.message, error.exit_code) from None
+        status = 200 if answer.exit_code == 0 else nothing_found
+        if fmt == "text":
+            body, content_type = answer.text().encode("utf-8"), "text/plain; charset=utf-8"
+        else:
+            body = (answer.json_text() + "\n").encode("utf-8")
+            content_type = "application/json; charset=utf-8"
+        self._send(status, body, content_type, {EXIT_HEADER: str(answer.exit_code)})
+
+    def _read_body(self) -> tuple[bytes, str]:
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            raise RequestError(411, "length_required", "send Content-Length, not chunked")
+        length = self.headers.get("Content-Length")
+        if length is None:
+            raise RequestError(411, "length_required", "a POST needs Content-Length")
+        try:
+            size = int(length)
+        except ValueError:
+            raise _bad("Content-Length is not an integer") from None
+        if size < 0:
+            raise _bad("Content-Length is negative")
+        if size > self.server.max_body:
+            raise RequestError(413, "too_large",
+                               f"the body is {size} bytes; this server takes at most "
+                               f"{self.server.max_body}")
+        body = self.rfile.read(size)
+        content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        return body, content_type
+
+    @staticmethod
+    def _utf8(body: bytes) -> str:
+        try:
+            return body.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise _bad(f"the body is not UTF-8: {error}") from None
+
+    def _json_object(self, body: bytes) -> dict:
+        try:
+            payload = json.loads(self._utf8(body))
+        except ValueError as error:
+            raise _bad(f"the body is not JSON: {error}") from None
+        if not isinstance(payload, dict):
+            raise _bad("the body must be a JSON object")
+        return payload
+
+    def _send_json(self, status: int, payload: dict, exit_code: int | None = None) -> None:
+        body = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        headers = {EXIT_HEADER: str(exit_code)} if exit_code is not None else {}
+        self._send(status, body, "application/json; charset=utf-8", headers)
+
+    def _send_error(self, error: RequestError, headers: dict | None = None) -> None:
+        # A refused request may leave an unread body on the socket: never reuse it.
+        self.close_connection = True
+        payload = {"kind": error.kind, "message": error.message}
+        if error.exit_code is not None:
+            payload = {"kind": error.kind, "exit_code": error.exit_code, "message": error.message}
+        headers = dict(headers or {})
+        if error.exit_code is not None:
+            headers[EXIT_HEADER] = str(error.exit_code)
+        body = (json.dumps({"error": payload}, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        self._send(error.status, body, "application/json; charset=utf-8", headers)
+
+    def _send(self, status: int, body: bytes, content_type: str, headers: dict) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for name, value in headers.items():
+            self.send_header(name, value)
+        if self.close_connection:
+            self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class CatalogHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address, state: CatalogState, *, max_body: int, allowed_hosts, quiet):
+        self.state = state
+        self.max_body = max_body
+        self.allowed_hosts = frozenset(allowed_hosts)
+        self.quiet = quiet
+        super().__init__(address, CatalogHandler)
+
+
+def make_server(
+    state: CatalogState,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    *,
+    max_body: int = DEFAULT_MAX_BODY,
+    allow_hosts=(),
+    quiet: bool = False,
+) -> CatalogHTTPServer:
+    """A server bound to ``host:port`` (port 0: any free port); call ``serve_forever``."""
+    allowed = set(LOOPBACK) | {_host_of(host)} | {_host_of(item) for item in allow_hosts}
+    return CatalogHTTPServer(
+        (host, port), state, max_body=max_body, allowed_hosts=allowed, quiet=quiet
+    )

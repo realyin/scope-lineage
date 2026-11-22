@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+- **New: the catalog answers as a service, in a separately packaged `service/` directory.**
+  `scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE]` serves `search`,
+  `context`, `query`, `check-sql` and `pending list/add` as JSON endpoints (standard library only,
+  `127.0.0.1` by default, `GET /api` lists them, `GET /health`); `scope-lineage-service mcp ...`
+  offers the same as MCP tools over stdio (official Python SDK), text by default and JSON on
+  request. Each answer is what `--json` prints for the same input, the exit code travels with it,
+  nothing runs SQL, and the pending file is the only thing written. Files changed on disk are read
+  again on the next request. The core package does not include the directory and gains no
+  dependency. See [service/README.md](service/README.md).
+- **New: `scope_lineage.cli_catalog_answers`**, the catalog answer commands as functions returning
+  what `--json` prints (and the text, and the exit code) or raising `CatalogAnswerError` with the
+  command's sentence. The `catalog search/query/context/check-sql/pending` commands now call it;
+  their output and exit codes are unchanged.
+
 ## 0.15.0
 - **New: draft a `domain-profile/1` from the corpus.** `scope-lineage domain-profile evidence
   --lineage --schema --out` counts, per table-name suffix, how statements read and write the
