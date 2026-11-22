@@ -31,6 +31,7 @@ examples/
 | `sql/subscription_account_snapshot.sql` | 19 张源表、20 个 JOIN、多层子查询、条件聚合、窗口函数和 112 个目标字段的复杂脱敏样例 |
 | `sql/named_window_ranking.sql` | 命名窗口（`OVER w`、`WINDOW w AS (...)`），基于另一个窗口定义的窗口 |
 | `sql/qualify_latest_status.sql` | `QUALIFY ROW_NUMBER() ... = 1` 每个键保留最新一行 |
+| `sql/latest_order_by_struct.sql` | 从 `MAX_BY(NAMED_STRUCT(...), ts)` 结果取成员，保留聚合和排序列 |
 | `catalog-demo/` | 一家虚构信贷公司的本体目录（`catalog-yaml/1`）：每种元素与每种绑定各出现一次；见[目录格式](../docs/zh-CN/ontology-catalog.md) |
 | `catalog-demo-corpus/` | 八个虚构调度任务，读写示例目录里的表（一个目标带 catalog 前缀，一张表只被读），供 `catalog build --lineage/--tables` 与 `semantic packet` 使用 |
 | `catalog-fragments/` | 一个 `catalog-fragment/1` 片段：给示例目录补上放款表的属性、码值集、约束、术语与表现，`catalog merge` 合并后校验无错误；见[起草](../docs/zh-CN/ontology-catalog.md) |

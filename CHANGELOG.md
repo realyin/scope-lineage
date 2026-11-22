@@ -257,6 +257,14 @@
   subquery form already had. The statement's output columns are unchanged (the clause is not
   rewritten into a subquery). Consumers that list WHERE conditions from `logic_type=filter`
   blocks should skip `predicate_type` other than `where`, as `mapping.md` does.
+- **A member of MAX_BY / MIN_BY / FIRST / LAST of a STRUCT keeps the aggregate.**
+  `MAX_BY(NAMED_STRUCT('val', a.amount), a.ts)` read through `.val` came back as the bare
+  `amount`: the aggregate and the `ts` that chooses the row were dropped. Only MAX / MIN were
+  recognised. The member now moves inside the aggregate (`MAX_BY(amount, ts)`), so its
+  sources are the member's columns plus the ordering column, with transform `AGGREGATE`.
+  Members are found in the AST by name, so a computed member of a plain STRUCT
+  (`NAMED_STRUCT('a', COALESCE(c1, 0), 'b', c2)` read through `.a`) reads only `c1` instead
+  of every column of the STRUCT.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

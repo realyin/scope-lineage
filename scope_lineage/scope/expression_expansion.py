@@ -204,6 +204,9 @@ def _replace_struct_field_access_from_upstream(
 
     def replacement(match: re.Match[str]) -> str:
         leaf_field = match.group("leaf")
+        member = _struct_member_from_ast(upstream_expanded_expression, leaf_field)
+        if member is not None:
+            return member or match.group(0)
         leaf_expression = _struct_leaf_expression(upstream_expanded_expression, leaf_field)
         if not leaf_expression:
             return match.group(0)
@@ -222,6 +225,102 @@ def _replace_struct_field_access_from_upstream(
         rf"{re.escape(struct_output_field)}\.(?P<leaf>[A-Za-z_][A-Za-z0-9_]*)(?![`.\w])"
     )
     return bare_pattern.sub(replacement, expression)
+
+
+# Aggregates that return one input row's value: MAX_BY / MIN_BY pick it by an ordering
+# argument, FIRST / LAST by position. A member of their STRUCT result is that member of
+# the chosen row, so the member can move inside: MAX_BY(STRUCT(a AS v, b AS w), ts).v is
+# MAX_BY(a, ts) -- the aggregate and its ordering column stay, the other members go.
+_ROW_SELECTING_AGGREGATES = (exp.ArgMax, exp.ArgMin, exp.First, exp.Last, exp.FirstValue, exp.LastValue)
+_ROW_SELECTING_NAMES = frozenset({"max_by", "min_by", "first", "last", "first_value", "last_value"})
+
+
+def _struct_member_from_ast(upstream_expanded_expression: str, leaf_field: str) -> str | None:
+    """The expression of STRUCT member ``leaf_field``, taken from the upstream's AST (1.12).
+
+    ``None`` when the upstream is not a STRUCT, a row-selecting aggregate of one, or MAX /
+    MIN of one: the caller then keeps its text-pattern fallback. ``""`` when it is such a
+    STRUCT but has no member of that name, so nothing may be substituted.
+    """
+    parsed = _parse_rendered(upstream_expanded_expression)
+    while isinstance(parsed, exp.Paren):
+        parsed = parsed.this
+    if parsed is None:
+        return None
+    wrapper = parsed
+    node = parsed.this if isinstance(parsed, exp.IgnoreNulls) else parsed
+    if _is_struct(node):
+        member = _named_struct_member(node, leaf_field)
+        return _member_sql(member) if member is not None else ""
+    if _row_selecting_struct_argument(node) is not None:
+        return _row_selecting_member_sql(wrapper, leaf_field)
+    if isinstance(node, (exp.Max, exp.Min)) and _is_struct(node.this):
+        if _named_struct_member(node.this, leaf_field) is None:
+            return ""
+        return _aggregate_struct_member_expression(upstream_expanded_expression, leaf_field) or ""
+    return None
+
+
+def _row_selecting_member_sql(wrapper: exp.Expression, leaf_field: str) -> str:
+    """``MAX_BY(<member>, ts)`` for ``MAX_BY(STRUCT(...), ts).<member>``, or ``""``."""
+    copied = wrapper.copy()
+    node = copied.this if isinstance(copied, exp.IgnoreNulls) else copied
+    struct = _row_selecting_struct_argument(node)
+    member = _named_struct_member(struct, leaf_field) if struct is not None else None
+    if member is None:
+        return ""
+    struct.replace(member.copy())
+    return copied.sql(dialect=DIALECT)
+
+
+def _parse_rendered(expression: str) -> exp.Expression | None:
+    try:
+        return sqlglot.parse_one(expression, dialect=DIALECT, error_level=ErrorLevel.RAISE)
+    except Exception:  # noqa: BLE001 - an unparseable rendering is itself the answer: no expansion
+        return None
+
+
+def _is_struct(node: exp.Expression | None) -> bool:
+    return isinstance(node, exp.Struct) or (
+        isinstance(node, exp.Anonymous) and node.name.lower() == "named_struct"
+    )
+
+
+def _row_selecting_struct_argument(node: exp.Expression) -> exp.Expression | None:
+    """The STRUCT a row-selecting aggregate returns a row of, or None."""
+    if isinstance(node, _ROW_SELECTING_AGGREGATES):
+        argument = node.this
+    elif isinstance(node, exp.Anonymous) and node.name.lower() in _ROW_SELECTING_NAMES:
+        argument = node.expressions[0] if node.expressions else None
+    else:
+        return None
+    return argument if _is_struct(argument) else None
+
+
+def _named_struct_member(struct: exp.Expression, name: str) -> exp.Expression | None:
+    """The value subtree of the member called ``name`` (case-insensitive), or None."""
+    wanted = name.lower()
+    if isinstance(struct, exp.Anonymous):
+        arguments = list(struct.expressions)
+        for key, value in zip(arguments[::2], arguments[1::2]):
+            if isinstance(key, exp.Literal) and key.is_string and str(key.this).lower() == wanted:
+                return value
+        return None
+    for member in struct.expressions:
+        if isinstance(member, exp.PropertyEQ) and member.this.name.lower() == wanted:
+            return member.expression
+        if isinstance(member, exp.Alias) and member.alias.lower() == wanted:
+            return member.this
+        if isinstance(member, exp.Column) and member.name.lower() == wanted:
+            return member
+    return None
+
+
+def _member_sql(member: exp.Expression) -> str:
+    """A member's text, parenthesised unless it is already one operand."""
+    if not isinstance(member, (exp.Column, exp.Func, exp.Literal, exp.Paren)):
+        member = exp.Paren(this=member.copy())
+    return member.sql(dialect=DIALECT)
 
 
 def _aggregate_struct_member_expression(
