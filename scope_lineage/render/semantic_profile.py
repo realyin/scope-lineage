@@ -5762,16 +5762,27 @@ def _card_lookup(table_cards: Mapping | None):
         return None
 
     def lookup(name):
-        for card in index:
-            spellings = [card.get("table"), *(card.get("aliases") or [])]
-            if any(
-                spelling and glossary_values.same_table(name, spelling)
-                for spelling in spellings
-            ):
-                return card
-        return None
+        # Audit WP2d: an exact spelling wins; a suffix match is taken only when it names
+        # one card. A bare ``orders`` beside ``dwd.orders`` and ``ods.orders`` is neither.
+        exact = [card for card in index if name in _card_spellings(card)]
+        if exact:
+            return exact[0]
+        found = [
+            card
+            for card in index
+            if any(glossary_values.same_table(name, item) for item in _card_spellings(card))
+        ]
+        return found[0] if len(found) == 1 else None
 
     return lookup
+
+
+def _card_spellings(card: Mapping) -> list[str]:
+    return [str(item) for item in [card.get("table"), *(card.get("aliases") or [])] if item]
+
+
+#: The table-card finding that says a bare name could be several tables (WP2d).
+_AMBIGUOUS_BARE_NAME = "ambiguous_bare_name"
 
 
 #: The writes that replace what the reader will see. An ``INSERT`` keeps every earlier
@@ -5791,8 +5802,14 @@ def _card_key_claim(card) -> claims.Claim | None:
     per key per day is many rows per key across days. The corpus holding every writer of
     the table is the premise ``A-WRITERS-CLOSED``, stated rather than hidden.
 
-    None when no producer offers a key at all -- there is nothing to carry or limit.
+    None when no producer offers a key at all -- there is nothing to carry or limit, and
+    None for a card flagged ``ambiguous_bare_name``: which table it is, is unknown.
     """
+    if any(
+        str(finding.get("kind")) == _AMBIGUOUS_BARE_NAME
+        for finding in (card or {}).get("findings") or []
+    ):
+        return None
     producers = list((card or {}).get("produced_by") or [])
     offered = next(
         (
