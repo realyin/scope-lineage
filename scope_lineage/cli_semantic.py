@@ -274,7 +274,7 @@ def _run_packet(args: argparse.Namespace) -> int:
     for item in loaded.documents:
         apply_metadata_patch_to_document(item.document, patch)
     documents = [(item.document, item.diagnostics) for item in loaded.documents]
-    metadata = _metadata_lookup(args, _tables_described(documents, args.only), patch)
+    metadata = metadata_lookup(args, _tables_described(documents, args.only), patch)
     for value in (cards, tasks, metadata):
         if isinstance(value, int):
             return value
@@ -396,7 +396,7 @@ def _tables_described(documents: list, only) -> set[str] | None:
     return wanted.union(*(document_reads(doc) for doc in producers))
 
 
-def _metadata_lookup(
+def metadata_lookup(
     args: argparse.Namespace, tables: set[str] | None = None, patch: MetadataPatch | None = None
 ):
     """``db.table -> {comment, description, layer, domain, columns, partition facts}``,

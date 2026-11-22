@@ -1,0 +1,7 @@
+{
+ "meta": {
+  "task_name": "ev_c_x",
+  "task_type": "Spark SQL",
+  "sql": "INSERT OVERWRITE TABLE dws.ev_c_x PARTITION (pday='${bizdate}') SELECT id, amt FROM ods.ev_c_df WHERE pday = '${bizdate}' AND amt > 0"
+ }
+}

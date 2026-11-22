@@ -1,0 +1,7 @@
+{
+ "meta": {
+  "task_name": "cmp_c_x",
+  "task_type": "Spark SQL",
+  "sql": "INSERT OVERWRITE TABLE ads.cmp_c_x PARTITION (dt='${bizdate}') SELECT id, amt FROM dim.cust_c_df WHERE dt IN ('20250101', '20260101')"
+ }
+}

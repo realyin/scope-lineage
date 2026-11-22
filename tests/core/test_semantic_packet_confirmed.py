@@ -205,7 +205,7 @@ def test_the_summary_reports_the_patch_keys_nothing_answered(
 
 def test_the_schema_overlay_counts_what_it_answered_as_matched(work: Path) -> None:
     """An answer the schema lookup carried to the packet is not reported unmatched."""
-    from scope_lineage.cli_semantic import _metadata_lookup
+    from scope_lineage.cli_semantic import metadata_lookup
     from scope_lineage.metadata.metadata_patch import load_metadata_patch
 
     write_json(work / "schema-only.json", {
@@ -214,7 +214,7 @@ def test_the_schema_overlay_counts_what_it_answered_as_matched(work: Path) -> No
     })
     patch = load_metadata_patch([str(work / "schema-only.json")])
     args = type("Args", (), {"schema": str(CORPUS / "schema_info.json"), "schema_fallback": []})
-    lookup = _metadata_lookup(args, None, patch)
+    lookup = metadata_lookup(args, None, patch)
     columns = {column["name"]: column for column in lookup(SOURCE)["columns"]}
     assert columns["update_ts"]["comment"] == "Last update, confirmed"
     assert columns["cust_no"]["comment"] == "Customer number"

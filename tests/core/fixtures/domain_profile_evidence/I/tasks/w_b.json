@@ -1,0 +1,7 @@
+{
+ "meta": {
+  "task_name": "w_b",
+  "task_type": "Spark SQL",
+  "sql": "INSERT OVERWRITE TABLE dwd.c_b_df PARTITION (dt='${bizdate}') SELECT id, amt, create_time FROM ods.c_b_src WHERE dt = '${bizdate}'"
+ }
+}

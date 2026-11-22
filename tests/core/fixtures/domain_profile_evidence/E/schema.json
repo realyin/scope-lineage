@@ -1,0 +1,88 @@
+{
+ "tables": [
+  {
+   "table_name": "app.users",
+   "table_desc": "合成表 users",
+   "is_partition": 0,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    }
+   ]
+  },
+  {
+   "table_name": "app.t_2024",
+   "table_desc": "合成表 t_2024",
+   "is_partition": 0,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    }
+   ]
+  },
+  {
+   "table_name": "app.goods_list",
+   "table_desc": "合成表 goods_list",
+   "is_partition": 0,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    }
+   ]
+  },
+  {
+   "table_name": "app.out_e",
+   "table_desc": "合成表 out_e",
+   "is_partition": 0,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    }
+   ]
+  }
+ ]
+}

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .cli_catalog import add_catalog_parser, run_catalog
+from .cli_domain_profile import add_domain_profile_parser, run_domain_profile
 from .cli_glossary import add_glossary_parser, formats as _glossary_formats, run_glossary
 from .cli_ontology import (
     BATCH_BY as _REVIEW_BATCH_BY,
@@ -211,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     add_ontology_parser(subcommands)
     add_catalog_parser(subcommands)
     add_semantic_parser(subcommands)
+    add_domain_profile_parser(subcommands)
     add_questions_parser(subcommands)
 
     validate_cmd = subcommands.add_parser(
@@ -291,12 +293,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"{args.review_batch_size}"
             )
         return run_ontology(args)
-    if args.command == "catalog":
-        return run_catalog(args)
-    if args.command == "semantic":
-        return run_semantic(args)
-    if args.command == "questions":
-        return run_questions(args)
+    routed = {
+        "catalog": run_catalog,
+        "semantic": run_semantic,
+        "domain-profile": lambda args: run_domain_profile(args, parser),
+        "questions": run_questions,
+    }
+    if args.command in routed:
+        return routed[args.command](args)
     if args.command == "validate":
         return _validate_inputs(args)
     parser.error(f"unknown command: {args.command}")
