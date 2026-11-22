@@ -8,7 +8,7 @@
       "golden_commented_insert": "9452fdf61353b87f",
       "golden_complex_scope": "fca0adb2e008d085",
       "golden_directory_target": "1ba502ab8f5efe17",
-      "golden_fact_gap": "089a9ee1d57b7090",
+      "golden_fact_gap": "0bf3e3493edf2a75",
       "golden_grouped_dedup_join": "d15342fea4d367ff",
       "golden_multi_statement_script": "25127a04fed1fb9e",
       "golden_self_join": "12d351d82ae707de",
@@ -17,7 +17,7 @@
       "golden_star_without_schema": "effef59d43282b0f",
       "golden_syntax_recovered": "56f52aab0c452a2a",
       "golden_target_ddl_binding": "1737591dc224e318",
-      "merge_contract": "2467f32c459c3d23"
+      "merge_contract": "c5cd1b6e82999004"
     }
   },
   "terms": [
@@ -44,13 +44,15 @@
     {
       "column": "amount",
       "comments": [],
-      "tables_total": 5,
+      "tables_total": 7,
       "tables_without_comment": [
         "mart.amounts",
         "ods.channel_event",
         "ods.events",
         "ods.events_a",
-        "ods.events_b"
+        "ods.events_b",
+        "ods.ledger_a",
+        "ods.ledger_b"
       ],
       "conflict": false,
       "meaning": null

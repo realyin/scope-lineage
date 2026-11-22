@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_fact_gap"
 target_table: "mart.amounts"
 stmt_kind: "INSERT"
-lineage_digest: "089a9ee1d57b7090"
+lineage_digest: "0bf3e3493edf2a75"
 ---
 
 # 字段映射文档 mart.amounts
@@ -21,8 +21,8 @@ lineage_digest: "089a9ee1d57b7090"
 
 | 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
 | --- | --- | --- | --- |
-| ods.ledger_a | — | 1 | 否 |
-| ods.ledger_b | — | 1 | 否 |
+| ods.ledger_a | — | 2 | 否 |
+| ods.ledger_b | — | 2 | 否 |
 
 - 过滤条件：无（WHERE / JOIN ON 中没有作用于来源表列的谓词）
 

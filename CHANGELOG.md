@@ -376,6 +376,40 @@
   one literal per IN item) and the value column read from the IN columns. Explicit
   unqualified references to pivoted or unpivoted columns (`SELECT dept, q1 FROM ... PIVOT`)
   are still reported as unresolved.
+- **A `JOIN ... USING` key is the side Spark outputs.** sqlglot expands a merged USING column
+  into `COALESCE(left, right)`, so an INNER join's key was published as a `cleaning`
+  EXPRESSION over both tables. INNER, LEFT, SEMI and ANTI now read the left key, RIGHT the
+  right key, and only FULL OUTER keeps the coalesce -- in the SELECT list, WHERE and GROUP BY
+  alike; a later USING join of the same column matches that carried key in its ON. A
+  `COALESCE` the author wrote is left alone.
+- **A ranking window is `dedup` only when a reader pins its own column.** The window scope's own
+  `WHERE a.rn = 1` (evaluated before the projection, so a source column) and a reader's
+  `o.rn = 1` on another table both used to make the scope `dedup`; both are `window` now.
+- **A MERGE's ON and WHEN conditions are on its ROOT.** ON is recorded in `scopes.ROOT.joins`
+  (`join_type: "MERGE"`, target to USING), so a MERGE whose actions read only constants still
+  depends on its USING relation; each WHEN condition is a `filter` logic block with
+  `filter_predicate_detail.predicate_type: "merge_when"`. ROOT's `role` follows (`join`), and the
+  target a condition reads is not added to `depends_on`.
+- **`struct_col.field.leaf` without an alias, in a SELECT over several tables, binds to the one
+  input with that struct column** (AMBIGUOUS when several have it) instead of reading `field`
+  as a table alias.
+- **`LATERAL VIEW JSON_TUPLE(...) t` / `STACK(n, ...) t` without column aliases** name their
+  outputs `c0, c1, ...` and `col0, col1, ...` as Spark does. INLINE without metadata is still a
+  gap.
+- **An AMBIGUOUS reference keeps its candidate tables as inputs.** `related_metadata` took it for
+  a table named `AMBIGUOUS` and dropped it, so a table read only through an ambiguous column
+  vanished from `input_tables`; each candidate table is now an input with the column used.
+- **`has_aggregate` finds an aggregate wrapped in another function.** It is read off the AST (any
+  aggregate function, plus a Spark name table for calls sqlglot does not type), so
+  `ROUND(STDDEV(x), 2)` and `COALESCE(MAX_BY(v, dt), 0)` are `aggregate_expression` with
+  `grain_effect: changed` instead of `preserved`.
+- **A DELETE / UPDATE / MERGE condition column no table can be proven to own is a gap.** An
+  unqualified column in a condition subquery over several tables was written as
+  `{"table": "UNKNOWN"}` beside `trace_complete: true`. The schema now settles it when exactly
+  one of the tables has the column; otherwise the task document records the new
+  `row_condition_source_unresolved` fact gap (`root_impact: true`) and the affected rows carry
+  `trace_complete: false` with that missing reason -- every column for a DELETE or MERGE
+  condition, the assigned columns for an UPDATE, and the rows a later append keeps it for.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

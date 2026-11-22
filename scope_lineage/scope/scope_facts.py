@@ -5,6 +5,7 @@ module imports and calls these; see its wrapper for the public entry point.
 """
 from __future__ import annotations
 import re
+from functools import lru_cache
 from datetime import datetime
 
 import sqlglot
@@ -38,7 +39,7 @@ from ._constants import DIALECT, PARSE_OPTS, _SCOPE_ID_ATTR
 from .expression_expansion import _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _replace_struct_field_access_from_upstream, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs
 from .expression_refs import _cached_pattern, _qualified_field_refs
 from .expression_text import _function_names, _replace_qualified_ref_with_expression, _replace_unqualified_ref_with_expression, _unexpanded_bound_aliases_in_expression
-from ..function_catalog import _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS
+from ..function_catalog import _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SPARK_AGGREGATE_FUNCTIONS
 from .sequences import _extend_unique, _unique_ordered
 from .sql_text_spans import blank_comments
 from .source_refs import _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _physical_source_fields_for_refs, _physical_source_ids_for_input, _qualified_physical_field_sql, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id
@@ -50,7 +51,7 @@ from .lineage_fact_gaps import (
     _root_gap_reasons_for_output,
 )
 from .passthrough_resolution import _propagate_passthrough_expression_resolution
-from .logic_block import _populate_logic_blocks  # noqa: F401
+from .logic_block import _populate_logic_blocks, _populate_merge_root_logic_blocks  # noqa: F401
 
 
 # The FRONT resolution segment used to be hand-unrolled (P I O, P I O, P I); full
@@ -153,6 +154,7 @@ def _populate_structural_facts(
         _populate_logic_blocks(scope_id, scope_data, sg_scope, result, schema)
     # A MERGE's ROOT has no sqlglot scope, so the loop above never reaches it.
     _populate_merge_root_input_edges(result)
+    _populate_merge_root_logic_blocks(result)
     _populate_scope_input_source_refs(result)
     _populate_scope_raw_sql_quality_and_source_coverage(result)
     _populate_scope_alias_source_bindings(result)
@@ -2979,7 +2981,7 @@ def _expression_features(
         "has_if": subtype == "if" or bool(re.search(r"\bif\s*\(", lower)),
         "has_cast": subtype == "cast" or bool(re.search(r"\bcast\s*\(", lower)),
         "has_window": logic_type == "window" or " over " in lower,
-        "has_aggregate": logic_type == "aggregate" or _has_aggregate_function(lower),
+        "has_aggregate": logic_type == "aggregate" or _has_aggregate_function(text),
         "has_udf": subtype == "udf" or _has_udf_function(functions),
         "has_constant_mapping": (
             logic_type == "constant"
@@ -3137,8 +3139,47 @@ def _grain_effect_for_column(column) -> str:
     return "preserved"
 
 
+# Functions sqlglot types as ``exp.AggFunc`` that compute over a window frame and never
+# collapse rows; looked up by name so a class missing from an older sqlglot is skipped.
+_WINDOW_ONLY_FUNCTIONS = tuple(
+    cls for cls in (
+        getattr(exp, name, None)
+        for name in (
+            "Lag", "Lead", "FirstValue", "LastValue", "NthValue", "Rank", "DenseRank",
+            "Ntile", "PercentRank", "CumeDist",
+        )
+    )
+    if isinstance(cls, type)
+)
+_PREDICATE_KEYWORD = re.compile(r"^\s*(?:where|having|qualify|on)\b", re.IGNORECASE)
+
+
+@lru_cache(maxsize=8192)
 def _has_aggregate_function(expression: str) -> bool:
-    return bool(re.search(r"\b(" + "|".join(sorted(_AGGREGATE_FUNCTIONS)) + r")\s*\(", expression))
+    """Does the expression call an aggregate function, wherever it is nested (C2.5-3)?
+
+    Read from the AST: any ``exp.AggFunc`` that is not a window-only function, or an
+    Anonymous call Spark knows as an aggregate. Text that does not parse falls back to
+    the same name table, as the previous regex did.
+    """
+    text = _PREDICATE_KEYWORD.sub("", expression or "", count=1).strip()
+    if not text:
+        return False
+    try:
+        tree = sqlglot.parse_one(text, dialect=DIALECT, **PARSE_OPTS)
+    except Exception:  # noqa: BLE001 - unparseable text falls back to the name table
+        return bool(_AGGREGATE_NAME_CALL.search(text))
+    for node in tree.walk():
+        if isinstance(node, exp.AggFunc) and not isinstance(node, _WINDOW_ONLY_FUNCTIONS):
+            return True
+        if isinstance(node, exp.Anonymous) and str(node.name).lower() in _SPARK_AGGREGATE_FUNCTIONS:
+            return True
+    return False
+
+
+_AGGREGATE_NAME_CALL = re.compile(
+    r"\b(" + "|".join(sorted(_SPARK_AGGREGATE_FUNCTIONS)) + r")\s*\(", re.IGNORECASE
+)
 
 
 def _has_udf_function(functions: list[str]) -> bool:

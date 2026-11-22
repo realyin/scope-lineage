@@ -20,6 +20,21 @@ _AGGREGATE_FUNCTIONS = {
 }
 
 
+# Spark aggregate functions by name, for a call sqlglot parses as ``exp.Anonymous`` (the
+# AST answers for every function it knows as an ``exp.AggFunc``). Not part of the known-name
+# catalogue below: whether a name is a UDF is answered by the grammar, not by this list.
+_SPARK_AGGREGATE_FUNCTIONS = frozenset({
+    "any", "any_value", "approx_count_distinct", "approx_percentile", "array_agg", "avg",
+    "bit_and", "bit_or", "bit_xor", "bool_and", "bool_or", "collect_list", "collect_set",
+    "corr", "count", "count_if", "count_min_sketch", "covar_pop", "covar_samp", "every",
+    "first", "histogram_numeric", "kurtosis", "last", "max", "max_by", "mean", "median",
+    "min", "min_by", "mode", "percentile", "percentile_approx", "regr_avgx", "regr_avgy",
+    "regr_count", "regr_intercept", "regr_r2", "regr_slope", "regr_sxx", "regr_sxy",
+    "regr_syy", "skewness", "some", "std", "stddev", "stddev_pop", "stddev_samp", "sum",
+    "try_avg", "try_sum", "var_pop", "var_samp", "variance",
+})
+
+
 _CLEANING_FUNCTIONS = {
     "coalesce",
     "nvl",

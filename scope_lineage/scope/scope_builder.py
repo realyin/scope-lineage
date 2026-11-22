@@ -877,6 +877,7 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
         ast, schema, lateral_candidates,
     )
     outer_refs = _protect_deep_outer_refs(ast, schema)
+    using_joins = _record_using_joins(ast)
     try:
         qualified = sg_qualify(
             ast,
@@ -891,10 +892,96 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
         _check_no_shield_placeholder(ast)
         return ast, False
     _restore_shielded_columns(qualified, shielded, qualify_sole_source=True)
+    _restore_using_join_keys(using_joins)
     _record_lateral_alias_ambiguity(qualified, lateral_candidates)
     _restore_sentinels(qualified, outer_refs)
     _check_no_shield_placeholder(qualified)
     return qualified, True
+
+
+_AUTHORED_COALESCE_META = "lineage_authored_coalesce"
+
+# One USING join of a SELECT: its position in ``joins``, its side, and its column names.
+_UsingStep = tuple[int, str, list[str]]
+
+
+def _record_using_joins(ast: exp.Expression) -> list[tuple[exp.Select, list[_UsingStep]]]:
+    """Note every ``JOIN ... USING`` before ``qualify`` turns it into ``ON``.
+
+    ``qualify`` reads a merged USING column as ``COALESCE(left, right)``; the generated
+    node differs from one the author wrote only in its metadata, so the author's are
+    marked here and the join kinds kept, rather than recognised by shape afterwards.
+    """
+    for node in ast.find_all(exp.Coalesce):
+        node.meta[_AUTHORED_COALESCE_META] = True
+    recorded = []
+    for select in ast.find_all(exp.Select):
+        steps = [
+            (index, (join.side or "").upper(), [item.name.lower() for item in join.args["using"]])
+            for index, join in enumerate(select.args.get("joins") or [])
+            if join.args.get("using")
+        ]
+        if steps:
+            recorded.append((select, steps))
+    return recorded
+
+
+def _restore_using_join_keys(recorded: list[tuple[exp.Select, list[_UsingStep]]]) -> None:
+    """Give each merged USING column the side Spark outputs (WP3j, 1.8).
+
+    Spark keeps the left key for INNER, LEFT, SEMI and ANTI joins, the right key for a
+    RIGHT join, and coalesces only for FULL OUTER. A later USING join of the same column
+    matches that carried key, so its ON is rewritten to it as well; ``qualify`` picked a
+    side there by schema availability, not by join kind.
+    """
+    for select, steps in recorded:
+        joins = select.args.get("joins") or []
+        keys: dict[str, exp.Expression] = {}
+        for index, side, names in steps:
+            if index >= len(joins):
+                continue
+            join = joins[index]
+            right_alias = join.this.alias_or_name if join.this is not None else ""
+            for name in names:
+                pair = _using_key_equality(join.args.get("on"), name, right_alias)
+                if pair is None:
+                    continue
+                if name in keys:
+                    pair.set("this", keys[name].copy())
+                left, right = pair.this.copy(), pair.expression.copy()
+                if side == "RIGHT":
+                    keys[name] = right
+                elif side == "FULL":
+                    keys[name] = exp.Coalesce(this=left, expressions=[right])
+                else:
+                    keys[name] = left
+        _replace_generated_coalesce(select, keys)
+
+
+def _using_key_equality(on: exp.Expression | None, name: str, right_alias: str) -> exp.EQ | None:
+    """The ``<left> = <right_alias>.<name>`` conjunct ``qualify`` generated for one column."""
+    if on is None:
+        return None
+    for node in on.flatten() if isinstance(on, exp.And) else [on]:
+        right = node.expression if isinstance(node, exp.EQ) else None
+        if isinstance(right, exp.Column) and right.name.lower() == name \
+                and right.table.lower() == right_alias.lower():
+            return node
+    return None
+
+
+def _replace_generated_coalesce(select: exp.Select, keys: dict[str, exp.Expression]) -> None:
+    if not keys:
+        return
+    for node in list(walk_in_scope(select)):
+        if not isinstance(node, exp.Coalesce) or node.meta.get(_AUTHORED_COALESCE_META):
+            continue
+        operands = [node.this, *(node.expressions or [])]
+        names = {operand.name.lower() for operand in operands if isinstance(operand, exp.Column)}
+        if len(names) == 1 and all(isinstance(operand, exp.Column) for operand in operands):
+            key = keys.get(names.pop())
+            if key is not None:
+                node.replace(key.copy())
 
 
 _OUTER_REF_SENTINEL = "__scope_lineage_outer_ref_{}__"

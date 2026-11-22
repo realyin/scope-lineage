@@ -1072,6 +1072,7 @@ def _apply_projection_write(
             *state_missing_reasons,
             *previous.missing_reasons,
         ]))
+    merge_unresolved: list[str] = []
     merge_conditions = (
         _merge_condition_sources(
             tree,
@@ -1080,9 +1081,19 @@ def _apply_projection_write(
             statement_id=statement_id,
             gaps=gaps,
             states=states,
+            unresolved=merge_unresolved,
         )
         if isinstance(tree, exp.Merge)
         else []
+    )
+    if merge_unresolved:
+        gaps.append(_row_condition_gap(statement_id, result.target_table, merge_unresolved))
+    # An earlier statement's unnamed row-condition source is still among the memberships
+    # an appending write keeps, so the reason stays with them.
+    row_condition_unresolved = bool(merge_unresolved) or (
+        effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
+        and previous is not None
+        and _ROW_CONDITION_UNRESOLVED in previous.missing_reasons
     )
     if effect in {"APPEND", "REPLACE_PARTITION"} and previous is not None:
         value_sources = _merge_value_sources(
@@ -1107,6 +1118,11 @@ def _apply_projection_write(
         bool(value_sources)
         or (previous.columns_known if previous is not None else False)
     ) and not any(column_missing_reasons.values())
+    if row_condition_unresolved:
+        # After columns_known: an unnamed condition source leaves the column set known.
+        state_missing_reasons = list(dict.fromkeys([
+            *state_missing_reasons, _ROW_CONDITION_UNRESOLVED,
+        ]))
     row_membership_sources = (
         list(previous.row_membership_sources)
         if effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
@@ -1192,7 +1208,12 @@ def _apply_delete(
     previous = states.current(table)
     where = tree.args.get("where")
     predicate = where.this if isinstance(where, exp.Where) else None
-    membership_sources = _expression_field_sources(predicate, target_table=table)
+    unresolved: list[str] = []
+    membership_sources = _expression_field_sources(
+        predicate, target_table=table, states=states, unresolved=unresolved,
+    )
+    if unresolved:
+        gaps.append(_row_condition_gap(statement["statement_id"], table, unresolved))
     deletes_all_rows = predicate is None
     all_membership = _dedupe_dicts([
         *previous.row_membership_sources,
@@ -1215,7 +1236,11 @@ def _apply_delete(
         row_membership_sources=all_membership,
         value_condition_sources=previous.value_condition_sources,
         columns_known=previous.columns_known,
-        missing_reasons=previous.missing_reasons,
+        missing_reasons=(
+            list(dict.fromkeys([*previous.missing_reasons, _ROW_CONDITION_UNRESOLVED]))
+            if unresolved
+            else previous.missing_reasons
+        ),
         column_missing_reasons=previous.column_missing_reasons,
     )
     statement.update({
@@ -1385,7 +1410,15 @@ def _apply_update(
     previous = states.current(table)
     where = tree.args.get("where")
     predicate = where.this if isinstance(where, exp.Where) else None
-    condition_sources = _expression_field_sources(predicate, target_table=table)
+    condition_unresolved: list[str] = []
+    condition_sources = _expression_field_sources(
+        predicate, target_table=table, states=states, unresolved=condition_unresolved,
+    )
+    unresolved = list(condition_unresolved)
+    column_missing_reasons = {
+        column: list(reasons)
+        for column, reasons in previous.column_missing_reasons.items()
+    }
     changed: list[str] = []
     assignments: list[dict] = []
     value_sources = {
@@ -1403,10 +1436,20 @@ def _apply_update(
             continue
         column = assignment.this.name
         changed.append(column)
+        value_unresolved: list[str] = []
         expression_sources = _expression_field_sources(
             assignment.expression,
             target_table=table,
+            states=states,
+            unresolved=value_unresolved,
         )
+        if condition_unresolved or value_unresolved:
+            # The condition decides which rows take this value; either way this column's
+            # trace has a source nobody could name.
+            column_missing_reasons[column] = list(dict.fromkeys([
+                *column_missing_reasons.get(column, []), _ROW_CONDITION_UNRESOLVED,
+            ]))
+            unresolved.extend(name for name in value_unresolved if name not in unresolved)
         value_sources[column] = _dedupe_dicts([
             *value_sources.get(
                 column,
@@ -1441,8 +1484,10 @@ def _apply_update(
         value_condition_sources=value_conditions,
         columns_known=previous.columns_known,
         missing_reasons=previous.missing_reasons,
-        column_missing_reasons=previous.column_missing_reasons,
+        column_missing_reasons=column_missing_reasons,
     )
+    if unresolved:
+        gaps.append(_row_condition_gap(statement["statement_id"], table, unresolved))
     statement.update({
         "model_status": "modeled",
         "target_table": table,
@@ -1976,12 +2021,19 @@ def _expression_field_sources(
     expression: exp.Expression | None,
     *,
     target_table: str,
+    states: "_StateBuilder | None" = None,
+    unresolved: list[str] | None = None,
 ) -> list[dict]:
     """Physical fields a predicate reads, resolved from the expression alone.
 
     There is deliberately no alias-map parameter: mapping a statement's aliases to
     tables here is guesswork, and MERGE — the one caller that needed it — now resolves
     its aliases through the built scopes instead (MERGE-CTE-002).
+
+    A bare column in a query over several tables is bound by the schema when exactly one
+    of them has it and every other is known not to. Otherwise it is published as
+    ``UNKNOWN`` and its name added to ``unresolved``, so the caller can report the gap
+    and mark the row incomplete rather than pass the placeholder off as traced (WP3q).
     """
     if expression is None:
         return []
@@ -2007,9 +2059,51 @@ def _expression_field_sources(
             elif len(direct_tables) == 1:
                 table = _table_name(direct_tables[0])
             else:
-                table = "UNKNOWN"
+                table = _sole_table_with_column(direct_tables, column.name, states)
+                if table == "UNKNOWN" and unresolved is not None and column.name not in unresolved:
+                    unresolved.append(column.name)
         sources.append({"table": table, "column": column.name})
     return _dedupe_dicts(sources)
+
+
+def _sole_table_with_column(
+    tables: list[exp.Table], column: str, states: "_StateBuilder | None",
+) -> str:
+    """The one table known to have ``column`` while every other is known not to, else
+    ``UNKNOWN``."""
+    owners = []
+    for table in tables:
+        columns = _known_table_columns(_table_name(table), states)
+        if columns is None:
+            return "UNKNOWN"
+        if column.lower() in columns:
+            owners.append(_table_name(table))
+    return owners[0] if len(owners) == 1 else "UNKNOWN"
+
+
+def _known_table_columns(table: str, states: "_StateBuilder | None") -> set[str] | None:
+    if states is None or not table:
+        return None
+    state = states.current_by_table.get(table)
+    if state is not None and state.columns_known:
+        return {name.lower() for name in state.value_sources}
+    columns = states.schema_provider.get_columns(table)
+    return {name.lower() for name in columns} if columns is not None else None
+
+
+_ROW_CONDITION_UNRESOLVED = "row_condition_source_unresolved"
+
+
+def _row_condition_gap(statement_id: str, table: str, columns: list[str]) -> dict:
+    return {
+        "gap_type": _ROW_CONDITION_UNRESOLVED,
+        "statement_id": statement_id,
+        "target_table": table,
+        "column": columns[0] if len(columns) == 1 else None,
+        "columns": list(columns),
+        "root_impact": True,
+        "needed_fact": "which source table owns an unqualified predicate column",
+    }
 
 
 def _merge_condition_expressions(
@@ -2043,7 +2137,8 @@ def _merge_condition_sources(
     result: ScopeLineageResult,
     statement_id: str,
     gaps: list[dict],
-    states: _StateBuilder | None = None,
+    states: "_StateBuilder | None" = None,
+    unresolved: list[str] | None = None,
 ) -> list[dict]:
     """Row-membership sources for a MERGE, resolved through Core's scope facts.
 
@@ -2076,9 +2171,9 @@ def _merge_condition_sources(
             if column.find_ancestor(exp.Select) is not None:
                 # A column inside a nested query belongs to that query's own sources,
                 # not to either MERGE alias.
-                sources.extend(
-                    _expression_field_sources(column, target_table=target_table)
-                )
+                sources.extend(_expression_field_sources(
+                    column, target_table=target_table, states=states, unresolved=unresolved,
+                ))
                 continue
             qualifier = column.table.lower()
             if not qualifier or qualifier == target_alias:

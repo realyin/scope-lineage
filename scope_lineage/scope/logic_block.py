@@ -1115,3 +1115,82 @@ def _filter_subtype(scope_filter) -> str | None:
     if "test" in normalized:
         return "test_data_filter"
     return None
+
+
+def _populate_merge_root_logic_blocks(result: ScopeLineageResult) -> None:
+    """Filter blocks for a MERGE's WHEN conditions (1.13-j).
+
+    A MERGE ROOT has no sqlglot scope, so ``_populate_logic_blocks`` never reaches it.
+    The conditions were resolved with the MERGE (each reference keeps its qualifier);
+    here they are only laid out as blocks, split into conjuncts from their own text.
+
+    The ON condition is recorded in ``joins`` (which gives ROOT its edge to the USING
+    relation) but gets no ``join`` block: a ROOT join block is read downstream as a
+    SELECT join -- the joined side's rows fanning out the FROM item's -- while a MERGE's
+    ON is a match against the write target, which ``merge_spec`` already describes.
+    """
+    if result.stmt_kind != "MERGE" or "ROOT" not in result.scopes:
+        return
+    root = result.scopes["ROOT"]
+    if root.logic_blocks:
+        return
+    for index, scope_filter in enumerate(root.filters, start=1):
+        root.logic_blocks.append(_merge_filter_block(scope_filter, index))
+
+
+def _merge_conjuncts(
+    expression: str | None, refs: list[SourceRef],
+) -> list[tuple[exp.Expression, list[SourceRef]]]:
+    tree = sqlglot.parse_one(expression, dialect=DIALECT, **PARSE_OPTS) if expression else None
+    if tree is None:
+        return []
+    conjuncts = []
+    for conjunct in _split_conjuncts(tree):
+        own: list[SourceRef] = []
+        for column in conjunct.find_all(exp.Column):
+            qualifier = (column.table or "").lower()
+            own.extend(
+                ref for ref in refs
+                if ref.column.lower() == column.name.lower()
+                and (ref.qualifier or "").lower() == qualifier
+                and not any(ref is seen for seen in own)
+            )
+        conjuncts.append((conjunct, own))
+    return conjuncts
+
+
+_PARTITION_FIELD_NAMES = frozenset({"dt", "ds", "pt", "bizdate", "biz_date"})
+
+
+def _merge_filter_block(scope_filter, index: int) -> ScopeLogicBlock:
+    logic_block_id = _logic_block_id("ROOT", "filter", index)
+    expression = scope_filter.expression
+    field_names = {ref.column.lower() for ref in scope_filter.columns}
+    detail = {
+        "predicate_type": "merge_when",
+        "expression": expression,
+        "fields": [_source_ref_to_dict(ref) for ref in scope_filter.columns],
+        "conjuncts": [
+            {
+                "expression": conjunct.sql(dialect=DIALECT),
+                "fields": [_source_ref_to_dict(ref) for ref in refs],
+            }
+            for conjunct, refs in _merge_conjuncts(expression, scope_filter.columns)
+        ],
+        "subquery_dependencies": [],
+        "is_partition_filter": bool(field_names) and field_names <= _PARTITION_FIELD_NAMES,
+        "has_partition_predicate": bool(field_names & _PARTITION_FIELD_NAMES),
+    }
+    return ScopeLogicBlock(
+        logic_block_id=logic_block_id,
+        logic_type="filter",
+        raw_expression=expression,
+        normalized_expression=_normalize_expression(expression),
+        fingerprint=_fingerprint("filter", expression),
+        subtype=_filter_subtype(scope_filter),
+        fields=list(scope_filter.columns),
+        input_sources=_source_ids_from_refs(scope_filter.columns),
+        field_usage=_field_usage_from_refs(scope_filter.columns, logic_block_id=logic_block_id),
+        filter_predicate_detail=detail,
+        comments=comments_in_sql(expression),
+    )

@@ -29,8 +29,8 @@
   "statement_diagnostics": {
     "stmt:001": {
       "stats": {
-        "scope_count": 5,
-        "physical_table_count": 2,
+        "scope_count": 6,
+        "physical_table_count": 3,
         "cte_count": 1,
         "subquery_count": 1,
         "union_count": 0,
@@ -38,7 +38,7 @@
         "max_depth": 3,
         "case_when_count": 0,
         "window_function_count": 0,
-        "join_count": 1,
+        "join_count": 2,
         "aggregate_function_count": 0
       },
       "warnings": [],

@@ -589,6 +589,14 @@ USING 关系并未输出的列，以及条件使用了既非目标别名也非 U
 USING 列不对应任何名字，也不是缺口。该缺口
 root_impact=true，因此会令 analysis_status=partial 并使 strict 门禁返回非零。
 
+DELETE、UPDATE 或 MERGE 的条件里，子查询读多张表时，未限定的列先按 schema 判断归属：恰好一张表
+有这一列、其余表都已知没有时，就记到那张表上。判断不了（几张表都有，或有表缺元数据）时，来源仍写成
+`{"table": "UNKNOWN", ...}`，同时记录 row_condition_source_unresolved，字段为 statement_id、
+target_table、column（只有一列时）、columns、root_impact=true 和 needed_fact；受影响的行
+`trace_complete` 为 false，missing_reasons 里有 row_condition_source_unresolved。受影响的范围：
+DELETE 与 MERGE 条件影响目标表全部列；UPDATE 的条件只影响被赋值的列；之后的追加写（INSERT INTO、
+MERGE）沿用这些行成员来源时，也沿用这条原因。
+
 diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、schema 来源数以及元数据冲突。
 --schema-fallback 只补 --schema 中缺失的表；同表定义不一致时保留权威来源并报告冲突。
 
