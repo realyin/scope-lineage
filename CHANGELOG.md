@@ -736,6 +736,14 @@
   sentence rather than as a `filter`. Readers of row filters (equality pins, first-row
   filters, not-null constraints, metric-path filters, the packet's business-date filter)
   skip it. Not Breaking: the WHEN blocks are new since 0.13.0.
+- **The scope profile reads a MERGE WHEN condition as a branch condition too.** In
+  `lineage.json`'s `scope_profile`, a MERGE ROOT counted its `WHEN ... AND <condition>`
+  conditions as `filter`: `operations` listed `filter`, `business_summary` said
+  「按过滤条件保留记录」 (also printed as mapping.md's 概要) and `logic.filters` listed them.
+  They are now the operation `merge_when`, the summary says 「按 WHEN 条件选择写入分支」, and
+  `logic` lists them under the new key `merge_when_conditions` (absent when there are
+  none); `logic.filters` keeps only row filters. mapping.md reads the new key and still
+  recognises the old layout. Not Breaking: the WHEN conditions are new since 0.13.0.
 - **`output_shape` names the set operation of a `union_merge`.** `semantic.json` gains the
   optional `output_shape.set_op` (`UNION_ALL`, `UNION`, `EXCEPT`, `INTERSECT`) when the
   shape is `union_merge`, so a reader of the JSON can tell a difference or an intersection

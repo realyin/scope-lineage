@@ -857,12 +857,12 @@ Each item of `scope_profile.steps[]` contains:
 | Key | Meaning |
 | --- | --- |
 | `scope_id` / `name` / `kind` / `role` | Query-block identity and structural role. |
-| `operations[]` | The operations that occur in this scope, such as `join`, `filter`, `aggregate`, `window`. |
+| `operations[]` | The operations that occur in this scope, such as `join`, `filter`, `aggregate`, `window`. On a MERGE ROOT the `WHEN ... AND <condition>` conditions are `merge_when`, not `filter`: they choose the branch a source row takes and drop no rows. |
 | `direct_inputs[]` | The scopes or physical tables that are direct inputs. |
 | `direct_source_tables[]` | The physical tables this scope reads directly. |
 | `physical_source_tables[]` | Every physical table involved after passing through upstream scopes. Both lists apply one test: a name that is not a scope of the statement is a table, qualified or bare; in a task document, a temporary view or cached relation an earlier statement of the same script defined is a session relation and is in neither list (it stays in `direct_inputs`). |
 | `output_columns` | The number of output fields. |
-| `logic` | A concise structure of joins, filters, aggregations, window functions, CASE, DISTINCT, UNION, and so on. |
+| `logic` | A concise structure of joins, filters, aggregations, window functions, CASE, DISTINCT, UNION, and so on. A MERGE ROOT lists its WHEN conditions under `merge_when_conditions` (absent when it has none), never under `filters`. |
 | `business_summary` | A deterministic summary generated from structural templates; it must not be taken as a complete business definition. |
 
 For RAG, index `scope_profile` and `end_to_end_lineage` first, and load the full `scopes` only

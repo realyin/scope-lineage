@@ -993,9 +993,13 @@ def _render_logic(document: dict) -> list[str]:
             physical = "、".join(physical_tables) or "—"
             lines.append(f"- 输入：{inputs}；物理上游：{physical}")
         logic = step.get("logic") or {}
+        # Core lists a MERGE's WHEN conditions under `merge_when_conditions`; a document
+        # written before that key listed them under `filters`, recognised by their block.
         whens = _merge_when_expressions(document, str(step.get("scope_id")))
         filters = [cond for cond in logic.get("filters") or [] if cond not in whens]
-        branch_conditions = [cond for cond in logic.get("filters") or [] if cond in whens]
+        branch_conditions = list(logic.get("merge_when_conditions") or []) or [
+            cond for cond in logic.get("filters") or [] if cond in whens
+        ]
         stats = (
             f"- 逻辑：join {len(logic.get('joins') or [])}、"
             f"filter {len(filters)}、"

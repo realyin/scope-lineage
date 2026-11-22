@@ -76,14 +76,17 @@ def _scope_step(
     scope_id: str,
     scope_data: ScopeData,
 ) -> dict[str, Any]:
-    operations = _operations(scope_data)
+    # On a MERGE ROOT every recorded filter is a `WHEN ... AND <condition>`: it picks the
+    # branch a source row takes (delete / update / insert), it does not drop rows.
+    merge_when = scope_id == "ROOT" and bool(result.merge_spec)
+    operations = _operations(scope_data, merge_when=merge_when)
     direct_tables = _direct_source_tables(result, scope_data)
     physical_tables = _physical_source_tables(result, scope_id)
     return {
         "scope_id": scope_id,
         "name": _display_name(scope_id, scope_data),
         "kind": scope_data.kind,
-        "role": _profile_role(scope_data),
+        "role": _profile_role(scope_data, merge_when=merge_when),
         "operations": operations,
         "business_summary": _business_summary(
             list(scope_data.depends_on),
@@ -99,7 +102,8 @@ def _scope_step(
         "output_columns": len(scope_data.columns),
         "logic": {
             "joins": [_join_summary(j) for j in scope_data.joins],
-            "filters": _filter_expressions(scope_data),
+            "filters": _filter_expressions(scope_data, merge_when=merge_when),
+            **_merge_when_logic(scope_data, merge_when=merge_when),
             "aggregations": [_column_logic(c) for c in scope_data.columns if c.transform == "AGGREGATE"],
             "window_functions": [_column_logic(c) for c in scope_data.columns if c.transform == "WINDOW"],
             "case_when": [_column_logic(c) for c in scope_data.columns if c.transform == "CONDITIONAL"],
@@ -111,10 +115,10 @@ def _scope_step(
     }
 
 
-def _profile_role(scope_data: ScopeData) -> str:
+def _profile_role(scope_data: ScopeData, *, merge_when: bool = False) -> str:
     if scope_data.distinct and scope_data.role == "pass_through":
         return "dedup"
-    return scope_data.role or _fallback_role(scope_data)
+    return scope_data.role or _fallback_role(scope_data, merge_when=merge_when)
 
 
 def _display_name(scope_id: str, scope_data: ScopeData) -> str:
@@ -127,7 +131,7 @@ def _display_name(scope_id: str, scope_data: ScopeData) -> str:
     return scope_id
 
 
-def _fallback_role(scope_data: ScopeData) -> str:
+def _fallback_role(scope_data: ScopeData, *, merge_when: bool = False) -> str:
     if scope_data.kind in ("union", "union_branch"):
         return scope_data.kind
     # C1: without the scope graph this branch cannot see whether a predicate pins the
@@ -139,7 +143,7 @@ def _fallback_role(scope_data: ScopeData) -> str:
         return "aggregate"
     if scope_data.joins:
         return "join"
-    if scope_data.filters or scope_data.qualify:
+    if _row_filters(scope_data, merge_when) or scope_data.qualify:
         return "filter"
     if scope_data.distinct:
         return "dedup"
@@ -148,7 +152,7 @@ def _fallback_role(scope_data: ScopeData) -> str:
     return "transform"
 
 
-def _operations(scope_data: ScopeData) -> list[str]:
+def _operations(scope_data: ScopeData, *, merge_when: bool = False) -> list[str]:
     operations: list[str] = []
     if scope_data.kind in ("union", "union_branch") or scope_data.set_op:
         operations.append("union")
@@ -158,8 +162,10 @@ def _operations(scope_data: ScopeData) -> list[str]:
         operations.append("lateral_view")
     if scope_data.joins:
         operations.append("join")
-    if scope_data.filters or scope_data.having or scope_data.qualify:
+    if _row_filters(scope_data, merge_when) or scope_data.having or scope_data.qualify:
         operations.append("filter")
+    if merge_when and scope_data.filters:
+        operations.append("merge_when")
     if any(c.transform == "AGGREGATE" for c in scope_data.columns) or scope_data.group_by:
         operations.append("aggregate")
     if any(c.transform == "WINDOW" for c in scope_data.columns):
@@ -200,6 +206,8 @@ def _business_summary(
         parts.append(f"关联 {join_count} 个上游")
     if "filter" in operations:
         parts.append("按过滤条件保留记录")
+    if "merge_when" in operations:
+        parts.append("按 WHEN 条件选择写入分支")
     if "aggregate" in operations:
         parts.append("聚合生成指标")
     if "window" in operations:
@@ -222,8 +230,18 @@ def _business_summary(
     return "；".join(parts)
 
 
-def _filter_expressions(scope_data: ScopeData) -> list[str]:
-    return [f.expression for f in scope_data.filters] + [
+def _row_filters(scope_data: ScopeData, merge_when: bool) -> list:
+    return [] if merge_when else list(scope_data.filters)
+
+
+def _merge_when_logic(scope_data: ScopeData, *, merge_when: bool) -> dict[str, list[str]]:
+    if not (merge_when and scope_data.filters):
+        return {}
+    return {"merge_when_conditions": [f.expression for f in scope_data.filters]}
+
+
+def _filter_expressions(scope_data: ScopeData, *, merge_when: bool = False) -> list[str]:
+    return [f.expression for f in _row_filters(scope_data, merge_when)] + [
         f"HAVING {h.expression}" for h in scope_data.having
     ] + [q.expression for q in scope_data.qualify]
 

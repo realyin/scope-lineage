@@ -791,12 +791,12 @@ additive 且**带标记**的——被补丁写过的列多一个 `comment_source
 | Key | 含义 |
 | --- | --- |
 | `scope_id` / `name` / `kind` / `role` | 查询块身份和结构角色。 |
-| `operations[]` | 该 scope 出现的操作，如 `join`、`filter`、`aggregate`、`window`。 |
+| `operations[]` | 该 scope 出现的操作，如 `join`、`filter`、`aggregate`、`window`。MERGE ROOT 上的 `WHEN ... AND <条件>` 记为 `merge_when` 而不是 `filter`：它们决定源行走哪个分支，不删行。 |
 | `direct_inputs[]` | 直接输入的 scope 或物理表。 |
 | `direct_source_tables[]` | 当前 scope 直接读取的物理表。 |
 | `physical_source_tables[]` | 穿透上游 scope 后涉及的全部物理表。两个列表用同一个判定：不是本语句 scope 的名字就是表，带不带库名都算；在任务级文档里，同一脚本中更早的语句定义的临时视图或缓存关系是会话关系，两个列表都不收（它仍在 `direct_inputs` 里）。 |
 | `output_columns` | 输出字段数。 |
-| `logic` | joins、filters、aggregations、window functions、CASE、DISTINCT、UNION 等简明结构。 |
+| `logic` | joins、filters、aggregations、window functions、CASE、DISTINCT、UNION 等简明结构。MERGE ROOT 的 WHEN 条件列在 `merge_when_conditions` 下（没有时不发该键），不进 `filters`。 |
 | `business_summary` | 基于结构模板生成的确定性摘要；不应当作完整业务定义。 |
 
 用于 RAG 时，可以先索引 `scope_profile` 和 `end_to_end_lineage`；只有命中任务后再加载完整 `scopes`，减少上下文体积。
