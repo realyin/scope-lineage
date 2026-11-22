@@ -191,13 +191,22 @@ def _window_specification_for_column(scope_data: ScopeData, column) -> dict[str,
 
     partition_refs = [_window_ref_to_source_ref(ref) for ref in window_info.get("partition_by") or []]
     order_refs = [_window_ref_to_source_ref(ref) for ref in window_info.get("order_by") or []]
+    item_refs = column.window_item_refs or {}
 
     return {
         "window_function": _window_function_name(expression),
         "output_field": column.name,
         "expression_sql": expression,
-        "partition_by": _window_expression_items(scope_data, partition_exprs, partition_refs),
-        "order_by": _window_expression_items(scope_data, order_exprs, order_refs, include_direction=True),
+        "partition_by": _window_expression_items(
+            scope_data, partition_exprs, partition_refs, grouped_refs=item_refs.get("partition_by")
+        ),
+        "order_by": _window_expression_items(
+            scope_data,
+            order_exprs,
+            order_refs,
+            grouped_refs=item_refs.get("order_by"),
+            include_direction=True,
+        ),
         "filter_after_window": [],
         "trace_status": "complete" if parsed_window is not None else "expression_only",
     }
@@ -244,15 +253,13 @@ def _window_expression_items(
     expressions: list[exp.Expression],
     refs: list[SourceRef | None],
     *,
+    grouped_refs: list[list] | None = None,
     include_direction: bool = False,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
-    ref_offset = 0
-    for index, expression in enumerate(expressions):
+    per_item = _refs_per_item(expressions, refs, grouped_refs)
+    for expression, item_refs in zip(expressions, per_item):
         inner = expression.this if isinstance(expression, exp.Ordered) else expression
-        ref_count = max(1, len(list(inner.find_all(exp.Column))))
-        item_refs = [ref for ref in refs[ref_offset: ref_offset + ref_count] if ref is not None]
-        ref_offset += ref_count
         item: dict[str, object] = {
             "expression_sql": inner.sql(dialect=DIALECT),
             "source_fields": [_source_ref_to_dict(ref) for ref in item_refs],
@@ -295,6 +302,34 @@ def _window_expression_items(
     ]
 
 
+def _refs_per_item(
+    expressions: list[exp.Expression],
+    refs: list[SourceRef | None],
+    grouped_refs: list[list] | None,
+) -> list[list[SourceRef]]:
+    """Each item's own references.
+
+    The resolver's per-item groups are the answer when they line up with the items. The
+    flat ``refs`` cannot be cut back into items by counting each item's columns: GROUP BY
+    references are de-duplicated across items, an item's repeated column is listed once,
+    and a constant item has none, so counting handed one item's columns to its neighbour
+    (WP4 1.11). Counting is kept only for a column built without the groups.
+    """
+    if grouped_refs is not None and len(grouped_refs) == len(expressions):
+        return [
+            [ref for ref in (_window_ref_to_source_ref(item) for item in group) if ref is not None]
+            for group in grouped_refs
+        ]
+    per_item: list[list[SourceRef]] = []
+    ref_offset = 0
+    for expression in expressions:
+        inner = expression.this if isinstance(expression, exp.Ordered) else expression
+        ref_count = max(1, len(list(inner.find_all(exp.Column))))
+        per_item.append([ref for ref in refs[ref_offset: ref_offset + ref_count] if ref is not None])
+        ref_offset += ref_count
+    return per_item
+
+
 def _aggregation_detail_for_scope(
     scope_id: str,
     scope_data: ScopeData,
@@ -329,7 +364,12 @@ def _aggregation_detail_for_scope(
 
 
 def _aggregation_group_by_items(scope_data: ScopeData, group_expressions: list[exp.Expression]) -> list[dict[str, object]]:
-    items = _window_expression_items(scope_data, group_expressions, list(scope_data.group_by))
+    items = _window_expression_items(
+        scope_data,
+        group_expressions,
+        list(scope_data.group_by),
+        grouped_refs=scope_data.group_by_item_refs or None,
+    )
     for index, item in enumerate(items):
         ordinal_fact: dict[str, object] = {}
         expression_sql = str(item.get("expression_sql") or "")

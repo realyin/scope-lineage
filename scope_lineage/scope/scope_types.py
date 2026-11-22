@@ -58,6 +58,10 @@ class ScopeColumn:
     # Optional fields by transform type:
     case_branches: Optional[List[dict]] = None      # CONDITIONAL
     window: Optional[dict] = None                     # WINDOW
+    # Internal, not serialized: `window["partition_by"]` / `window["order_by"]` entries
+    # kept per PARTITION BY / ORDER BY item, in item order, so a logic block need not cut
+    # the flat lists back into items by counting columns (WP4 1.11).
+    window_item_refs: Optional[Dict[str, List[list]]] = None
     agg_function: Optional[str] = None                # AGGREGATE
     branches: Optional[List[dict]] = None             # UNION
     merge_branch: Optional[str] = None                # MERGE: "matched"|"not_matched"
@@ -241,6 +245,10 @@ class ScopeData:
     joins: List[ScopeJoin] = field(default_factory=list)
     filters: List[ScopeFilter] = field(default_factory=list)
     group_by: List[SourceRef] = field(default_factory=list)
+    # Internal, not serialized: `group_by`'s references kept per GROUP BY item, in item
+    # order. `group_by` is de-duplicated across items, so it cannot be cut back into items;
+    # the logic block's per-item `source_fields` read this instead (WP4 1.11).
+    group_by_item_refs: List[List[SourceRef]] = field(default_factory=list)
     having: List[ScopeFilter] = field(default_factory=list)
     order_by: List[dict] = field(default_factory=list)
     lateral_views: List[dict] = field(default_factory=list)

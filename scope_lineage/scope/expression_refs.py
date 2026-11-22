@@ -11,6 +11,7 @@ import sqlglot
 from sqlglot import exp
 
 from ._constants import DIALECT, PARSE_OPTS
+from .sql_text_spans import blank_comments, blank_string_literals
 
 # Patterns here are built from identifier names, so their number grows with the statement's
 # column count rather than with the code. Python's own re cache holds 512 entries, and a
@@ -48,8 +49,8 @@ def _qualified_field_refs(expression_sql: str) -> list[tuple[str, str]]:
 
 
 def _qualified_field_refs_uncached(expression_sql: str) -> list[tuple[str, str]]:
-    expression_sql = _strip_sql_comments(expression_sql or "")
-    scan_sql = _strip_sql_string_literals(expression_sql)
+    expression_sql = blank_comments(expression_sql or "")
+    scan_sql = blank_string_literals(expression_sql)
     lambda_qualifiers = _lambda_qualifiers(scan_sql)
     # Keep string literals for the AST parse. Replacing them with blanks can make otherwise
     # valid calls (for example named_struct('x', c.value)) malformed, and newer sqlglot
@@ -171,10 +172,3 @@ def _lambda_qualifiers(expression_sql: str) -> set[str]:
             if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
                 qualifiers.add(name)
     return qualifiers
-
-def _strip_sql_string_literals(expression_sql: str) -> str:
-    return re.sub(r"'(?:''|\\'|[^'])*'", " ", expression_sql or "")
-
-def _strip_sql_comments(expression_sql: str) -> str:
-    without_block_comments = re.sub(r"/\*.*?\*/", " ", expression_sql or "", flags=re.DOTALL)
-    return re.sub(r"--[^\n\r]*", " ", without_block_comments)

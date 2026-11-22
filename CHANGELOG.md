@@ -171,6 +171,33 @@
   question goes to a sub-agent and the main conversation keeps a brief of at most 5 KB.
   `references/catalog-questions.md` keeps the `catalog query` lookups and the seven reporting
   rules and points to the walk for SQL.
+- **`expression_features.functions` / `has_udf`: a CAST type or a comment is not a call.**
+  `CAST(x AS DECIMAL(18, 2))` published `decimal` as a function, and a block comment kept inside
+  an expression (`/* note(x) */`) published `note`; neither is in the function catalog, so an
+  ordinary CAST or a commented expression was marked a UDF black box. Literals and comments are
+  now skipped by one shared splitter (`scope/sql_text_spans.py`), and a name written where a type
+  goes (after `AS` or `::`) is not collected; `char(65)` called as a function still is.
+- **Text rewrites leave string literals and comments alone.** Expansion rewrote a reference
+  inside a literal or comment (`CONCAT('see c.v now', c.v)` published `'see (amt * 2) now'` in
+  `expanded_expression`), the qualify-fallback substitution did the same to unqualified names,
+  keyword repair quoted a word inside a literal (`'no using here'` became ``'no `using` here'``
+  in `expression`), and a literal ending in a backslash (`'\\'`) hid the reference after it, so
+  `expanded_expression` dropped the call around it or kept a local alias. All of these now go
+  through the shared splitter. `display_expression` no longer drops a struct field named like the
+  table alias (`u.profile.u.name` displays as `` `profile`.`u`.`name` ``).
+- **`expanded_expression` keeps operator precedence.** An upstream expression substituted into
+  a later one was left unwrapped when it merely started with `(` and ended with `)`:
+  `(x + 1) + COALESCE(y, 0)` substituted into `v * 10` published
+  `(x + 1) + COALESCE(y, 0) * 10`. It is now left unwrapped only when its first `(` is the one
+  its last `)` closes.
+- **Each GROUP BY / PARTITION BY / ORDER BY key carries its own `source_fields`.** The per-item
+  fields of `aggregation_detail.group_by_items` and `window_specification.partition_by` /
+  `order_by` were cut from the clause's flat reference list by counting columns, which the list's
+  de-duplication does not preserve: `GROUP BY 'c', a.y` gave the constant `y` and left `a.y`
+  with no field. Each item now takes the references resolved for it.
+- **`magic_number` no longer warns about a type's precision.** `CAST(x AS DECIMAL(18, 2))` was
+  warned about the literal `18`; a literal inside a type's parameters is now skipped, and a value
+  literal in the same expression is still warned about.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
