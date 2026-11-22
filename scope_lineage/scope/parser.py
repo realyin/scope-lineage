@@ -19,7 +19,8 @@ from sqlglot import ErrorLevel
 from sqlglot import exp
 
 from ..sqlglot_config import suppress_invalid_json_path_warnings
-from ..metadata.schema_metadata import load_schema as load_schema, normalize_table_name as _schema_normalize_table_name, strip_catalog_prefix as _strip_catalog_prefix
+from ..metadata.schema_metadata import load_schema as load_schema, normalize_table_name as _schema_normalize_table_name, schema_table_key
+from ..table_identity import canonical_table_name
 from .sql_text_spans import SQL_LITERAL_OR_COMMENT
 
 
@@ -71,17 +72,24 @@ def _qualified_table(t: exp.Table) -> str:
     if db is not None:
         parts.append(_name_part(db))
     parts.append(_name_part(t.this) if isinstance(t.this, exp.Parameter) else t.name)
-    # Drop a leading known-catalog segment so a physical table has ONE identity
-    # in lineage.json whether the SQL wrote catalog.db.table or db.table. Without
-    # this the same table appears under two forms (duplicate source_tables, split
-    # column lineage). Vocabulary-conditioned: only known catalogs are stripped,
-    # so db.table stays intact.
-    return _strip_catalog_prefix(".".join(parts))
+    # The table identity's one spelling (WP5): lower case, and a leading catalog dropped
+    # when it is a configured one, so a physical table has ONE identity in lineage.json
+    # whether the SQL wrote catalog.db.table or db.table. Vocabulary-conditioned: only
+    # configured catalogs are stripped, so db.table stays intact. Lower-casing matters
+    # for the *target*: qualify lower-cases the tables a query reads, but nothing
+    # normalized the one it writes, so ``SPARK_CATALOG.mart.y`` kept its catalog and
+    # ``MART.Y`` and ``mart.y`` were two table states.
+    return canonical_table_name(".".join(parts))
 
 
 def _normalize_table_name(name: str) -> str:
     """Normalize table names for schema lookup."""
     return _schema_normalize_table_name(name)
+
+
+def _schema_key(schema, name: str) -> str:
+    """The key ``schema`` holds ``name`` under (the identity's suffix rule), else its name."""
+    return schema_table_key(schema, name) if schema is not None else _normalize_table_name(name)
 
 
 # -- display-expression resolution ---------------------------------------

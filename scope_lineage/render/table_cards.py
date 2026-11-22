@@ -36,6 +36,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
+from .. import table_identity as _identity
 from . import claims
 from .markdown_text import cell, expr_span, normalize_inline
 from .semantic_profile import (
@@ -252,31 +253,10 @@ class _Statement:
 # ------------------------------------------------------------------ name normalization
 
 
-def same_table(left: str, right: str) -> bool:
-    """The corpus-wide identity rule: a dotted suffix of the other name is the same table.
-
-    One corpus records ``dwd.t`` in a hive-style read and ``catalog.dwd.t`` at the
-    iceberg writer. Mirrors ``skills/scope-lineage/scripts/query.py::_same_table``; the
-    helper is re-implemented here because a packaged module may not import a script.
-    """
-    return left == right or left.endswith("." + right) or right.endswith("." + left)
-
-
-def table_key(name) -> str:
-    """Q6: the bucket one table spelling can ever be grouped in -- its last segment.
-
-    ``same_table`` only holds between names that end in the same unqualified name: the
-    rule is equality or "a dotted suffix of the other", and a dotted suffix ends where
-    the other name ends. So the grouping below never crosses two last segments, and a
-    caller that wants *the cards that could be this table* can select on this key alone
-    -- one dictionary lookup instead of a scan of every spelling in the corpus.
-
-    That is what makes a narrowed merge exact rather than approximate: taking the whole
-    bucket of every name a corpus asked for yields, for those buckets, the very groups
-    the full merge would have published -- including the bare name that stays ambiguous
-    because two qualified tables in the same bucket could be it.
-    """
-    return str(name or "").rpartition(".")[2]
+# The identity rule itself lives in ``scope_lineage.table_identity`` (audit WP5), which
+# every layer calls; the names below are this module's long-standing spellings of it.
+same_table = _identity.same_table
+table_key = _identity.table_bucket
 
 
 def table_groups(names: Iterable[str]) -> dict[str, list[str]]:
@@ -286,52 +266,30 @@ def table_groups(names: Iterable[str]) -> dict[str, list[str]]:
 
 
 def ambiguous_bare_names(names: Iterable[str]) -> set[str]:
-    """The unqualified names more than one qualified table in the corpus could be."""
+    """The less qualified names more than one table in the corpus could be.
+
+    Historically only a bare (one-segment) name could be ambiguous; since WP5 an
+    ``ods.t`` beside ``cat1.ods.t`` and ``cat2.ods.t`` is one too. The card finding keeps
+    its name, ``ambiguous_bare_name``.
+    """
     _groups, ambiguous = _group_spellings(names)
     return ambiguous
 
 
 def _group_spellings(names: Iterable[str]) -> tuple[list[list[str]], set[str]]:
-    """``(groups, ambiguous bare names)`` -- the suffix rule, with its one stop.
+    """``(groups, ambiguous names)`` -- :func:`scope_lineage.table_identity.group_spellings`.
 
-    Merging is transitive **between qualified names**: ``dwd.t`` and ``catalog.dwd.t``
-    are one table however many spellings sit between them. An unqualified name is not
-    allowed to be the bridge. ``ods.t`` and ``dwd.t`` are two tables, and a script that
-    once wrote a bare ``t`` used to merge them into one card -- publishing one table's
-    producer as the other's, which is the single worst thing a card can say.
-
-    A bare name is therefore resolved, not assumed: it joins the one qualified group it
-    could be, and when several could be it stays its own table and the card says so
+    A less qualified name is resolved, not assumed: it joins the one group it could be,
+    and when several could be it stays its own table and the card says so
     (``ambiguous_bare_name``). Silently picking one would be a guess at which warehouse
-    database the author meant, and this module does not guess.
+    database (or catalog) the author meant, and this module does not guess. Spellings
+    are normalized first (quotes, case, a configured catalog), so ``ODS.Orders`` written
+    by one task and ``ods.orders`` read by another are one card.
     """
-    ordered = sorted({str(name) for name in names})
-    groups: list[list[str]] = []
-    for name in [item for item in ordered if "." in item]:
-        merged = [name]
-        for group in list(groups):
-            if any(same_table(name, member) for member in group):
-                merged.extend(group)
-                groups.remove(group)
-        groups.append(sorted(set(merged)))
-    ambiguous: set[str] = set()
-    for name in [item for item in ordered if "." not in item]:
-        hosts = [
-            group for group in groups if any(same_table(name, item) for item in group)
-        ]
-        if len(hosts) == 1:
-            hosts[0].append(name)
-            hosts[0].sort()
-            continue
-        if hosts:
-            ambiguous.add(name)
-        groups.append([name])
-    return groups, ambiguous
+    return _identity.group_spellings(_identity.canonical_table_name(name) for name in names)
 
 
-def _primary_name(group: Sequence[str]) -> str:
-    """The most qualified spelling; ties break by name so the choice cannot drift."""
-    return min(group, key=lambda name: (-len(name), name))
+_primary_name = _identity.primary_name
 
 
 def table_card_filename(table: str) -> str:
@@ -430,9 +388,11 @@ def build_table_cards(
     consumed: dict[str, list[tuple[_Statement, dict]]] = {}
     for record in records:
         if record.target:
-            produced.setdefault(record.target, []).append(record)
+            produced.setdefault(_identity.canonical_table_name(record.target), []).append(record)
         for item in _consumed_inputs(record):
-            consumed.setdefault(str(item.get("table") or ""), []).append((record, item))
+            consumed.setdefault(
+                _identity.canonical_table_name(item.get("table")), []
+            ).append((record, item))
     grouped, ambiguous = _group_spellings([*produced, *consumed])
     groups = {_primary_name(group): group for group in grouped}
     tables = [
@@ -1385,20 +1345,8 @@ def _card_index(cards: dict) -> list[dict]:
 
 
 def _lookup(index: Sequence[dict], table: str) -> dict | None:
-    """The card for ``table``: an exact spelling first, else the one suffix match (WP2d).
-
-    A suffix match that hits several cards -- a bare name two qualified tables could be
-    -- finds none rather than the first in sort order.
-    """
-    for card in index:
-        if table in [card["table"], *card["aliases"]]:
-            return card
-    found = [
-        card
-        for card in index
-        if any(same_table(table, name) for name in [card["table"], *card["aliases"]])
-    ]
-    return found[0] if len(found) == 1 else None
+    """The card for ``table``: :func:`scope_lineage.table_identity.find_card` (WP2d, WP5)."""
+    return _identity.find_card(index, table)
 
 
 def _apply_statement(profile: dict, index: Sequence[dict]) -> dict:

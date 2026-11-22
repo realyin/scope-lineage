@@ -49,6 +49,7 @@ from typing import Iterable, Mapping, NamedTuple, Sequence
 
 from sqlglot import exp
 
+from .. import table_identity
 from . import claims, glossary_values, semantic_text, values_rows
 from .diagnostics_view import all_warnings, fact_gaps_for, warnings_for
 from .mapping_markdown import lineage_document_digest
@@ -5806,9 +5807,8 @@ def _read_claim(
 def _card_lookup(table_cards: Mapping | None):
     """``table name -> card`` over a ``tables-json/1`` corpus, or None when none was given.
 
-    Re-implemented here rather than imported from ``table_cards``, which imports this
-    module: the identity rule is the corpus-wide suffix rule ``glossary_values`` already
-    owns, so only the walk is local.
+    Not imported from ``table_cards``, which imports this module: both call
+    :func:`scope_lineage.table_identity.find_card`.
     """
     index = list((table_cards or {}).get("tables") or [])
     if not index:
@@ -5817,21 +5817,10 @@ def _card_lookup(table_cards: Mapping | None):
     def lookup(name):
         # Audit WP2d: an exact spelling wins; a suffix match is taken only when it names
         # one card. A bare ``orders`` beside ``dwd.orders`` and ``ods.orders`` is neither.
-        exact = [card for card in index if name in _card_spellings(card)]
-        if exact:
-            return exact[0]
-        found = [
-            card
-            for card in index
-            if any(glossary_values.same_table(name, item) for item in _card_spellings(card))
-        ]
-        return found[0] if len(found) == 1 else None
+        # WP5: the one implementation both card lookups share.
+        return table_identity.find_card(index, name)
 
     return lookup
-
-
-def _card_spellings(card: Mapping) -> list[str]:
-    return [str(item) for item in [card.get("table"), *(card.get("aliases") or [])] if item]
 
 
 #: The table-card finding that says a bare name could be several tables (WP2d).

@@ -12,7 +12,7 @@ from .parser import (
     _ORIGINALLY_ANONYMOUS_PROJECTION_META,
     _qualified_table,
     _extract_name_inner,
-    _normalize_table_name,
+    _schema_key,
 )
 from .scope_types import (
     SourceRef,
@@ -430,7 +430,7 @@ def _star_not_expanded_message(
         if isinstance(source, exp.Table):
             table_name = _qualified_table(source)
             sources.append(table_name)
-            if not schema or _normalize_table_name(table_name) not in schema:
+            if not schema or _schema_key(schema, table_name) not in schema:
                 missing_schema_sources.append(table_name)
 
     details: list[str] = []
@@ -670,7 +670,7 @@ def _expand_star_into_columns(
                     return columns
         elif isinstance(src, exp.Table) and schema:
             fq = _qualified_table(src)
-            short = _normalize_table_name(fq)
+            short = _schema_key(schema, fq)
             col_names = schema.get(short, [])
             if col_names:
                 _record_star_schema_source(sg_scope, result, fq)
@@ -740,7 +740,7 @@ def _expand_star_into_columns(
             elif isinstance(source, exp.Table):
                 if schema:
                     fq = _qualified_table(source)
-                    short = _normalize_table_name(fq)
+                    short = _schema_key(schema, fq)
                     col_names = schema.get(short, [])
                     if col_names:
                         _record_star_schema_source(sg_scope, result, fq)

@@ -27,7 +27,6 @@ from .metadata.metadata_patch import (
 from .metadata.schema_metadata import (
     column_details_for_table,
     load_schema_sources,
-    normalize_table_name,
     partition_columns_for_table,
     table_details_for_table,
 )
@@ -408,7 +407,7 @@ def _patched_schema(patch: MetadataPatch, table: str, columns: list, details: di
     the same keys, so the unmatched report counts an answer the schema carried to the
     packet as used.
     """
-    key = normalize_table_name(table)
+    key = patch.key_for(table)
     patched = patch.table_detail(table)
     if patched:
         details = {**details, **patched}
