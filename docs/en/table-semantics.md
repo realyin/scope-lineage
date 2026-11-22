@@ -51,7 +51,8 @@ scope-lineage parse --input-dir examples/catalog-demo-corpus/tasks \
   --schema examples/catalog-demo-corpus/schema_info.json --out out/lineage
 scope-lineage semantic packet --lineage out/lineage \
   --tasks examples/catalog-demo-corpus/tasks \
-  --schema examples/catalog-demo-corpus/schema_info.json --out out/packets
+  --schema examples/catalog-demo-corpus/schema_info.json \
+  --domain-profile examples/domain-profile/domain-profile.json --out out/packets
 scope-lineage semantic validate examples/table-semantics --packets out/packets
 scope-lineage semantic confirm examples/table-semantics \
   --confirmations examples/table-semantics/confirmations.json --out out/confirmed
@@ -66,7 +67,9 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 `validate` prints one line per document (`demo_dwd.dwd_party_customer_info_df: 52/52
 checks passed (100.0%)`) and a total. The example's `packet_digest` pins the packet as the
 installed SQLGlot renders it; with another SQLGlot version the digest check may report the
-example as stale while every other check still passes.
+example as stale while every other check still passes. The demo corpus names its tables by the
+`_df` / `_di` convention, so it is packed with the example domain profile, which turns that
+convention on (see [Domain profile](domain-profile.md)).
 
 ## `semantic packet`
 
@@ -82,6 +85,7 @@ example as stale while every other check still passes.
 | `--glossary` | no | a `glossary.json` from `scope-lineage glossary`; every target and input column then lists the value meanings the dictionary confirms (`confirmed_values`), see "Confirmed facts" |
 | `--metadata-patch` | no | a reviewed `metadata-patch/1` file, repeatable; laid over the lineage and `--schema` comments in memory, each patched comment marked `comment_source: "patch"`; a file that cannot be read exits 2 |
 | `--out` | yes | the output directory: one `<db.table>/` per target table |
+| `--domain-profile` | no | a `domain-profile/1` file; its `table_name_convention` says which table-name suffixes mark a full-snapshot or an incremental table (`name_convention` below). Without one no suffix means anything. A file that cannot be read exits 2. See [Domain profile](domain-profile.md) |
 
 A packet is written for every table a task finally writes (session views and temporary
 tables are not target tables). A task whose JSON is missing from `--tasks` is packed
@@ -151,9 +155,10 @@ partition; `multi_equality` when every partition filter is an equality or an `IN
 literals and they come to more than one value, i.e. several fixed partitions; `range`
 otherwise; `none` when unfiltered) with the `partition_filters` behind
 it, `date_filters` (non-partition filters on a date- or time-like column), and
-`name_convention` (`full` for a `_df` / `_da` style name, `incremental` for `_di` / `_hi`,
-`unknown` otherwise) — a naming convention, published so a reader sees what the check
-assumed. `full_snapshot` is `equality` read of a `full` name; when it is false, `packet.md`
+`name_convention` (`full` or `incremental` when the table name ends in `_<suffix>` of the
+caller's `--domain-profile` `table_name_convention`, `unknown` otherwise; always `unknown`
+without a configured convention) — a naming convention, the warehouse's rather than the
+package's, published so a reader sees what the check assumed. `full_snapshot` is `equality` read of a `full` name; when it is false, `packet.md`
 says why: `不适用（非分区表）` (not partitioned), `未证明（未见分区条件）` (no partition
 condition seen), `否（读 N 个固定分区 …）` (several fixed partitions; for a `full` name it adds
 that each partition is a snapshot holding one row per record), `否（读多个分区 / 范围）`
@@ -423,8 +428,11 @@ check 7 so they land in the rewrite list instead of failing the whole document: 
 ## `semantic validate`
 
 ```bash
-scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json]
+scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json] [--domain-profile <file>]
 ```
+
+`--domain-profile` reads a `domain-profile/1` file whose `qualifier_terms` are added to check
+12's generic qualifiers; a file that cannot be read exits 2.
 
 Every `*.json` under `<documents>` is read; the toolchain's own other documents
 (`semantic-confirmations/1`, packets, reports) are skipped, anything else is checked. A
@@ -452,10 +460,10 @@ The thirteen cross checks:
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |
 | 7 | `sources` | a sourced item has an empty `sources`, or there are more than five questions | — |
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
-| 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date (only date filters shaped `window` count) |
+| 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date (a full snapshot is a table-name reading, so this needs a configured `table_name_convention`; the message says it rests on the name convention) | `refresh.time` is `snapshot` while the write filters on a business date (only date filters shaped `window` count) |
 | 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare), by an alias no other right side in the packet carries, or by its join rule's number (pN) — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | it is named only by an alias another right side carries too (an alias is unique within one SELECT only; UNION branches and subqueries reuse `b`, `c`): the sentence may be about the other join, so one warning per right side, asking for the table or the pN; a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. Nor is a phrase made under a condition with its failing case said: a condition word before the phrase in the sentence (若, 如果, 假如, 倘若, 假设, 只要, 只有, 一旦, 除非, 当 / 在 … 时, and "X 成立时 / 满足时 / 唯一时 / 不重复时"; 不成立时 / 不唯一时 is no condition word) and the rows multiplying after it (会 / 可能 + 放大, 膨胀, 重复, or 关联出多行 / 多条); or a next sentence opening with 若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足, or with 不成立时 / 不满足时 / 不唯一时 / 重复时, that says the rows multiply (重复时 counts only as the very opening: a next sentence naming its subject first, "… 重复时", does not); or a condition word before the phrase and a next sentence opening with 否则, 不然 or 反之 that says so. A failing case naming a join the sentence has not named up to the phrase still warns, and a trailing reservation alone (「注释推出，SQL 未证明」) is no failing case. A join off the grain path (below an aggregate) is held to neither |
 | 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效, unless a negating character right before it or a negating phrase such as 未能 / 无法 / 不曾 / 没能 a few characters before takes it back) comes from a branch that gathers several source values or the ELSE (several tasks writing the column merge every branch that lists its source values; one that cannot list them erases no one else's), and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
-| 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs; glued pairs such as `0未推送，1已推送` count only two or more at a time, of one code width, with distinct labels none opening with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %, so `近30天活跃标志` does not, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
+| 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs; glued pairs such as `0未推送，1已推送` count only two or more at a time, of one code width, with distinct labels none opening with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %, so `近30天活跃标志` does not, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `测试`, plus the `--domain-profile` `qualifier_terms`) standing as a word in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions; not checked when the header describes another table of the task (`header_facts.about`) |
 
 Check 9 exists because a daily full snapshot described as incremental leads a reader to
@@ -468,8 +476,14 @@ value left out, a value the comment already explains left as a question, a quali
 such as 增值税 or 测试 dropped, a ten-day lifecycle not passed on. They read the packet
 facts described under "What a packet holds" (`fan_out`, `case_outputs`, `header_facts`)
 and the comments; a packet built before those facts existed has none, and those checks
-then find nothing to look at. The qualifier list is `QUALIFIER_TERMS` in
-`scope_lineage/semantics/checks_documented.py`; a term inside a longer one found in the
+then find nothing to look at. The generic qualifier list is `QUALIFIER_TERMS` in
+`scope_lineage/semantics/checks_documented.py` (增值税, 税, 手续费, 测试); a business's own
+qualifiers come from `--domain-profile`. A Chinese term counts only where it reads as a
+qualifier: the character after it is no Chinese character or one of
+前后额率费金款价收支发票数用客户账订单环标 (税后收入, 收入税率, 测试客户), or the character
+before it is one of 含扣除免去计减剔退 (含税总金额) -- so 纳税人识别号, 税务登记号, 税号 and
+测试结果 are not qualified by 税 or 测试. A latin
+term matches as a whole word, case-insensitively. A term inside a longer one found in the
 same comment (税 in 增值税) is reported once, as the longer term.
 
 The normalization for check 5 lower-cases, drops identifier quotes, table qualifiers,

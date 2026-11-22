@@ -340,6 +340,20 @@ now yield scopes labelled `EXCEPT` / `INTERSECT` plus a `set_operation_semantics
    `UNION`, `EXCEPT` and `INTERSECT`, and take `EXCEPT` / `INTERSECT` values from the first
    branch only.
 
+The package no longer carries a warehouse's table-name suffix convention or business-domain
+words as defaults. `semantic packet` reads no suffix unless told to, so an input named
+`…_df` is no longer a full snapshot by its name alone and check 9 no longer fails an
+`incremental` document on that ground; check 12 looks only for 增值税 / 税 / 手续费 / 测试,
+matched as words (纳税人识别号 no longer counts as qualified by 税); the concept layer's lending
+words are gone.
+
+5. To keep the old readings, write a `domain-profile/1` file (start from
+   `examples/domain-profile/domain-profile.json`, whose `table_name_convention` is the old suffix
+   list) and pass it with `--domain-profile` to `semantic packet`, `semantic validate` and
+   `ontology`. Rebuild a run's packets with it: packets built without it differ in
+   `name_convention`, `full_snapshot` and `packet_digest`. See
+   [docs/en/domain-profile.md](docs/en/domain-profile.md).
+
 ### Migrating to 0.11.0
 
 Every format keeps its number and every catalog change is additive: a catalog written for

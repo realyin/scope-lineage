@@ -30,6 +30,7 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 16. [表语义（`table-semantics/1`）](table-semantics.md)：一张目标表对业务读者意味着什么，由模型写、由机器对照事实校验——`scope-lineage semantic packet` 把每张表的元数据、生产任务及其 SQL、输入表和血缘事实收成材料包，`scope-lineage semantic validate` 用 Schema 与材料包检查写好的文档（十三项交叉检查，逐条给出重写清单），`scope-lineage semantic confirm` 把人的回答写回，`scope-lineage semantic render` 渲染每表一页和一页索引，并与本体目录的概念页互链；`scope-lineage semantic status` 报告一批表各自走到哪一步、下一步分批处理哪些表。
 17. [验收问题集（`question-set/1`）](questions.md)：用问题集考生成的页面——`scope-lineage questions validate` 检查问题集或判分文件，`scope-lineage questions sheet` 写给作答者的题单（只有题目），`scope-lineage questions grading-sheet` 把每题的参考答案、证据和作答放在一起交给判分者，`scope-lineage questions score` 按题型、表、缺口汇总一轮得分并与前几轮对比；按题号或表取子集，一轮只花少量 token。
 18. [AI agent 技能](agent-skill.md)：让 Claude Code、Codex 等 AI 编码 agent 直接用上血缘解析、字段加工链和 mapping 文档能力。
+19. [领域配置（`domain-profile/1`）](domain-profile.md)：包里只带通用默认值；业务的限定词、概念词和数仓的表名后缀约定由一份文件提供，用 `--domain-profile` 传给 `semantic packet`、`semantic validate` 和 `ontology`。
 
 ## 从问题找到字段
 

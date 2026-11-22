@@ -330,6 +330,15 @@ scope-lineage parse \
 4. 把 `set_op == "UNION_ALL"` 当作「这是集合运算」来读的消费者，改为接受 `UNION_ALL`、`UNION`、`EXCEPT`、`INTERSECT` 四个值；
    `EXCEPT` / `INTERSECT` 只从第一个分支取值。
 
+包里不再把数仓的表名后缀约定和业务领域词当作默认值。`semantic packet` 不经配置就不读表名后缀，所以名为 `…_df` 的输入表
+不再仅凭名字算全量快照，第 9 项也不再据此判 `incremental` 的文档失败；第 12 项只找成词的 增值税 / 税 / 手续费 / 测试
+（纳税人识别号 不再算带「税」限定）；概念层里的借贷词已移除。
+
+5. 想保持原来的读法，写一份 `domain-profile/1` 文件（从 `examples/domain-profile/domain-profile.json` 改起，它的
+   `table_name_convention` 就是原来的后缀列表），用 `--domain-profile` 传给 `semantic packet`、`semantic validate` 和
+   `ontology`。一次运行的材料包要带着它重建：不带它生成的材料包 `name_convention`、`full_snapshot` 和 `packet_digest`
+   都不同。见 [docs/zh-CN/domain-profile.md](docs/zh-CN/domain-profile.md)。
+
 ### 迁移到 0.11.0
 
 格式版本都不变，目录的改动全是增量：0.10.0 写的目录照样能校验、能构建。进行中的运行要跟着变的是材料包、

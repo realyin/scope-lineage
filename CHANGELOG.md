@@ -461,6 +461,28 @@
   `--template <out>/glossary.md` wrote the form's JSON over `<out>/glossary.json` (and
   `<out>/glossary.json` the form over `glossary.md`). Such a path is now a usage error, exit 2,
   before anything is written.
+- **Breaking -- no warehouse naming convention and no business-domain words ship as defaults;
+  a `domain-profile/1` file brings them (`--domain-profile`).** No format changes number; default
+  verdicts change. (1) `semantic packet` no longer reads table-name suffixes: without a
+  configured `table_name_convention` every input's `name_convention` is `unknown` and none is a
+  `full_snapshot`, so **check 9 no longer fails an `incremental` document whose inputs were
+  judged full snapshots only because their names end in `_df` / `_da` / `_full` /
+  `_snapshot`** -- that failure rested on the name alone, and a table so named that is really
+  incremental was failed wrongly. With a convention configured the failure still fires, and its
+  message now says it rests on the name convention. (2) Check 12's built-in qualifiers are
+  增值税 / 税 / 手续费 / 测试 (罚息 and 冲正 are gone), and a Chinese term counts only where it
+  stands as a word: 纳税人识别号, 税务登记号 and 测试结果 no longer raise a qualifier warning,
+  while 含税金额, 税前收入 and 含测试客户 still do. (3) The concept layer's lending words
+  (回款 as an event word; 欠款 as a measure suffix; 已到期 / 未到期 / 已还 / 未还 / 已结清 /
+  未结清 / 首期 as filter words) are gone; generic words stay. Who is affected: a run whose
+  tables follow such a suffix convention (packets change `name_convention`, `full_snapshot` and
+  therefore `packet_digest`, so documents become `packet_stale`), and corpora whose comments
+  used those words. What to do: write a `domain-profile/1` file -- the example
+  `examples/domain-profile/domain-profile.json` carries the old suffix lists -- and pass it to
+  `semantic packet`, `semantic validate` and `ontology` with `--domain-profile`; see
+  `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
+  (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
+  word in a package string literal.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
