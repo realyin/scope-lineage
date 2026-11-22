@@ -4,8 +4,9 @@
 
 Scope Lineage 不绑定业务领域：包里只带通用的默认值。一个业务用来表示限定、事件、度量和生命周期状态的词，
 以及一个数仓用来标记全量快照表或增量表的表名后缀，都作为数据传进来——由调用方用 `--domain-profile` 传一份 JSON
-文件。包级架构测试（`tests/architecture/test_domain_neutral_literals.py`）保证包内的字符串字面量里没有公开的借贷、
-金融领域词，也没有 `df` / `di` 这类表名后缀（尚未迁出的两处列在该测试的豁免表里并写明理由）。
+文件，或者放进环境变量 `SCOPE_LINEAGE_DOMAIN_PROFILE`（见下文）。包级架构测试
+（`tests/architecture/test_domain_neutral_literals.py`）保证包内的字符串字面量里没有公开的借贷、金融领域词，也没有
+`df` / `di` 这类表名后缀（唯一的豁免列在该测试的豁免表里并写明理由：修剪注释尾部的存储后缀，不判角色和种类）。
 
 ## 谁读它
 
@@ -13,10 +14,20 @@ Scope Lineage 不绑定业务领域：包里只带通用的默认值。一个业
 | --- | --- | --- |
 | `semantic packet` | `table_name_convention` | 每张输入表的 `name_convention` 都是 `unknown`，没有一张是 `full_snapshot`，所以第 9 项「全量快照上写了 incremental」的失败不会触发 |
 | `semantic validate` | `qualifier_terms` | 第 12 项只找通用限定词 增值税、税、手续费、测试 |
-| `ontology` | `concept_words`、`table_name_convention` | 概念层用自带的通用词表投票、排序；任何表名后缀都不说明一张表是哪一份副本：成员角色不按后缀判 `snapshot`，`increment_with_event_time` 这条种类票不出现，没有注释的表按完整短表名命名（`ods.gadget_df` → `gadget_df`） |
+| `ontology` | `concept_words`、`table_name_convention` | 概念层用自带的通用词表投票、排序；任何表名后缀都不说明一张表是哪一份副本：成员角色不按后缀判 `snapshot`，`increment_with_event_time` 这条种类票不出现，没有注释的表按完整短表名命名（`ods.gadget_df` → `gadget_df`）；表族（`families[]` 与待确认问题的分组）只折 `_tmp` / `_bak` / `_new` / `_old` 和数字段，`ods.gadget_di` 和 `ods.gadget_df` 是两个族 |
 
 每个命令只读自己那一部分、忽略其余部分，所以一次运行用同一份文件即可。文件读不了、`doc_format` 不对、有未知的键、
 值的形状不对时，退出码 2，并指出是哪个字段。
+
+## 用环境变量传
+
+三个命令在没给 `--domain-profile` 时读环境变量 `SCOPE_LINEAGE_DOMAIN_PROFILE`（非空才算）：一次运行设一次，
+每条命令都拿到同一份配置。两者都给时以命令行参数为准。读到配置时，命令在 stderr 打一行，写明用的是哪份文件、
+来自参数还是环境变量，免得环境里残留的设置悄悄改变输出。变量指向的文件读不了或不合格式时，同样退出码 2，报错里写明
+路径来自 `SCOPE_LINEAGE_DOMAIN_PROFILE`。
+
+runbook（`skills/scope-lineage-ontology`）用 `init_run.py --domain-profile <文件>` 把路径写进运行目录的 `env.sh`，
+`runlib.sh` 再把它导出成这个变量，所以 runbook 里的 `semantic packet`、`semantic validate`、`ontology` 都读同一份配置。
 
 ## 格式
 
@@ -44,7 +55,7 @@ Scope Lineage 不绑定业务领域：包里只带通用的默认值。一个业
 | --- | --- | --- |
 | `doc_format` | `"domain-profile/1"` | 必填 |
 | `qualifier_terms` | 字符串列表 | 加到第 12 项通用限定词上的限定词。中文词成词时才算（见[表语义](table-semantics.md)第 12 项）；拉丁字母的词按整词匹配，不分大小写 |
-| `table_name_convention` | 含 `full` 和/或 `incremental` 的对象，各是一个后缀列表 | 表名最后一段以 `_<后缀>` 结尾的表为 `full`（每个分区一份全量）或 `incremental`。后缀只含字母和数字，不写前面的 `_`，不分大小写；先试 `full`。材料包按它给输入表标 `name_convention`；概念层（`ontology`）按它判成员角色（无表外列的 `full` 表是主副本、`incremental` 表是快照副本）、给增量表投 `increment_with_event_time` 票、在判定维度概念时排除增量表，并在给没有注释的表取名时去掉这些后缀 |
+| `table_name_convention` | 含 `full` 和/或 `incremental` 的对象，各是一个后缀列表 | 表名最后一段以 `_<后缀>` 结尾的表为 `full`（每个分区一份全量）或 `incremental`。后缀只含字母和数字，不写前面的 `_`，不分大小写；先试 `full`。材料包按它给输入表标 `name_convention`；概念层（`ontology`）按它判成员角色（无表外列的 `full` 表是主副本、`incremental` 表是快照副本）、给增量表投 `increment_with_event_time` 票、在判定维度概念时排除增量表，在给没有注释的表取名时去掉这些后缀，表族（`families[]` 与待确认问题的分组）也按它折叠副本（`full` 与 `incremental` 的并集） |
 | `concept_words` | 含 `event`、`entity`、`summary`、`measure_suffixes`、`filter_words` 中任意几个的对象，各是一个字符串列表 | 加到概念层通用词表上的词：前三个是概念种类的词票（中文按子串，拉丁字母按整词），`measure_suffixes` 与 `filter_words` 把一条名字候选标成说的是度量或概念的一个切片，而不是概念本身（见[键折叠候选](ontology-doc.md)的 `junk_reason`） |
 
 除 `doc_format` 外每个键都可省略；每个列表都是加在自带通用词表之上，而不是替换它；空配置什么都不改变。
@@ -56,7 +67,8 @@ Scope Lineage 不绑定业务领域：包里只带通用的默认值。一个业
 
 - 材料包原来的后缀是 `_df` / `_da` / `_full` / `_snapshot` 为全量，`_di` / `_hi` / `_inc` / `_incr` / `_delta`
   为增量；
-- 概念层原来的后缀是 `_df` / `_hf` / `_mf` / `_wf` / `_all` 为全量，`_di` / `_hi` / `_mi` / `_wi` 为增量。
+- 概念层原来的后缀是 `_df` / `_hf` / `_mf` / `_wf` / `_all` 为全量，`_di` / `_hi` / `_mi` / `_wi` 为增量；
+  表族原来折掉的后缀就是概念层这一套。
 
 现在两者读同一个 `table_name_convention`，上面示例里的列表是两套的并集。并集让每一层都多认几个后缀：只想逐字
 保留某一层原来的读法时，只写那一层原来的列表。自己的限定词写进 `qualifier_terms`，自己的事件词、度量后缀和

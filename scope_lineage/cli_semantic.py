@@ -13,12 +13,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from .cli_only import add_directory, add_only, take_back_directory
 from .cli_semantic_status import add_status_parsers, run_digest, run_fixed, run_status
-from .domain_profile import DomainProfile, DomainProfileError, load_domain_profile
+from .domain_profile import (
+    DOMAIN_PROFILE_ENV,
+    FLAG,
+    DomainProfile,
+    DomainProfileError,
+    load_domain_profile,
+)
 from .metadata.metadata_patch import (
     MetadataPatch,
     MetadataPatchError,
@@ -183,20 +190,32 @@ def add_domain_profile(parser, what: str) -> None:
     """The one flag every command that reads a ``domain-profile/1`` file takes."""
     parser.add_argument(
         "--domain-profile", metavar="FILE",
-        help=f"A domain-profile/1 file of the caller's business vocabulary and naming rules: {what}",
+        help=(
+            f"A domain-profile/1 file of the caller's business vocabulary and naming rules: "
+            f"{what}. Defaults to ${DOMAIN_PROFILE_ENV} when that is set and non-empty."
+        ),
     )
 
 
 def read_domain_profile(args: argparse.Namespace) -> DomainProfile | int:
-    """The ``--domain-profile`` file, an empty profile when none is given, or exit 2."""
-    path = getattr(args, "domain_profile", None)
+    """The ``--domain-profile`` file, else the one ``SCOPE_LINEAGE_DOMAIN_PROFILE`` names,
+    an empty profile when neither is given, or exit 2.
+
+    The file read is announced on stderr with where it came from: a setting left over in
+    the environment must not change a command's output unnoticed.
+    """
+    path, source = getattr(args, "domain_profile", None), FLAG
+    if not path:
+        path, source = os.environ.get(DOMAIN_PROFILE_ENV, ""), DOMAIN_PROFILE_ENV
     if not path:
         return DomainProfile()
     try:
-        return load_domain_profile(path)
+        profile = load_domain_profile(path, source)
     except DomainProfileError as error:
         print(str(error), file=sys.stderr)
         return 2
+    print(f"domain profile: {path} (from {source})", file=sys.stderr)
+    return profile
 
 
 def run_semantic(args: argparse.Namespace) -> int:

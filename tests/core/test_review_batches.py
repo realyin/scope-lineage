@@ -47,6 +47,7 @@ from scope_lineage.render.review_batches import (
     render_batch_markdown,
     write_review_batches,
 )
+from scope_lineage.render.ontology import copy_suffixes, table_family
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 from .statement_document import write_statement_documents
@@ -65,10 +66,19 @@ STAMP = {"confirmed_by": "agent:concept-review", "date": "2026-09-23"}
 
 
 def _with_domain(entity: dict, *, domain=None, project=None) -> dict:
-    """One entity with the metadata hints ``--by domain`` reads."""
+    """One entity with the metadata hints ``--by domain`` reads.
+
+    Its ``family`` is the one ``build_ontology`` publishes under a convention that lists
+    ``_di`` / ``_df`` (5.1): ``--by family`` reads the published family, it never folds
+    a table name itself.
+    """
     hints = dict(entity["naming_hints"])
     hints["domain"], hints["project"] = domain, project
-    return {**entity, "naming_hints": hints}
+    family = table_family(str(entity["id"]), copy_suffixes(_CONVENTION))
+    return {**entity, "naming_hints": hints, "family": family}
+
+
+_CONVENTION = {"full": ["df"], "incremental": ["di"]}
 
 
 def _built(entities, relations=(), overrides=None, files=None) -> dict:

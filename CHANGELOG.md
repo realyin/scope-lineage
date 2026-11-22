@@ -698,6 +698,32 @@
   the merge gives the ambiguous bare-name card only the entries that used the bare name; the
   qualified card keeps the rest. A `tables.json` written before the field existed is merged as
   before, with those entries on both cards.
+- **Breaking (part of the domain-profile change above) -- table families fold period
+  suffixes only when `table_name_convention` lists them.** `ontology`'s `families[]`,
+  `tables[].family` and the grouping of open items (`open_item_groups[]`,
+  `finding_groups[]`, their `group_id`s) stripped a built-in list of period suffixes
+  (`_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` / `_wf` / `_all`) from every table
+  name; they now strip only the suffixes the `domain-profile/1` convention lists (the union
+  of its `full` and `incremental`). Without a convention `ods.gadget_di` and `ods.gadget_df`
+  are two families and open items are grouped more finely; `_tmp` / `_bak` / `_new` /
+  `_old` and numbered steps still fold. A table that merely ended in one of those segments
+  (`xiao_mi`) is no longer folded into another family. With the example profile the
+  families are what they were. `--review-batches-by family` reads the family
+  `ontology.json` published instead of recomputing it. Overrides are unaffected: their keys
+  name tables, relations and concepts, never a family. The architecture test's exemption for
+  this list is gone. What to do: pass the same `--domain-profile` to `ontology` as to the
+  other commands.
+- **`SCOPE_LINEAGE_DOMAIN_PROFILE` names the domain profile once for a whole run.** Every
+  command that takes `--domain-profile` (`semantic packet`, `semantic validate`, `ontology`)
+  reads the file this environment variable names when the flag is not given (a non-empty
+  value only); the flag wins when both are given. A command that reads a profile says on
+  stderr which file and from where (`domain profile: <file> (from …)`); a file named by the
+  variable that cannot be read exits 2 with the variable named. The runbook's
+  `init_run.py --domain-profile <file>` writes `DOMAIN_PROFILE` into `env.sh`, and
+  `runlib.sh` exports it as the variable (and unsets a leftover one when the run has no
+  profile), so the runbook's calls, the subagent templates' included, carry no flag of
+  their own; an architecture test keeps every such call on that path. Additive: without the
+  variable nothing changes.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

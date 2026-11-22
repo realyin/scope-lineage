@@ -7,6 +7,12 @@
 : "${LINEAGE_SKILL:=${SKILL:+$(dirname "$SKILL")/scope-lineage}}"
 export SKILL LINEAGE_SKILL
 
+# The run's domain-profile/1 file (init_run.py --domain-profile): every tool command that takes
+# --domain-profile reads SCOPE_LINEAGE_DOMAIN_PROFILE when the flag is not given, so one export
+# covers semantic packet, semantic validate and ontology, the subagent templates' calls included.
+# env.sh is the run's record: without a profile there, one left in the shell is dropped.
+if [ -n "${DOMAIN_PROFILE:-}" ]; then export SCOPE_LINEAGE_DOMAIN_PROFILE="$DOMAIN_PROFILE"; else unset SCOPE_LINEAGE_DOMAIN_PROFILE; fi
+
 # The tool: a checkout when TOOL is set, the installed package when it is empty.
 sl() { if [ -n "$TOOL" ]; then uv run --project "$TOOL" --extra catalog scope-lineage "$@"; else scope-lineage "$@"; fi; }
 

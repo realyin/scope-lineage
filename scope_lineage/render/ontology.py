@@ -488,11 +488,13 @@ GROUP_ID_PREFIX = {
 }
 
 # Q3: the trailing segments a warehouse appends to one logical table's name. They say
-# *which copy* this table is -- the daily increment, the full snapshot, the staging step
-# -- and never *what it holds*, which is why stripping them is a mechanical fold and not
-# a guess about meaning. Two lists and one pattern, all matched against whole
-# underscore-separated segments: `_dim` is not `_di` and `_info` is not `_i`.
-PERIOD_SUFFIXES = ("di", "df", "hi", "hf", "mi", "mf", "wi", "wf", "all")
+# *which copy* this table is -- the staging step, the numbered build step, and (when the
+# caller's convention says so) the period increment or the full snapshot -- and never
+# *what it holds*, which is why stripping them is a mechanical fold and not a guess about
+# meaning. All matched against whole underscore-separated segments: `_dim` is not `_di`
+# and `_info` is not `_i`. Only the generic engineering steps are built in; which
+# segments mark a period copy is a warehouse's convention (D2), so those come from
+# ``domain-profile/1``'s ``table_name_convention`` (see :func:`copy_suffixes`).
 STAGE_SUFFIXES = ("tmp", "bak", "new", "old")
 _NUMBERED_SUFFIX_RE = re.compile(r"\A(?:mid|step|stage|v)\d+\Z|\A\d+\Z")
 
@@ -737,7 +739,8 @@ def build_ontology(
         "synonyms": _synonyms(statements, names),
         "not_null": _not_null_columns(constraints),
     }
-    entities = [_entity(card, facts) for card in modelled.get("tables") or []]
+    suffixes = copy_suffixes(name_convention)
+    entities = [_entity(card, facts, suffixes) for card in modelled.get("tables") or []]
     relations = _relations_with_hints(joined, _relation_hints(entities))
     ontology = {
         "doc_format": DOC_FORMAT,
@@ -784,7 +787,7 @@ def build_ontology(
     # confirmed edge changes what the concept edge claims, so K3 is read a second time.
     if _apply_concept_assertions(ontology, (overrides or {}).get("concepts") or {}):
         ontology.update(build_concept_relations(ontology))
-    _publish_open_list(ontology)
+    _publish_open_list(ontology, suffixes)
     # M2 last of all: the back-links are a reading of the finished document, and the open
     # list is the newest part of it.
     _attach_concepts(ontology)
@@ -851,7 +854,7 @@ def _with_legacy_keys(document: dict) -> dict:
     }
 
 
-def _publish_open_list(ontology: dict) -> None:
+def _publish_open_list(ontology: dict, suffixes: Sequence[str] = ()) -> None:
     """The open questions and the three views of them, after the confirmations landed.
 
     N3 added the third: the table level, the family fold, and the concept fold. The
@@ -859,7 +862,7 @@ def _publish_open_list(ontology: dict) -> None:
     and the groups get a back-link to it, so a reader who started at the family fold can
     climb to the question that actually has one answer.
     """
-    records = _open_item_records(ontology)
+    records = _open_item_records(ontology, suffixes)
     groups = _open_item_groups(records)
     ontology["open_items"] = [_published_item(record) for record in records]
     ontology["open_item_groups"] = groups
@@ -2377,7 +2380,22 @@ def _card_evidence(producer: Mapping, **extra) -> dict:
 # -------------------------------------------------------------------- entities
 
 
-def table_family(table: str) -> str:
+def copy_suffixes(name_convention: Mapping[str, Sequence[str]] | None) -> tuple[str, ...]:
+    """The period suffixes a table family folds: the convention's ``full`` and
+    ``incremental`` lists together, lower-cased. ``None`` or an empty convention folds none."""
+    convention = name_convention or {}
+    return tuple(
+        sorted(
+            {
+                str(item).lower()
+                for kind in ("full", "incremental")
+                for item in convention.get(kind) or ()
+            }
+        )
+    )
+
+
+def table_family(table: str, suffixes: Sequence[str] = ()) -> str:
     """Q3: the family key one table name normalises to -- its name without the copies.
 
     A warehouse writes one logical table many times: ``_di`` is today's increment,
@@ -2389,19 +2407,21 @@ def table_family(table: str) -> str:
 
     Purely mechanical: whole segments only (``_dim`` is not ``_di``), never the last
     segment left (a table actually called ``tmp`` is its own family), and no vocabulary
-    beyond the two suffix lists above.
+    beyond ``STAGE_SUFFIXES``, numbered steps and the caller's ``suffixes`` (the period
+    copies its ``table_name_convention`` lists, :func:`copy_suffixes`). Without them a
+    ``_di`` is part of the name.
     """
     prefix, _, name = str(table).lower().rpartition(".")
     parts = name.split("_")
-    while len(parts) > 1 and _is_family_suffix(parts[-1]):
+    while len(parts) > 1 and _is_family_suffix(parts[-1], suffixes):
         parts.pop()
     stripped = "_".join(parts)
     return f"{prefix}.{stripped}" if prefix else stripped
 
 
-def _is_family_suffix(part: str) -> bool:
+def _is_family_suffix(part: str, suffixes: Sequence[str] = ()) -> bool:
     return (
-        part in PERIOD_SUFFIXES
+        part in suffixes
         or part in STAGE_SUFFIXES
         or bool(_NUMBERED_SUFFIX_RE.match(part))
     )
@@ -2423,12 +2443,12 @@ def _families(entities: Sequence[Mapping]) -> list[dict]:
     ]
 
 
-def _entity(card: Mapping, facts: Mapping) -> dict:
+def _entity(card: Mapping, facts: Mapping, suffixes: Sequence[str] = ()) -> dict:
     entity = str(card.get("table"))
     built = {
         "id": entity,
         "kind": ENTITY_PRODUCED if card.get("produced_by") else ENTITY_PHYSICAL,
-        "family": table_family(entity),
+        "family": table_family(entity, suffixes),
         "comment": card.get("comment"),
         "identity": _identity(card, entity, facts),
         "attributes": [
@@ -2996,18 +3016,19 @@ def _open_items(ontology: Mapping) -> list[dict]:
     return [_published_item(item) for item in _open_item_records(ontology)]
 
 
-def _open_item_records(ontology: Mapping) -> list[dict]:
+def _open_item_records(ontology: Mapping, suffixes: Sequence[str] = ()) -> list[dict]:
     """The same list before publication: each item still carries what it folds into.
 
     ``_family`` and ``_shape`` are the two halves of the group key, and ``_to`` is the
     far side of a relation. They are computed where the item is built -- the builder is
     the only place that knows the question's shape -- and dropped on the way out.
+    ``suffixes`` are the period copies the caller's convention folds (:func:`copy_suffixes`).
     """
     return [
-        *(_finding_item(finding) for finding in ontology.get("findings") or []),
-        *_relation_items(ontology.get("table_relations") or []),
+        *(_finding_item(finding, suffixes) for finding in ontology.get("findings") or []),
+        *_relation_items(ontology.get("table_relations") or [], suffixes),
         *_key_items(
-            ontology.get("tables") or [], ontology.get("table_relations") or []
+            ontology.get("tables") or [], ontology.get("table_relations") or [], suffixes
         ),
     ]
 
@@ -3144,7 +3165,7 @@ def _finding_item_id(finding: Mapping) -> str:
     return f"{name}={detail}" if detail else name
 
 
-def _finding_item(finding: Mapping) -> dict:
+def _finding_item(finding: Mapping, suffixes: Sequence[str] = ()) -> dict:
     # A hint conflict has exactly one answer shape -- "this column is the key, or it is
     # not" -- so it can name its write-back target. A contradiction between two tasks
     # cannot: answering it may confirm a key, a cardinality, or neither.
@@ -3163,12 +3184,14 @@ def _finding_item(finding: Mapping) -> dict:
         "text": str(finding.get("text") or ""),
         # Q3: one contradiction of one kind over one table family is one decision --
         # the columns are part of the *answer*, not of the question's shape.
-        "_family": table_family(str(finding["entity"])),
+        "_family": table_family(str(finding["entity"]), suffixes),
         "_shape": str(finding["kind"]),
     }
 
 
-def _relation_items(relations: Sequence[Mapping]) -> list[dict]:
+def _relation_items(
+    relations: Sequence[Mapping], suffixes: Sequence[str] = ()
+) -> list[dict]:
     """One item per hypothesis edge -- not one per side, which is how a card reads it."""
     ordered = sorted(
         (
@@ -3192,7 +3215,7 @@ def _relation_items(relations: Sequence[Mapping]) -> list[dict]:
             # on these columns" -- and the answer does not depend on who joined it. So
             # the producer is not in the group key, and the family fold only merges the
             # copies of the far table itself.
-            "_family": table_family(str(relation["to"]["entity"])),
+            "_family": table_family(str(relation["to"]["entity"]), suffixes),
             "_shape": "+".join(str(column) for column in relation["to"]["columns"]),
             "_from": str(relation["from"]["entity"]),
             "_from_columns": "+".join(
@@ -3210,7 +3233,9 @@ def _relation_items(relations: Sequence[Mapping]) -> list[dict]:
     ]
 
 
-def _key_items(entities: Sequence[Mapping], relations: Sequence[Mapping]) -> list[dict]:
+def _key_items(
+    entities: Sequence[Mapping], relations: Sequence[Mapping], suffixes: Sequence[str] = ()
+) -> list[dict]:
     assumed = _assumed_by_key(relations)
     return [
         {
@@ -3221,7 +3246,7 @@ def _key_items(entities: Sequence[Mapping], relations: Sequence[Mapping]) -> lis
             "tier": TIER_HYPOTHESIS,
             "write_back": f"键:{entity['id']}={'+'.join(key['columns'])}",
             "text": _key_question(key),
-            "_family": table_family(str(entity["id"])),
+            "_family": table_family(str(entity["id"]), suffixes),
             "_shape": "+".join(str(column) for column in key["columns"]),
             # Q3: what confirming this key would buy -- every edge that assumed it.
             "_proves": assumed.get(
