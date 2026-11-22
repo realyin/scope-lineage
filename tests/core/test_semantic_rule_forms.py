@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 
 from scope_lineage.semantics.checks_context import check_rules
+from scope_lineage.semantics.names import normalize_sql
+from scope_lineage.semantics import sql_forms
 
 from .table_semantics_demo import run
 
@@ -277,3 +279,103 @@ def test_validate_passes_raw_quotes_against_a_parsed_corpus(tmp_path: Path, caps
     )
 
     assert _failures(document, packet) == []
+
+
+# ------------------------------------------------------------------ qualifiers and literals
+
+# Two tables, one predicate each, the same text but for the qualifier. ``a.is_deleted = 0``
+# and ``b.is_deleted = 0`` are two filters: a quote of one cites that one only.
+TWO_SIDES = """INSERT OVERWRITE TABLE demo_dwd.dwd_probe_pair_df PARTITION (dt = '${bizdate}')
+SELECT a.order_id
+FROM demo_ods.ods_probe_left_di a
+JOIN demo_ods.ods_probe_right_df b ON a.order_id = b.order_id AND b.dt = '${bizdate}'
+WHERE a.dt = '${bizdate}' AND a.is_deleted = 0 AND b.is_deleted = 0
+  AND a.bd BETWEEN '2025-01-01' AND '2025-01-31' AND a.x = 1 AND a.v = 'p.q'
+  AND ((a.y = 1) AND (a.z = 2)) AND a.w = 3
+"""
+
+
+def _two_sides(*filters: str) -> dict:
+    packet = _packet(*filters)
+    packet["tasks"][0]["sql"] = TWO_SIDES
+    return packet
+
+
+def test_a_qualified_quote_cites_only_the_filter_with_its_qualifier() -> None:
+    packet = _two_sides("`a`.`is_deleted` = 0", "`b`.`is_deleted` = 0")
+
+    (problem,) = _rule_failures("a.is_deleted = 0", packet)
+
+    assert "b.is_deleted = 0" in problem["message"]
+
+
+def test_a_qualified_quote_of_both_conjuncts_cites_both() -> None:
+    packet = _two_sides("`a`.`is_deleted` = 0", "`b`.`is_deleted` = 0")
+
+    assert _rule_failures("a.is_deleted = 0 AND b.is_deleted = 0", packet) == []
+
+
+def test_an_unqualified_quote_still_cites_loosely() -> None:
+    """The ``WHERE rn = 1`` spelling the docstring promises: no qualifier, no veto."""
+    packet = _two_sides("`a`.`is_deleted` = 0", "`b`.`is_deleted` = 0")
+
+    assert _rule_failures("is_deleted = 0", packet) == []
+
+
+def test_a_qualifier_may_name_the_table_the_filter_reads() -> None:
+    packet = _statements("`tmp_probe_step`.`src_kind` = 'K1'")
+    packet["lineage"]["rules"][0]["columns"] = ["demo_tmp.tmp_probe_step.src_kind"]
+
+    assert _rule_failures(
+        "FROM demo_tmp.tmp_probe_step WHERE tmp_probe_step.src_kind = 'K1'", packet
+    ) == []
+
+
+def test_a_qualifier_inside_a_string_literal_is_kept() -> None:
+    assert normalize_sql("x = 'a.b'") == "x='a.b'"
+    assert normalize_sql("`t`.`x` = 'a.b'") == "x='a.b'"
+
+
+def test_a_quote_that_rewrote_a_dotted_literal_is_neither_found_nor_citing() -> None:
+    packet = _two_sides("`a`.`v` = 'p.q'")
+
+    problems = _failures(_document("a.v = 'q'"), packet)
+
+    assert {problem["at"] for problem in problems} == {"rules", "rules[0].sql"}
+    assert _failures(_document("a.v = 'p.q'"), packet) == []
+
+
+# ------------------------------------------------------------------ the unparsed fallback
+
+
+def test_a_trailing_and_does_not_break_a_between_quote() -> None:
+    packet = _two_sides(
+        "`a`.`bd` BETWEEN '2025-01-01' AND '2025-01-31'", "`a`.`x` = 1"
+    )
+
+    quote = "a.bd BETWEEN '2025-01-01' AND '2025-01-31' AND a.x = 1 AND"
+
+    assert _failures(_document(quote), packet) == []
+
+
+def test_a_trailing_and_after_nested_parentheses_cites_each_conjunct() -> None:
+    packet = _two_sides("`a`.`y` = 1", "`a`.`z` = 2")
+
+    assert _failures(_document("((a.y = 1) AND (a.z = 2)) AND"), packet) == []
+
+
+def test_the_fallback_split_keeps_between_and_parentheses_whole() -> None:
+    """A body SQLGlot cannot parse even after the dangling AND is gone is cut by hand."""
+    pieces = sql_forms.split_top_level_and(
+        "dt BETWEEN '2025-01-01' AND '2025-01-31' AND ((a = 1) AND (b = 2)) AND x = = 1"
+    )
+
+    assert pieces == [
+        "dt BETWEEN '2025-01-01' AND '2025-01-31'",
+        "((a = 1) AND (b = 2))",
+        "x = = 1",
+    ]
+
+
+def test_the_fallback_split_ignores_and_inside_a_string() -> None:
+    assert sql_forms.split_top_level_and("a = 'x and y' AND b = 1") == ["a = 'x and y'", "b = 1"]

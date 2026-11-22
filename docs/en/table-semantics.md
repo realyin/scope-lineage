@@ -474,7 +474,11 @@ same comment (税 in 增值税) is reported once, as the longer term.
 
 The normalization for check 5 lower-cases, drops identifier quotes, table qualifiers,
 whitespace and a leading `WHERE` / `AND` / `ON`, so the lineage's `` `latest`.`rn` = 1 ``,
-a quoted `WHERE rn = 1` and the script's `latest.rn=1` compare equal.
+a quoted `WHERE rn = 1` and the script's `latest.rn=1` compare equal. A dot inside a string
+literal is no qualifier and is kept: `x = 'p.q'` is not `x = 'q'`. A quote that writes a
+qualifier is held to it: `a.is_deleted = 0` cites the filter on `a` and not
+`b.is_deleted = 0`; the qualifier may be the filter's own or the name of the table its column
+is read from. A quote without qualifiers still compares loosely.
 
 The lineage renders every predicate through SQLGlot, while `rules[].sql` quotes the script
 as written, so check 5 compares both in one space. A fragment counts in two forms: its
@@ -488,7 +492,10 @@ its forms meets a form of a quote or of a unit the quote equals. So the script's
 `COALESCE(x, 0) = 1`, `SUBSTRING(n, 1, 2) = 'AB'` and `NOT x IS NULL`, and a quoted
 `a.dt = '${bizdate}'` cites `DATE_FORMAT(time_inst, 'yyyyMMdd') = '${bizdate}'` when the
 subquery `a` computes `dt` that way. A fragment or script SQLGlot cannot parse keeps the
-loose text match.
+loose text match; an unparsed quote is tried again without a dangling leading or trailing
+`AND` / `OR`, and failing that cut at each top-level `AND` (one inside parentheses, a string
+or a `BETWEEN x AND y` is not a cut), and a quote wrapped in parentheses is compared by the
+conjuncts inside them.
 
 ### Report
 

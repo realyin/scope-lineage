@@ -12,7 +12,7 @@ from .checks import MAX_QUESTIONS, _plain, result
 from .names import bare_table
 from .packet_facts import DATE_WINDOW
 from .packet_notes import RANK_FIRST, VALUES
-from .sql_forms import fragment_forms, quote_forms, task_sql
+from .sql_forms import fragment_forms, qualifiers, quote_pieces, task_sql
 
 # 5 ------------------------------------------------------------------ rules
 
@@ -31,18 +31,26 @@ def check_rules(document: dict, packet: dict) -> list[dict]:
     script as written and as SQLGlot renders it, so a quote spelt the way the author wrote
     it cites the filter the lineage spells its own way -- and only a quote, or one of its
     conjuncts, equal to the filter cites it.
+
+    The comparison forms drop table qualifiers so ``WHERE rn = 1`` cites ```latest`.`rn`
+    = 1``. A quote that does write a qualifier is held to it: ``a.is_deleted = 0`` does
+    not cite ``b.is_deleted = 0``. A qualifier matches the filter's own or the bare name
+    of the table the filter's column is read from.
     """
     scripts = _scripts(packet)
     sql = task_sql(scripts)
-    quoted = frozenset().union(*(
-        sql.expand(quote_forms(rule["sql"])) for rule in document["rules"] if rule.get("sql")))
+    pieces = [
+        (sql.expand(fragment_forms(piece)), qualifiers(piece))
+        for rule in document["rules"] if rule.get("sql")
+        for piece in quote_pieces(rule["sql"])
+    ]
     results, uncited = [], {}
     for rule in packet["lineage"]["rules"]:
         if rule["kind"] != "filter" or rule["partition_filter"]:
             continue
         if rule.get("right_of") and rule.get("right_side_kind") in EXEMPT_RIGHT_SIDE:
             continue
-        if fragment_forms(str(rule["expression"] or "")) & quoted:
+        if _cited(rule, pieces):
             results.append(result("rules", "pass", "rules"))
         else:
             # One quote cites a predicate in every scope that repeats it, so the scopes
@@ -52,6 +60,23 @@ def check_rules(document: dict, packet: dict) -> list[dict]:
             uncited.setdefault(key, []).append(rule)
     results += [_uncited(rules) for rules in uncited.values()]
     return results + _quoted_sql(document, scripts, sql) + _rule_refs(document)
+
+
+def _cited(rule: dict, pieces: list[tuple]) -> bool:
+    """Whether a quoted piece equals the filter and writes no qualifier it lacks."""
+    expression = str(rule["expression"] or "")
+    forms = fragment_forms(expression)
+    allowed = {name: set(tables) for name, tables in qualifiers(expression).items()}
+    for reference in rule.get("columns") or []:
+        parts = str(reference).lower().split(".")
+        if len(parts) >= 2:
+            allowed.setdefault(parts[-1], set()).add(parts[-2])
+    return any(
+        forms & quoted and all(
+            tables & allowed[name] for name, tables in written.items() if name in allowed
+        )
+        for quoted, written in pieces
+    )
 
 
 # The right-side filters a document need not cite (packet_notes.mark_right_side_filters).

@@ -120,6 +120,16 @@
   records `{"reason": "privacy_refused", "issues": ["<key> contains @, refused by privacy rule"]}`
   and `semantic.json` lists it under `findings[]` as a `metadata_conflicts` warning naming the
   keys, never the value.
+- **`semantic validate` check 5: a qualified quote cites only its own filter.** The comparison
+  dropped every table qualifier, so quoting `a.is_deleted = 0` also cited `b.is_deleted = 0`,
+  and a dot inside a string literal was stripped too (`x = 'p.q'` matched `x = 'q'`). A quote
+  that writes a qualifier is now held to it (the filter's own qualifier or its table's name);
+  an unqualified quote still matches loosely, and literals are kept as written. Some documents
+  that passed check 5 now fail it: they cite one side of a pair and must cite the other.
+- **Check 5: a quote with a dangling `AND` still cites its conjuncts.** An unparsed quote is
+  tried again without a leading or trailing `AND` / `OR`; the last-resort split counts
+  parentheses, skips strings and keeps `BETWEEN x AND y` whole, and parentheses around a
+  conjunction are looked through.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
