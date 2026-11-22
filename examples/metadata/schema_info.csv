@@ -32,3 +32,7 @@ ods.web_order,order_amount,"decimal(18,2)",Order amount
 ods.web_order,order_status,string,Payment status
 ods.web_order,order_time,timestamp,Creation timestamp
 ods.web_order,dt,string,Partition date
+ods.customer_contact,customer_id,bigint,Synthetic customer identifier
+ods.customer_contact,contact,"struct<addr:struct<city:string,zip:string>,channel:string>",Contact detail
+ods.customer_contact,contact_json,string,Contact detail as JSON text
+ods.customer_contact,dt,string,Partition date

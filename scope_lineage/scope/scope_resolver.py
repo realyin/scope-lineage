@@ -364,6 +364,29 @@ def _infer_lateral_output_names(inner: exp.Expression | None) -> list[str]:
         names = _field_names_from_from_json_schema(inner)
         if names:
             return names
+    return _generator_default_output_names(inner)
+
+
+def _generator_default_output_names(inner: exp.Expression | None) -> list[str]:
+    """Spark's fixed output names for JSON_TUPLE (``c0..``) and STACK (``col0..``).
+
+    INLINE has none of its own -- its names come from the element struct, which only
+    metadata can supply -- so it is left out (1.13-i).
+    """
+    if inner is None:
+        return []
+    name = (inner.name if isinstance(inner, exp.Anonymous) else inner.sql_name()).lower()
+    args = [inner.this, *(inner.expressions or [])] if not isinstance(inner, exp.Anonymous) \
+        else list(inner.expressions or [])
+    args = [arg for arg in args if arg is not None]
+    if name == "json_tuple" and len(args) >= 2:
+        return [f"c{index}" for index in range(len(args) - 1)]
+    if name == "stack" and len(args) >= 2:
+        count = args[0]
+        if isinstance(count, exp.Literal) and not count.is_string and str(count.this).isdigit() \
+                and int(count.this) > 0:
+            width = -(-(len(args) - 1) // int(count.this))
+            return [f"col{index}" for index in range(width)]
     return []
 
 

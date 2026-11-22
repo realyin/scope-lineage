@@ -110,7 +110,7 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
         else col_ref.table
     )
     col_name = col_ref.name
-    struct_ref = _resolve_struct_field_ref(col_ref, sg_scope, result)
+    struct_ref = _resolve_struct_field_ref(col_ref, sg_scope, result, schema)
     if struct_ref:
         return struct_ref
     if table_alias:
@@ -262,8 +262,13 @@ def _resolve_struct_field_ref(
     col_ref: exp.Column,
     sg_scope: Scope,
     result: ScopeLineageResult,
+    schema: dict | None = None,
 ) -> SourceRef | None:
-    """Resolve ``alias.struct_col.field`` as lineage from ``alias.struct_col``."""
+    """Resolve ``alias.struct_col.field`` as lineage from ``alias.struct_col``.
+
+    Written without the alias (``struct_col.field.leaf``), the first part names no
+    source; it is then the struct column itself (1.13-h).
+    """
     parts = [p.name if hasattr(p, 'name') else str(p) for p in col_ref.parts or []]
     if len(parts) < 3:
         return None
@@ -279,13 +284,42 @@ def _resolve_struct_field_ref(
         if parent_binding:
             binding_scope, source = parent_binding
     if not isinstance(source, (Scope, exp.Table)):
-        return None
+        if base_column in sg_scope.sources:
+            return None  # ``db.table.column``: the middle part names a source.
+        return _resolve_unqualified_struct_column(source_alias, sg_scope, result, schema)
     return _bound_source_ref(
         source_alias,
         source,
         base_column,
         binding_scope,
         result,
+    )
+
+
+def _resolve_unqualified_struct_column(
+    struct_column: str,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    """Bind an unqualified struct column to the one source exposing it.
+
+    Several sources exposing it is the SQL's own ambiguity and is reported as such; no
+    source exposing it leaves the caller on its unresolved path.
+    """
+    matches = [
+        _bound_source_ref(alias, source, struct_column, sg_scope, result)
+        for alias, source in _selected_sources(sg_scope).items()
+        if isinstance(source, (Scope, exp.Table))
+        and _source_column_state(alias, source, struct_column, result, schema) == 'present'
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    return _ambiguous_ref(
+        struct_column, sg_scope, result,
+        [_source_ref_to_candidate(ref) for ref in matches], "sources",
     )
 
 
