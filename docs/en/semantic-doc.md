@@ -122,9 +122,13 @@ scope-lineage describe --lineage /path/to/corpus --out /path/to/out --incrementa
   Repeatable, tried in the order given and after this run's own cache; it implies
   `--incremental`, and `--no-cache` still wins. The corpus path is **not** part of the
   options digest: the same task has to describe the same wherever it was parsed.
-- Fact files are keyed by task name, and two corpora may hold different tasks under one
-  name. What decides a borrow is the fingerprint and the options digest recorded inside the
-  file, not the file's name, so a task of the same name and other contents is described again.
+- A fact file is found by the task's name (its path under `--lineage`) and, failing that,
+  by the sha256 of its `lineage.json`: each cache lists its files by content in
+  `.cache/by-content/index.json`, so a task walked as `task_a` by a subset run and as
+  `domain_a/task_a` by the superset run is still borrowed, and so is a task from a
+  single-file run. Two corpora may hold different tasks under one name; what decides a
+  borrow is the fingerprint and the options digest recorded inside the file, not how it
+  was found, so a task of the same name and other contents is described again.
 - With `--metadata-patch` no task is skipped: `patch_unmatched` answers "this confirmed
   comment matched nothing **in the whole corpus**", which is only true when every task
   was actually described.

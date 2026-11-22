@@ -53,10 +53,11 @@ def test_v2_does_not_report_a_script_created_table_as_missing_metadata() -> None
     assert "staging_tmp" not in coverage["missing_tables"]
 
     # The script-local table is the statement's real input, so it is named as one. What
-    # links it back to ods.source is the table-state graph, not a collapsed source list.
+    # links it back to ods.source is the table-state graph, not a collapsed source list --
+    # and the entry names the state it read, as a value source does.
     assert result.statements[1]["effect"]["rowset_effect"]["membership_sources"] == [
         {"table": "mart.target", "column": "id"},
-        {"table": "staging_tmp", "column": "id"},
+        {"table": "staging_tmp", "column": "id", "source_state": "state:staging_tmp:001"},
     ]
     assert [
         (node["table"], node["producer_statement_id"], node["columns_known"])

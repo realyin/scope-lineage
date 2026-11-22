@@ -268,6 +268,41 @@
   another packet" (`review_packet_stale`) and its findings were dropped; it is now
   `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
   `summary.flags` gains the `review_malformed` key.
+- **`window_context_sources` and MERGE condition entries say which state they read.** Like
+  `value_sources` and `row_membership_sources`, an entry naming a relation the script wrote
+  now carries `source_state`, and `session_scoped: true` when that relation is a temp view.
+  This covers `window_context_sources` (beside `role`), a MERGE's `value_condition_sources`,
+  and `effect.rowset_effect.membership_sources`. New optional keys; entries naming a table the
+  script never wrote are unchanged.
+- **`fold_session_scoped` no longer drops or leaves behind what a temp view decided.**
+  - A value read through a view keeps the view's own row conditions: `SELECT id FROM tv`
+    over `tv ... WHERE amt > 0` now folds `amt` into `row_membership_sources` (every hop of a
+    chain), as the equivalent CTE does. The row used to say `value_sources_folded: true`
+    with the condition gone.
+  - `window_context_sources` and `value_condition_sources` are folded too, so a window or
+    MERGE condition read through a view no longer names the view after it is dropped. An
+    unstamped entry naming a session relation (a document from an older producer) makes the
+    row `value_sources_folded: false` with the new reason `session_scoped_reference_unmarked`.
+  - A temp view nobody reads is dropped from `end_to_end_lineage` and `final_table_states`.
+  - `COUNT(*)` through a view that reads another view folds through every hop, with each
+    hop's row conditions, instead of stopping at `rowset_relation_unresolved`.
+  - A chain of views whose conditions all read the previous view folded in time exponential
+    in its length (N=13 took seconds); answers are now cached per column and state, and the
+    walk is linear.
+- **`--cache-from` borrows across layouts.** A fact file was found only by the task's path
+  under `--lineage`, so a superset corpus borrowed nothing from a subset run (`task_a` vs
+  `domain_a/task_a`), nor from a single-file run, whose fact file was also a hidden
+  `.-<digest>.json`. Each cache now lists its fact files by `lineage.json` digest in
+  `.cache/by-content/index.json`, and a borrow falls back to that list; every candidate is
+  still judged on its own fingerprints and options digest. The single-file fact file has a
+  visible name. `payload_version` is 3, so existing caches are recomputed once.
+- **`tables` and `ontology` remove the pages they no longer publish.** A card for a table
+  no task touches any more, or a concept page merged away, stayed in `tables/` /
+  `concepts/` and kept answering -- with or without `--incremental`. A run that publishes
+  markdown now deletes the `tables/*.md` (and, for `ontology`, `concepts/*.md`) that this
+  command's own record of its last run names and this run did not write: the index's
+  `written` list, or the `tables.json` / `ontology.json` the last run wrote. Files you put
+  there, and cards another command wrote into a shared `--out`, are left alone.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

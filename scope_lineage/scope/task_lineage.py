@@ -1030,6 +1030,7 @@ def _apply_projection_write(
             result=result,
             statement_id=statement_id,
             gaps=gaps,
+            states=states,
         )
         if isinstance(tree, exp.Merge)
         else []
@@ -1088,7 +1089,7 @@ def _apply_projection_write(
                 *value_condition_sources.get(column, []),
                 *merge_conditions,
             ])
-    window_context_sources = _write_window_context_sources(result)
+    window_context_sources = _write_window_context_sources(result, states)
     state = states.transition(
         previous,
         table=result.target_table,
@@ -1582,14 +1583,26 @@ def _binding_reason_code(issues: list[str]) -> str:
     return "binding_not_applicable"
 
 
-def _write_window_context_sources(result) -> dict[str, list[dict]]:
+def _write_window_context_sources(
+    result,
+    states: _StateBuilder | None = None,
+) -> dict[str, list[dict]]:
+    """Window PARTITION BY / ORDER BY fields per written column, stamped like value sources.
+
+    An entry naming a relation the script wrote says which state it read and whether that
+    relation lives only in the session, so the fold can resolve a temp view's partition
+    column to the table behind it instead of leaving the view's name behind (C2.3-1).
+    """
     from .end_to_end import build_end_to_end_lineage
 
     context: dict[str, list[dict]] = {}
     for item in build_end_to_end_lineage(result):
         entries = item.get("window_context_sources") or []
         if entries:
-            context[item["column"]] = [dict(entry) for entry in entries]
+            context[item["column"]] = [
+                {**entry, **_source_state(states, str(entry.get("table") or ""))}
+                for entry in entries
+            ]
     return context
 
 
@@ -1981,6 +1994,7 @@ def _merge_condition_sources(
     result: ScopeLineageResult,
     statement_id: str,
     gaps: list[dict],
+    states: _StateBuilder | None = None,
 ) -> list[dict]:
     """Row-membership sources for a MERGE, resolved through Core's scope facts.
 
@@ -2030,7 +2044,7 @@ def _merge_condition_sources(
                 )
                 continue
             physical_fields, generated, incomplete_reasons = _merge_condition_physical_fields(
-                result, column.name
+                result, column.name, states
             )
             if not physical_fields and not incomplete_reasons and _only_literal_or_system(generated):
                 # A USING column that is a literal or a system value decides nothing.
@@ -2047,14 +2061,28 @@ def _merge_condition_sources(
 def _merge_condition_physical_fields(
     result: ScopeLineageResult,
     column_name: str,
+    states: _StateBuilder | None = None,
 ) -> tuple[list[dict], list[dict], list[str]]:
+    """The USING relation's fields behind one MERGE condition column.
+
+    Stamped like ``_row_condition_fields`` does: a USING relation that is a temp view
+    otherwise reached ``row_membership_sources`` as a bare ``{table, column}`` that no
+    fold could recognise, and the view's name outlived the view (X3).
+    """
     if not result.merge_using_scope_id:
         return [], [], ["merge_using_scope_missing"]
     fields, generated, incomplete_reasons = _scope_column_roots(
         result, result.merge_using_scope_id, column_name
     )
     return (
-        [{"table": field["table"], "column": field["column"]} for field in fields],
+        [
+            {
+                "table": field["table"],
+                "column": field["column"],
+                **_source_state(states, field["table"]),
+            }
+            for field in fields
+        ],
         generated,
         incomplete_reasons,
     )

@@ -113,9 +113,13 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   given and after this run's own cache; it implies `--incremental`, and `--no-cache` still
   wins. The corpus path is **not** part of the options digest: the same task has to derive
   the same facts wherever it was parsed.
-- Fact files are keyed by task name, and two corpora may hold different tasks under one
-  name. What decides a borrow is the fingerprint and the options digest recorded inside the
-  file, not the file's name, so a task of the same name and other contents is recomputed.
+- A fact file is found by the task's name (its path under `--lineage`) and, failing that,
+  by the sha256 of its `lineage.json`: each cache lists its files by content in
+  `.cache/by-content/index.json`, so a task walked as `task_a` by a subset run and as
+  `domain_a/task_a` by the superset run is still borrowed, and so is a task from a
+  single-file run. Two corpora may hold different tasks under one name; what decides a
+  borrow is the fingerprint and the options digest recorded inside the file, not how it
+  was found, so a task of the same name and other contents is recomputed.
 - A changed option invalidates the whole index and recomputes everything: the **content**
   of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
   and the tool version. An index or a cache file written by another subcommand (a

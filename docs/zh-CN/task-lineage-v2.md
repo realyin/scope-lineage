@@ -336,6 +336,11 @@ columns = {
 标记由工具在解析时按它实际解析到的关系判定，所以**拼写不一致也不会漏**：
 全局临时视图声明时是裸名、读的时候是 `global_temp.` 限定名，按名字比对会漏，边上的标记不会。
 
+同样的两个可选键（`source_state`，以及关系只活在会话里时的 `session_scoped`）打在每一个指向「本脚本写过的关系」的
+条目上：`value_sources`、`row_membership_sources`、`window_context_sources`（与 `role` 并列），以及 MERGE 条件条目
+（MERGE 语句的 `value_condition_sources` 和 `effect.rowset_effect.membership_sources`）。
+指向本脚本从未写过的表的条目两个键都不带。
+
 ### 只想排除、不想折叠
 
 按 catalog 对账时通常只需要把这些关系从表清单里去掉，不需要动字段血缘：
@@ -377,9 +382,14 @@ folded = fold_session_scoped(document)     # 输入不会被修改
 折叠按语句级端到端血缘的同一规则组合每一跳的 `transform`（取路径上更强的一种），所以
 `v * 2` 经过一层透传视图读到的仍是 `EXPRESSION`；两条来源只有内容完全相同才合并，
 同一视图列背后的不同常量、同一物理列的不同参与路径都各自保留。
+经过临时视图读到的值同时也经过了视图自己的行条件：视图里的 `WHERE amt > 0` 会让 `amt` 进入折叠后该行的
+`row_membership_sources`，多层视图串起来时每一跳都收集——与等价的 CTE 写法给出的答案一致。
 行条件与行集同样折叠：`row_membership_sources` 里读临时视图的条件（带 `session_scoped`）解析成视图列背后的
-物理字段，并加上视图自己的行条件；`COUNT(*)` 这类读临时视图的 `rowset` 来源展开成视图所读的物理表各一条，
-视图的行条件同时并入目标行的 `row_membership_sources`。这些组合规则（身份、合并、变换组合）与语句级、
+物理字段，并加上视图自己的行条件；`COUNT(*)` 这类读临时视图的 `rowset` 来源展开成视图所读的物理表各一条
+（视图又读另一个视图时，递归到它当时读到的那个状态），每一层视图的行条件都并入目标行的 `row_membership_sources`。
+`value_condition_sources` 按行条件同样折叠；`window_context_sources` 的条目解析成视图列背后的物理字段，保留 `role`。
+没有任何语句读的临时视图也会被去掉：会话关系取自 `statement_sequence[].is_session_scoped_relation`，
+不只取自指向它的边。这些组合规则（身份、合并、变换组合）与语句级、
 任务级共用 `scope/composition.py`。
 
 **折不动的地方不会被悄悄丢掉。** 该行保留原边，并给出：
@@ -389,7 +399,7 @@ folded = fold_session_scoped(document)     # 输入不会被修改
 | `value_sources_folded` | `true` = 这一行全部折叠成功；`false` = 有折不动的跳 |
 | `fold_incomplete_reasons` | 折不动的原因，仅在 `false` 时出现 |
 
-原因有五种，都对应一个真实存在的情况：
+原因有六种，都对应一个真实存在的情况：
 
 - `source_state_not_in_document` —— 读的是该关系被重定义**之前**的状态。
   `end_to_end_lineage` 是最终状态视图，那个状态没有行；用现存的定义替换会**指错出处**。
@@ -397,7 +407,9 @@ folded = fold_session_scoped(document)     # 输入不会被修改
   只有一行 `*`）。
 - `source_column_has_no_sources` —— 该列在文档里没有任何来源。
 - `fold_depth_exceeded` —— 关系间构成环。
-- `rowset_relation_unresolved` —— 读临时视图的行集，但找不到该视图语句读的物理表（或它读的仍是另一个会话关系）。
+- `rowset_relation_unresolved` —— 读临时视图的行集，但找不到该视图语句读的物理表，或它读的另一个会话关系所处的状态在文档里没有行（读之后被重定义了）。
+- `session_scoped_reference_unmarked` —— 某个条目指向会话关系却没有 `session_scoped` 标记（窗口与 MERGE 条件条目
+  开始打标之前写出的文档），折叠无法判断它读的是哪个状态。
 
 **折叠后来源为空 ≠ 这列没有血缘**，所以这个实现从不返回空——折不动就保留原边并说明。
 自己写折叠最容易错的也正是这一点。

@@ -33,10 +33,18 @@ after this run's own: a file there is borrowed when its command, ``payload_versi
 options digest and recorded input fingerprints all equal this task's, and it is copied
 into this run's own cache, so the next run finds it locally. Two consequences, both
 deliberate. The corpus path is *not* in the options digest -- the same task has to hash
-the same wherever it was parsed, which is the whole point. And a fact file is named
-after the task, so two corpora that both hold a ``task_a`` look at the same file name:
-what makes that safe is not the name but the fingerprints, which a task of the same name
-and other contents cannot match.
+the same wherever it was parsed, which is the whole point. And what makes a borrowed file
+safe is not its name but its fingerprints, which a task of the same name and other
+contents cannot match.
+
+**A borrowed file is found by what the task is, not where it sat** (3.3-1). A fact file
+is named after the task's path relative to ``--lineage``, so the same task walked as
+``task_a`` by a subset run and as ``domain_a/task_a`` by the superset run had two names,
+and the superset found nothing to borrow. Each cache therefore also publishes
+``.cache/by-content/index.json`` (``corpus-content-index/1``): ``lineage_sha256 -> the fact
+files derived from that lineage.json``. A borrow tries the same-name file first, then the
+files the other cache lists under this task's digest -- and every candidate is still
+judged on its own header, so the index can only ever point at work, never vouch for it.
 
 What is deliberately *not* cached is the corpus-level merge: it always runs over every
 task, reused and recomputed alike, which is what makes an incremental run byte-identical
@@ -67,8 +75,8 @@ import re
 import shutil
 import sys
 from functools import lru_cache
-from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from pathlib import Path, PurePosixPath
+from typing import Callable, Iterable, Mapping, Sequence
 
 INDEX_DOC_FORMAT = "corpus-index/1"
 CACHE_DOC_FORMAT = "corpus-cache/3"
@@ -77,12 +85,17 @@ CACHE_DIR_NAME = ".cache"
 
 # What a cache file's ``facts`` mean, independently of the file format around them.
 # Version 1 was the whole semantic profile; version 2 is the projection the command's
-# merge reads; version 3 is the same projection after `join_key_pairs[].left/right`
-# gained `bare` and the uniqueness rules stopped reading pairs whose right side is not
-# a bare column (audit WP2g). A stored payload of another version is recomputed rather
-# than read, in the index as well as in the fact files -- an index is a promise about
-# fact files that a released version may no longer be able to keep.
+# merge reads. A stored payload of another version is recomputed rather than read, in
+# the index as well as in the fact files -- an index is a promise about fact files that
+# a released version may no longer be able to keep.
+# Version 3 (one bump, two reasons landing together, audit 2026-11-21): the projection
+# reads `join_key_pairs[].left/right.bare` and the uniqueness rules stopped reading pairs
+# whose right side is not a bare column (WP2g); the single-file fact file is no longer a
+# hidden ``.-<digest>.json`` and a content index sits beside the fact files (WP9). A
+# version-2 cache is recomputed once.
 PAYLOAD_VERSION = 3
+CONTENT_INDEX_DOC_FORMAT = "corpus-content-index/1"
+CONTENT_INDEX_PATH = ("by-content", "index.json")
 
 _UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -246,6 +259,55 @@ def union_fields(*lists: Mapping) -> dict:
     return {"profile": tuple(profile), "statement": statement}
 
 
+def previous_written(out: Path, command: str) -> set[str]:
+    """What the last indexed run of ``command`` under ``out`` said it published.
+
+    Read whatever options that run had: the index is ignored for *reuse* when they
+    differ, but which files it wrote is still a fact about this directory. An index
+    another command wrote (``tables`` and ``ontology`` may share an ``--out``) says
+    nothing about this one's files.
+    """
+    document = _read_json_object(Path(out) / INDEX_FILE_NAME)
+    if (
+        document is None
+        or document.get("doc_format") != INDEX_DOC_FORMAT
+        or document.get("command") != command
+        or not isinstance(document.get("written"), list)
+    ):
+        return set()
+    return {str(name) for name in document["written"] if isinstance(name, str)}
+
+
+def prune_unwritten(
+    out: Path, previous: Iterable[str], written: Iterable[str], owned: Sequence[str]
+) -> list[str]:
+    """Delete the files an earlier run of this command published and this one did not.
+
+    3.3-2: a card for a table no task touches any more, or a concept page merged away,
+    kept answering because nothing ever removed it. Only ``<dir>/<name>.md`` directly
+    under one of the ``owned`` directories is ever deleted, and only when ``previous`` --
+    this command's own record of what it wrote -- names it: a file somebody put there,
+    or one another command published into a shared ``--out``, is not this run's to
+    remove.
+    """
+    kept = set(written)
+    removed: list[str] = []
+    for name in sorted(set(previous) - kept):
+        parts = PurePosixPath(name).parts
+        if (
+            len(parts) != 2
+            or parts[0] not in owned
+            or not parts[1].endswith(".md")
+            or parts[1] in (".", "..")
+        ):
+            continue
+        path = Path(out, *parts)
+        if path.is_file():
+            path.unlink(missing_ok=True)
+            removed.append(name)
+    return removed
+
+
 def purge(out: Path) -> None:
     """Drop the index and the fact cache, leaving the published documents alone."""
     (out / INDEX_FILE_NAME).unlink(missing_ok=True)
@@ -304,6 +366,7 @@ class CorpusCache:
         self._options = options
         self.enabled = enabled
         self._borrow_from = _other_roots(self._out / CACHE_DIR_NAME, borrow_from)
+        self._content_indexes: dict[Path, dict[str, list[str]]] = {}
         self._stored = self._load() if enabled else {}
         self._entries: dict[str, dict] = {}
         self.reused = 0
@@ -405,6 +468,7 @@ class CorpusCache:
         for key in self._stored:
             if key not in self._entries:
                 self._payload_path(key).unlink(missing_ok=True)
+        self._write_content_index()
         payload = {
             "doc_format": INDEX_DOC_FORMAT,
             "command": self._command,
@@ -452,16 +516,55 @@ class CorpusCache:
     def _borrow(self, key: str, inputs: Mapping) -> dict | None:
         """The first ``--cache-from`` fact file that proves it derived this exact task.
 
-        It is copied into this run's own cache on the way out, so the next run over this
-        corpus reuses it locally and the borrowed directory can go away.
+        Looked up under this task's own name first, then under every name the other
+        cache's content index lists for this ``lineage.json`` -- the same task walked from
+        another root has another name (3.3-1). It is copied into this run's own cache on
+        the way out, so the next run over this corpus reuses it locally and the borrowed
+        directory can go away.
         """
+        own = _payload_name(key)
         for root in self._borrow_from:
-            facts = self._read_payload(root / _payload_name(key), inputs)
-            if facts is None:
-                continue
-            self._write_payload(key, inputs, facts)
-            return facts
+            names = [own, *self._content_candidates(root, inputs.get("lineage_sha256"))]
+            for name in dict.fromkeys(names):
+                facts = self._read_payload(root / name, inputs)
+                if facts is None:
+                    continue
+                self._write_payload(key, inputs, facts)
+                return facts
         return None
+
+    def _content_candidates(self, root: Path, digest) -> list[str]:
+        """The fact file names another cache derived from a ``lineage.json`` of ``digest``."""
+        if not isinstance(digest, str):
+            return []
+        if root not in self._content_indexes:
+            self._content_indexes[root] = _read_content_index(root, self._command)
+        return self._content_indexes[root].get(digest, [])
+
+    def _write_content_index(self) -> None:
+        """``lineage_sha256 -> fact file names`` for every task this run has a file for."""
+        cache_dir = self._out / CACHE_DIR_NAME
+        payloads: dict[str, list[str]] = {}
+        for key in sorted(self._entries):
+            digest = self._entries[key].get("lineage_sha256")
+            name = _payload_name(key)
+            if isinstance(digest, str) and (cache_dir / name).is_file():
+                payloads.setdefault(digest, []).append(name)
+        path = cache_dir.joinpath(*CONTENT_INDEX_PATH)
+        if not payloads:
+            path.unlink(missing_ok=True)
+            return
+        document = {
+            "doc_format": CONTENT_INDEX_DOC_FORMAT,
+            "command": self._command,
+            "payload_version": PAYLOAD_VERSION,
+            "payloads": payloads,
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        except OSError as error:
+            print(f"cannot write {path}: {error}", file=sys.stderr)
 
     def _payload_path(self, key: str) -> Path:
         return self._out / CACHE_DIR_NAME / _payload_name(key)
@@ -517,10 +620,37 @@ class CorpusCache:
         return inputs if isinstance(inputs, dict) else {}
 
 
+def _read_content_index(root: Path, command: str) -> dict[str, list[str]]:
+    """Another cache's ``lineage_sha256 -> fact file names``, or empty when unusable."""
+    document = _read_json_object(root.joinpath(*CONTENT_INDEX_PATH))
+    if (
+        document is None
+        or document.get("doc_format") != CONTENT_INDEX_DOC_FORMAT
+        or document.get("command") != command
+        or document.get("payload_version") != PAYLOAD_VERSION
+        or not isinstance(document.get("payloads"), dict)
+    ):
+        return {}
+    return {
+        digest: [name for name in names if isinstance(name, str) and _is_plain_name(name)]
+        for digest, names in document["payloads"].items()
+        if isinstance(names, list)
+    }
+
+
+def _is_plain_name(name: str) -> bool:
+    """A file name inside the cache directory, nothing that walks out of it."""
+    return bool(name) and "/" not in name and "\\" not in name and name not in (".", "..")
+
+
 def _payload_name(key: str) -> str:
     """One task's fact file name: the same name under every corpus's cache, so borrowing
-    is a lookup rather than a scan -- and so the fingerprints inside have to be read."""
-    stem = _UNSAFE_IN_FILENAME.sub("_", key)[:80]
+    is a lookup rather than a scan -- and so the fingerprints inside have to be read.
+
+    A single-file run's key is ``.``, which used to make a hidden ``.-<digest>.json``;
+    leading dots are dropped from the readable stem (the digest keeps names distinct).
+    """
+    stem = _UNSAFE_IN_FILENAME.sub("_", key)[:80].lstrip(".") or "task"
     suffix = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
     return f"{stem}-{suffix}.json"
 
