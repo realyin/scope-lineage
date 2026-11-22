@@ -561,6 +561,11 @@
   `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
   (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
   word in a package string literal.
+- **A JOIN with no key pair onto a carded table no longer says the table has no key fact.**
+  With `--tables`, a JOIN onto a physical table whose card proves a key, but whose ON clause
+  offers no usable key pair (joined by OR, say), stays `unknown` as before; its `reason` now
+  reads 「该 JOIN 无可证明的连接键，右侧唯一性无从判定」 instead of 「物理表无主键事实」, which
+  the card contradicted. Only the text changes; without a card the reason is unchanged.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

@@ -5528,7 +5528,9 @@ def _fan_out_verdict(
         carded = _card_verdict(
             right, detail, card_lookup, _right_table_pins(document, block_id, right)
         )
-        return (*carded, []) if carded else ("unknown", "物理表无主键事实", None, None, [])
+        if carded:
+            return (*carded, [])
+        return "unknown", _uncarded_physical_reason(right, detail, card_lookup), None, None, []
     if right not in _scopes(document):
         return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None, []
     columns = _join_side_columns(detail, "right")
@@ -5783,6 +5785,22 @@ def _validity_claim(read: Mapping) -> claims.Claim:
     return replace(
         claim, conditions=((str(condition), (*partition, str(window["start"]))),)
     ).weakened_to(claims.CONDITIONAL)
+
+
+def _uncarded_physical_reason(right: str, detail: dict, card_lookup) -> str:
+    """Why a JOIN onto a physical table the card did not decide stays ``unknown``.
+
+    「物理表无主键事实」 is wrong when the table card does hold a key and this JOIN simply
+    offers no key pair to read it with (an ON clause joined by OR, say): what is missing
+    is the JOIN's key, not the table's (audit verify-D 4.1-3). The verdict is unchanged.
+    """
+    if (
+        card_lookup is not None
+        and not _join_side_columns(detail, "right")
+        and _card_key_claim(card_lookup(right)) is not None
+    ):
+        return "该 JOIN 无可证明的连接键，右侧唯一性无从判定"
+    return "物理表无主键事实"
 
 
 def _keyless_join_verdict(detail: dict) -> tuple[str, str]:
