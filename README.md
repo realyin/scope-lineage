@@ -366,6 +366,8 @@ tables.
 8. Catalog match key: the catalog view now drops quotes and case before matching, and drops a
    catalog only when configured (otherwise it keeps the last two segments, as before). Schema
    keyed `db.table` still describes a `catalog.db.table` read when no other entry could be it.
+   When two unconfigured catalogs' tables of the same name both match one catalog table, it gets
+   `table_identity_ambiguous` and no lineage evidence.
 The package no longer carries a warehouse's table-name suffix convention or business-domain
 words as defaults. `semantic packet` reads no suffix unless told to, so an input named
 `…_df` is no longer a full snapshot by its name alone and check 9 no longer fails an
