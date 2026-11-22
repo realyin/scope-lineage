@@ -776,8 +776,8 @@ byte for byte what it was.
 | `representations["db.table"]` | `producing_tasks` | `--lineage` | the tasks whose statements write the table |
 | `representations["db.table"]` | `refresh` | `--lineage` | those tasks' schedule cycle (or cron) |
 | `representations["db.table"]` | `upstream_tables` / `downstream_tables` | `--lineage` | one hop of table lineage: what the writers read, what the readers write |
-| `representations["db.table"]` | `grain_proof` | `--lineage` | the best grain any writer proves: `confidence` (`proven` / `candidate` / `none`), `keys`, `basis`, `task` |
-| `representations["db.table"]` | `conflicts` | `--lineage` | `grain_not_proven` (declared `proven`, lineage cannot prove it) or `grain_mismatch` (both proven, different columns) |
+| `representations["db.table"]` | `grain_proof` | `--lineage` | the best grain any writer proves: `confidence` (`proven` / `candidate` / `none`), `keys` (target column names; keys a WHERE pins are left out), `basis`, `task` |
+| `representations["db.table"]` | `conflicts` | `--lineage` | `grain_not_proven` (declared `proven`, lineage cannot prove it), `grain_not_exposed` (declared `proven`, lineage proves a key the write does not expose on target columns) or `grain_mismatch` (both proven, different columns) |
 | `representations["db.table"]` | `table_comment` | `--tables` | the table comment on the table card |
 | `representations["db.table"]` | `declared_columns` / `used_columns` | `--tables` | how many columns the metadata declares and the corpus uses |
 | `bindings["db.table.column"]` | `sources` / `expression` | `--lineage` | the physical source columns and the final expression (at most 200 characters), only for a binding without a hand-written `derivation` |

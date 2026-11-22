@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **`catalog build --lineage`: no false `grain_mismatch` for a renamed or pinned key.** The
+  evidence compared the catalog's declared grain (target columns) with the logical keys of the
+  scope that decides the grain -- a CTE's own column names, keys a WHERE pins included -- so a
+  write that renames its key in the outer SELECT, or pins one grouping column, was reported as a
+  mismatch. `grain_proof.keys` now reads the statement's `candidate_keys` at every confidence. A
+  key that holds but is not written on target columns (`proven_unexposed`) reports the new
+  conflict rule `grain_not_exposed` instead of `grain_not_proven`.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the

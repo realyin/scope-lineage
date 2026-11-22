@@ -687,8 +687,8 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `representations["库.表"]` | `producing_tasks` | `--lineage` | 写这张表的语句所属的任务 |
 | `representations["库.表"]` | `refresh` | `--lineage` | 这些任务的调度周期（或 cron） |
 | `representations["库.表"]` | `upstream_tables` / `downstream_tables` | `--lineage` | 表级血缘一跳：写它的任务读了什么，读它的任务写了什么 |
-| `representations["库.表"]` | `grain_proof` | `--lineage` | 所有生产语句里证据最强的粒度：`confidence`（`proven` / `candidate` / `none`）、`keys`、`basis`、`task` |
-| `representations["库.表"]` | `conflicts` | `--lineage` | `grain_not_proven`（目录声明 `proven`，血缘证明不了）或 `grain_mismatch`（两边都已证明，列不同） |
+| `representations["库.表"]` | `grain_proof` | `--lineage` | 所有生产语句里证据最强的粒度：`confidence`（`proven` / `candidate` / `none`）、`keys`（目标表的列名，被 WHERE 钉死的键不算）、`basis`、`task` |
+| `representations["库.表"]` | `conflicts` | `--lineage` | `grain_not_proven`（目录声明 `proven`，血缘证明不了）、`grain_not_exposed`（目录声明 `proven`，血缘证明的键没有写到目标列上）或 `grain_mismatch`（两边都已证明，列不同） |
 | `representations["库.表"]` | `table_comment` | `--tables` | 表卡上的表注释 |
 | `representations["库.表"]` | `declared_columns` / `used_columns` | `--tables` | 元数据声明了几列、语料用到了几列 |
 | `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
