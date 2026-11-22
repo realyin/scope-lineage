@@ -388,6 +388,11 @@ precedence, over a lateral column alias」，见
 来源的列未知时（该表没有 Schema、`SELECT *` 的 CTE），照旧按别名读，同时语句带一条 `lateral_alias_ambiguous`
 警告，写明是哪个名字。此前一律按别名读，所以这种形态的输出来源会变化，见 CHANGELOG 的 **Breaking** 条目。
 
+HAVING 和 QUALIFY 按同一规则（同页原文「HAVING prefers the table column over the SELECT list alias」，QUALIFY 相同）：
+`SELECT g, MAX(fee) AS amt FROM ods.x GROUP BY g HAVING amt > 0` 里，若能证明 `ods.x` 有 `amt` 列，过滤块读作
+`x.amt > 0`，而不是 `MAX(x.fee) > 0`。没有任何来源有这个名字、或元数据定不下来时，仍按别名读（这里不加警告）。
+ORDER BY 优先别名，不变。
+
 ### `SELECT * EXCEPT (...)`
 
 星号的排除列表**会被应用**：被排除的列不出现在任何输出面（`columns[]` / `outputs[]` / `field_mapping_chains[]` / `end_to_end_lineage[]` / `related_metadata`）。

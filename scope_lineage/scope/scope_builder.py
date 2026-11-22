@@ -1094,6 +1094,9 @@ def _shield_group_by_source_columns(
     defined earlier in it: "A local column reference takes precedence, over a lateral
     column alias" (Databricks name resolution; SPARK-27561), so in
     ``SELECT fee AS amt, amt AS fee`` the second ``amt`` is the source column (X1).
+    HAVING and QUALIFY follow it too: "HAVING prefers the table column over the SELECT
+    list alias", and QUALIFY does the same (same page); ORDER BY, which prefers the alias,
+    is left to sqlglot.
 
     A source whose columns are unknown leaves the name to the alias, as before; such a
     SELECT-list column is added to ``lateral_candidates`` so that, if ``qualify`` does
@@ -1105,9 +1108,11 @@ def _shield_group_by_source_columns(
         aliases = {projection.alias.lower() for projection in select.expressions if isinstance(projection, exp.Alias)}
         if not aliases:
             continue
-        group = select.args.get("group")
-        if group:
-            for column in _bare_columns_named(group, aliases):
+        for clause in ("group", "having", "qualify"):
+            node = select.args.get(clause)
+            if not node:
+                continue
+            for column in _bare_columns_named(node, aliases):
                 if _source_column_presence(select, column.name, schema, ctes):
                     _shield_column(select, column, shielded)
         _shield_projection_source_columns(select, schema, ctes, shielded, lateral_candidates)

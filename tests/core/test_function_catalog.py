@@ -314,3 +314,33 @@ def test_a_cast_beside_a_real_udf_still_reports_the_udf() -> None:
 
     assert flagged
     assert all("my_udf" in expression.lower() for expression in flagged)
+
+
+# ------------------------- a builtin sqlglot leaves anonymous is not a UDF (S10)
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [
+        "now()",
+        "NOW()",
+        "current_timestamp()",
+        "current_date()",
+        "unix_timestamp()",
+        "from_unixtime(unix_timestamp(), 'yyyyMMdd')",
+        "date_format(now(), 'yyyy-MM-dd')",
+    ],
+)
+def test_a_builtin_that_sqlglot_leaves_anonymous_is_not_a_udf(projection: str) -> None:
+    """sqlglot parses ``now()`` as ``exp.Anonymous``; the projection subtype read every
+    top-level anonymous call as ``udf`` without asking the catalog, which knows ``now``."""
+    document = _document(f"INSERT OVERWRITE TABLE d.t SELECT {projection} AS etl_ts, id FROM ods.e")
+
+    assert _udf_expressions(document) == []
+
+
+def test_a_top_level_unknown_call_is_still_a_udf() -> None:
+    flagged = _udf_expressions(_document("INSERT OVERWRITE TABLE d.t SELECT my_udf(id) AS k FROM ods.e"))
+
+    assert flagged
+    assert all("my_udf" in expression.lower() for expression in flagged)

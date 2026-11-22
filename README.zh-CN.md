@@ -324,6 +324,9 @@ scope-lineage parse \
 2. `lateral_alias_ambiguous` 的处理同 `ambiguous_unqualified`：给警告里点名的来源补 Schema 后重跑，或人工确认按别名读是对的。
 3. 表语义运行用原来的 `semantic packet` 命令重建材料包；材料包变了的文档成为 `packet_stale`，照常重写（runbook S3、S4）。
 
+HAVING 和 QUALIFY 按同一条「源列优先」规则：其中的名字既是源列、又是 SELECT 别名时，只要 Schema 能证明来源有这一列，
+现在就读源列，重跑 `parse` 后这类过滤块的 `raw_expression` 和 `fields` 会变；ORDER BY 仍按别名读。
+
 `kind=union` scope 上的 `set_op` 取值也会变。不带 `ALL` 的 `UNION` 现在标为 `UNION`（以前一律是 `UNION_ALL`）；
 `EXCEPT` / `INTERSECT` 以前一列都不出，现在产出标为 `EXCEPT` / `INTERSECT` 的 scope，并带一条 `set_operation_semantics_partial` 事实缺口。
 

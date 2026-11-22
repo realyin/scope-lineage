@@ -509,6 +509,36 @@
   unconfigured catalogs. What to do: re-run `parse`, rebuild `tables` and `glossary`,
   re-key overrides, and configure catalog prefixes where two catalogs are in fact one table
   (see the READMEs' migration section).
+- **Breaking -- a HAVING or QUALIFY name that is also a source column reads the column, not the
+  SELECT alias.** No format changes number; the source of existing filter blocks changes. In
+  `SELECT g, MAX(fee) AS amt FROM ods.x GROUP BY g HAVING amt > 0`, where `ods.x` has its own
+  `amt`, sqlglot expanded the name into the alias and the HAVING block read
+  `MAX(x.fee) > 0` with fields `fee`; QUALIFY did the same. Spark's rule is "HAVING prefers the
+  table column over the SELECT list alias", and QUALIFY follows HAVING
+  (https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html). The shield
+  that keeps such a name in GROUP BY and the SELECT list now covers HAVING and QUALIFY under the
+  same condition (Schema, a derived table's or a CTE's columns prove a source has it). A name no
+  source has, or one the metadata cannot settle, still reads the alias; ORDER BY, which prefers
+  the alias, is unchanged. Who is affected: stored lineage whose HAVING or QUALIFY uses such a
+  name; the `raw_expression` and `fields` of that filter block change. What to do: re-run
+  `parse` (see the READMEs' migration section).
+- **`SELECT now() AS ts` is no longer reported as a UDF.** sqlglot parses `now()` as an
+  anonymous call, and a projection that was one anonymous call got the `udf` subtype without
+  the function catalog being asked, so `has_udf` was true and the output was typed
+  `udf_expression` although the catalog lists `now`. The subtype now consults the catalog; an
+  unknown name is still a UDF. Such an output now reads `has_udf: false`,
+  `expression_type: function_expression`, and its column carries no `transform_subkind`
+  (it was `udf`). `current_timestamp()`, `current_date()` and `unix_timestamp()`
+  parse to named nodes and were never affected.
+- **`describe` no longer describes EXCEPT / INTERSECT as a UNION.** The profile read every set
+  operation as a sum of branches: the grain blocker said 「行数为各分支之和」, the stage action
+  「合并 2 个分支」, the shape line 合并型, and every branch's table was `driving`. EXCEPT keeps
+  the first branch's rows no other branch has and INTERSECT those every other branch also has,
+  so the stage action now reads 「差集：取 A 的行，去掉在 B 中出现的行」 / 「交集：取 A 的行，只留在 B
+  中也出现的行」, the shape line 差集型 / 交集型 (the `shape` value stays `union_merge`), the grain
+  blocker says where the rows come from, only the first branch is on the driving path, and the
+  tables of the later branches are `filter_partner` instead of `driving` / `union_branch`.
+  `key_confidence` is unchanged (`none`): nothing here proves a key.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

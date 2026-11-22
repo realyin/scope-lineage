@@ -1717,6 +1717,23 @@ def describe_union(input_fields: Sequence[str]) -> str:
     return f"{UNION_TEXT_PREFIX} {len(fields)} 个分支（来自 {'、'.join(fields)}）"
 
 
+# EXCEPT and INTERSECT keep rows of the first branch only; the other branches drop rows.
+# They begin with their own words so that no reader takes them for a UNION's sum.
+SET_DIFFERENCE_TEXT_PREFIX = "差集"
+SET_INTERSECTION_TEXT_PREFIX = "交集"
+
+
+def describe_set_operation(set_op: str, branch_labels: Sequence[str]) -> str:
+    """One set operation's stage action: a UNION's sum, or EXCEPT / INTERSECT on the first branch."""
+    labels = [str(item) for item in branch_labels]
+    if set_op not in ("EXCEPT", "INTERSECT") or len(labels) < 2:
+        return describe_union(labels)
+    first, others = labels[0], "、".join(labels[1:])
+    if set_op == "EXCEPT":
+        return f"{SET_DIFFERENCE_TEXT_PREFIX}：取 {first} 的行，去掉在 {others} 中出现的行"
+    return f"{SET_INTERSECTION_TEXT_PREFIX}：取 {first} 的行，只留在 {others} 中也出现的行"
+
+
 def describe_direct_projection(input_fields: Sequence[str]) -> str:
     fields = [str(item) for item in input_fields]
     if not fields:

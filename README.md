@@ -332,6 +332,11 @@ alias always won, silently. A name the Schema cannot settle keeps the alias read
 3. In a table-semantics run, rebuild packets with the same `semantic packet` command; documents
    whose packet changed become `packet_stale` and are rewritten as usual (runbook S3 and S4).
 
+HAVING and QUALIFY follow the same source-first rule: a name there that is both a source column
+and a SELECT alias now reads the column wherever Schema proves the source has it, so the
+`raw_expression` and `fields` of such a filter block change on re-parse; ORDER BY still reads
+the alias.
+
 `set_op` on a `kind=union` scope also changes value. A `UNION` without `ALL` is now labelled
 `UNION` (it was always `UNION_ALL`), and `EXCEPT` / `INTERSECT`, which used to yield no columns,
 now yield scopes labelled `EXCEPT` / `INTERSECT` plus a `set_operation_semantics_partial` fact gap.
