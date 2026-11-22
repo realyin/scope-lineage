@@ -313,15 +313,15 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
-### 迁移到下一个版本（Unreleased）
+### 迁移到 0.14.0
 
-这个版本改正了一批血缘事实（见 CHANGELOG 的 Unreleased 段）。所有已保存的 `lineage.json` 都重跑 `parse`，并重建由它派生的产物
+这个版本改正了一批血缘事实（见 CHANGELOG 的 0.14.0 段）。所有已保存的 `lineage.json` 都重跑 `parse`，并重建由它派生的产物
 （`describe`、`tables`、`glossary`、`ontology`、材料包、目录证据）；下面各项只列出除了重跑之外还要动手的地方。
 
 格式版本都不变，但部分字段的来源会变。投影里的名字既是源列、又是同一 SELECT 里更早的别名时
 （`SELECT fee AS amt, amt AS fee`），只要 Schema 能证明来源有这一列，现在就按 Spark 的规则读源列；以前一律按别名读，
 而且不报任何提示。Schema 定不下来的名字照旧按别名读，同时加一条 `lateral_alias_ambiguous` 警告。完整说明见
-[CHANGELOG.md](CHANGELOG.md) Unreleased 下的 **Breaking** 条目。
+[CHANGELOG.md](CHANGELOG.md) 0.14.0 下的 **Breaking** 条目。
 
 1. 已保存的血缘文档重新跑 `parse`。只有这种形态的输出会变 `sources`、`expression` 和 `end_to_end_lineage`，其余不变。
 2. `lateral_alias_ambiguous` 的处理同 `ambiguous_unqualified`：给警告里点名的来源补 Schema 后重跑，或人工确认按别名读是对的。
