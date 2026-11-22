@@ -297,6 +297,9 @@
 - **`ontology --export shacl,linkml` escapes every control character.** A comment holding a
   carriage return went out raw, which made the Turtle file invalid and was folded to a space by
   a YAML reader. `\r` is now escaped, and the rest of C0 and DEL go out as `\uXXXX`.
+- **Catalog pages: a rule cites a table by its whole name.** `scopes.md` and `catalog query`
+  matched a rule's expression by substring, so a rule about `db.t_order_refund` was listed under
+  `db.t_order` too. The name must now stand alone or be followed by `.column`.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

@@ -961,7 +961,8 @@ anywhere, English ones as whole words (an underscore separates words, so `is_del
 
 The same page lists the tables that declare no `scope`, and the constraints of kind
 `business_rule` / `value_domain` that cite a representation's table in their `evidence` or
-expression.
+expression. An expression cites a table by its whole name, which may be followed by
+`.column`: a rule about `db.t_order_refund` does not cite `db.t_order`.
 
 ## Query: `catalog query`
 

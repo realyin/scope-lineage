@@ -841,7 +841,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | 分区/快照日期 | `partition` | 分区、快照、`dt`、`ds`、`partition`、`snapshot` |
 | 其他 | `other` | 以上都不像 |
 
-同一页还列出没写 `scope` 的表，以及种类为 `business_rule` / `value_domain`、在 `evidence` 或表达式里引用了某张表现表的约束。
+同一页还列出没写 `scope` 的表，以及种类为 `business_rule` / `value_domain`、在 `evidence` 或表达式里引用了某张表现表的约束。表达式按完整表名引用，后面可以紧跟 `.列名`：讲 `db.t_order_refund` 的规则不算引用 `db.t_order`。
 
 ## 查询：`catalog query`
 
