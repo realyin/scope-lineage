@@ -682,6 +682,23 @@
   `physical_source_fields` gain the FOR column. A pivot column inside a larger
   expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
   `partially_resolved`, as before. Who is affected: stored lineage of statements that read a PIVOT or UNPIVOT (through `SELECT *` or through its alias): column lists, `expression`, `transform` and physical sources change. What to do: re-run `parse` and rebuild what was derived from it (see the READMEs' migration section).
+  `partially_resolved`, as before.
+- **`catalog build --lineage` no longer merges two tables that differ only by an unconfigured
+  catalog.** The catalog names tables `db.table` and matched a corpus name by its last two
+  segments, so `cat1.ods.t` and `cat2.ods.t` both fed the evidence of `ods.t`, and a key proven
+  for one was published as the other's `grain_proof`. When the names matched to one catalog
+  table are not spellings of one table, the table now gets the conflict
+  `table_identity_ambiguous` (with the `names`) and no lineage evidence, and JOINs touching it
+  are not counted for relations. Configure `SCOPE_LINEAGE_CATALOG_PREFIXES` if they are one
+  table.
+- **`tables --merge` no longer lists a statement on a bare-name card it never wrote or read.**
+  Once another corpus made a bare `t` ambiguous, the `t` card listed the producer that wrote
+  `ods.t` and the bare-name reader stayed on `ods.t` too. A producer or consumer entry now
+  records the spelling its statement used when that differs from the card's table (`as`), and
+  the merge gives the ambiguous bare-name card only the entries that used the bare name; the
+  qualified card keeps the rest. A `tables.json` written before the field existed is merged as
+  before, with those entries on both cards.
+
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
   The ontology skill used to be one `SKILL.md` that sent the agent to find the other skill's

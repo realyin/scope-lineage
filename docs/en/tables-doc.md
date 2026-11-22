@@ -161,6 +161,13 @@ scope-lineage tables --lineage /path/to/corpus --merge /path/to/a/tables.json \
   entry therefore gains a `corpus` (the source document's `corpus.artifact_root`, or
   `corpus:N` when the document recorded none), so borrowed evidence can always say which
   tree to look in for the task behind it.
+- **Entries go to the card of the spelling their statement used**: when an alias becomes
+  ambiguous in the merge (corpus 1 folded a bare `t` into `ods.t`, corpus 2 brings `dwd.t`),
+  `t` gets its own card holding only the entries whose `as` is `t`; entries that wrote or
+  read `ods.t` stay on the `ods.t` card. On the merged card an entry's `as` is re-stated
+  against the new primary name. A `tables.json` written before `as` existed (a card with
+  `aliases` and no entry carrying `as`) cannot say which spelling an entry used, so its
+  entries are listed on both cards, as before.
 - `columns[]` are unioned: **the order comes from the first document that declared them**
   (that is some catalog's declared order), and a column only a later document knows about
   is appended. `used_in_corpus` is OR-ed, `consumer_usage_counts` are summed, and `samples`
@@ -219,6 +226,7 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
       "produced_by": [
         {"task": "…", "statement_id": "stmt:001",
          "corpus": "…",                                 // only after a merge
+         "as": "mart.customer_daily",                   // only when the statement's spelling differs from table
          "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
          "grain": {"basis": "group_by", "keys": ["customer_id"],
@@ -248,6 +256,10 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 }
 ```
 
+- `produced_by[].as` / `consumed_by[].as` (optional): the spelling (normalized) the
+  statement used for the table, present only when it differs from the card's `table` (the
+  statement that wrote `mart.customer_daily` above). `tables --merge` reads it to put each
+  entry on the right card.
 - Each `produced_by[]` entry comes from that task's semantic profile (`task`,
   `output_shape`, `fields`); `refresh` comes from the task JSON's `meta`
   (`schedule_cycle` / `schedule`) and stays `null` when none was supplied — a cadence is
