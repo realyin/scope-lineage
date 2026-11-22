@@ -290,10 +290,28 @@ def run_catalog(args: argparse.Namespace) -> int:
 
 def _load_ontology(path: str):
     """A built ``ontology-json/3`` document, or the exit code (2 unreadable, 1 wrong format)."""
-    from .cli import _load_corpus_document
-    from .render.catalog_view import ONTOLOGY_FORMAT
+    from .cli_catalog_answers import load_ontology
 
-    return _load_corpus_document(path, "ontology", ONTOLOGY_FORMAT)
+    return _refused_or(load_ontology, path)
+
+
+def _refused_or(function, *args, **kwargs):
+    """What a ``cli_catalog_answers`` function returns, or its exit code with the reason on stderr."""
+    from .cli_catalog_answers import CatalogAnswerError
+
+    try:
+        return function(*args, **kwargs)
+    except CatalogAnswerError as error:
+        print(error.message, file=sys.stderr)
+        return error.exit_code
+
+
+def _print_answer(answer, as_json: bool) -> int:
+    if as_json:
+        print(answer.json_text())
+    else:
+        print(answer.text(), end="")
+    return answer.exit_code
 
 
 def _run_render(args: argparse.Namespace) -> int:
@@ -338,34 +356,23 @@ def _semantic_links(directory, concepts: Path):
 
 
 def _run_query(args: argparse.Namespace) -> int:
-    from .render.catalog_query import query_catalog, render_query_text
+    from .cli_catalog_answers import query
 
     document = _load_ontology(args.ontology)
     if isinstance(document, int):
         return document
-    result = query_catalog(document, args.kind, args.term)
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
-        print(render_query_text(result), end="")
-    return 0 if result["matches"] else 1
+    return _print_answer(query(document, args.kind, args.term), args.json)
 
 
 def _semantics_option(directory):
     """``{db.table: document}`` from ``--semantics``, None without it, 2 for a bad path."""
-    from .cli_semantic import _semantic_documents
+    from .cli_catalog_answers import load_semantics
 
-    if not directory:
-        return None
-    root = Path(directory)
-    if not root.is_dir():
-        print(f"--semantics directory does not exist: {root}", file=sys.stderr)
-        return 2
-    return _semantic_documents(root)[0]
+    return _refused_or(load_semantics, directory)
 
 
 def _run_search(args: argparse.Namespace) -> int:
-    from .render.catalog_search import render_search_text, search_catalog
+    from .cli_catalog_answers import search
 
     document = _load_ontology(args.ontology)
     if isinstance(document, int):
@@ -373,59 +380,32 @@ def _run_search(args: argparse.Namespace) -> int:
     semantics = _semantics_option(args.semantics)
     if isinstance(semantics, int):
         return semantics
-    result = search_catalog(document, args.text, semantics, kinds=args.kind, limit=args.limit)
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
-        print(render_search_text(result), end="")
-    return 0 if result["hits"] else 1
+    answer = search(document, args.text, semantics, kinds=args.kind, limit=args.limit)
+    return _print_answer(answer, args.json)
 
 
 def _run_context(args: argparse.Namespace) -> int:
-    from .render.catalog_context import context_pack, render_context_text
+    from .cli_catalog_answers import context, context_columns
 
-    if not (args.table or args.column or args.columns or args.concept):
-        print("catalog context: name at least one --table, --column or --concept", file=sys.stderr)
-        return 2
-    columns = list(args.column)
-    if args.columns:
-        if len(args.table) != 1:
-            print(
-                "catalog context: --columns names columns of one table; give exactly one "
-                "--table, or use --column db.table.column",
-                file=sys.stderr,
-            )
-            return 2
-        columns += [
-            f"{args.table[0]}.{name.strip()}"
-            for value in args.columns
-            for name in value.split(",")
-            if name.strip()
-        ]
-    if args.focus and not columns:
-        print("catalog context: --focus needs the columns to focus on (--column or --columns)",
-              file=sys.stderr)
-        return 2
+    request = dict(
+        tables=args.table, columns=args.column, columns_of_table=args.columns,
+        concepts=args.concept, focus=args.focus,
+    )
+    # The options are judged before any file is read, as they always were.
+    refused = _refused_or(context_columns, **request)
+    if isinstance(refused, int):
+        return refused
     document = _load_ontology(args.ontology)
     if isinstance(document, int):
         return document
     semantics = _semantics_option(args.semantics)
     if isinstance(semantics, int):
         return semantics
-    pack = context_pack(
-        document, semantics, tables=args.table, columns=columns, concepts=args.concept,
-        brief=args.brief, focus=args.focus,
-    )
-    if args.json:
-        print(json.dumps(pack, ensure_ascii=False, indent=2))
-    else:
-        print(render_context_text(pack), end="")
-    return 0 if pack["concepts"] or pack["tables"] or pack["columns"] else 1
+    return _print_answer(context(document, semantics, brief=args.brief, **request), args.json)
 
 
 def _run_check_sql(args: argparse.Namespace) -> int:
-    from .render.catalog_sql_check import check_sql, render_check_sql_text
-    from .scope.query_facts import QueryFactsError, query_facts
+    from .cli_catalog_answers import check_sql
 
     document = _load_ontology(args.ontology)
     if isinstance(document, int):
@@ -435,18 +415,10 @@ def _run_check_sql(args: argparse.Namespace) -> int:
     except (OSError, UnicodeDecodeError) as error:
         print(f"catalog check-sql: cannot read {args.sql}: {error}", file=sys.stderr)
         return 2
-    try:
-        statements = query_facts(sql)
-    except QueryFactsError as error:
-        print(f"catalog check-sql: {error}", file=sys.stderr)
-        return 2
-    result = check_sql(document, statements)
-    if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
-        print(render_check_sql_text(result), end="")
-    blocking = [f for f in result["findings"] if f["severity"] in ("error", "warning")]
-    return 1 if blocking else 0
+    answer = _refused_or(check_sql, document, sql)
+    if isinstance(answer, int):
+        return answer
+    return _print_answer(answer, args.json)
 
 
 def _evidence_inputs(args: argparse.Namespace):
