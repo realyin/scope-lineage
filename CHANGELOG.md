@@ -294,6 +294,9 @@
   of 「结构未记录原因」. A logical key the SELECT never projected is written as its expression
   (`UPPER(a.k)`) instead of the string `None`. The unused producer-side type pass is removed;
   column types still come from the target's metadata.
+- **`ontology --export shacl,linkml` escapes every control character.** A comment holding a
+  carriage return went out raw, which made the Turtle file invalid and was folded to a space by
+  a YAML reader. `\r` is now escaped, and the rest of C0 and DEL go out as `\uXXXX`.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
