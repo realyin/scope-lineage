@@ -1,0 +1,7 @@
+{
+ "meta": {
+  "task_name": "r_b_x",
+  "task_type": "Spark SQL",
+  "sql": "INSERT OVERWRITE TABLE ads.r_b_x PARTITION (dt='${bizdate}') SELECT id, SUM(amt) AS amt, MAX(create_time) AS create_time FROM dwd.o_b_di WHERE dt >= '${start}' AND dt <= '${bizdate}' GROUP BY id"
+ }
+}

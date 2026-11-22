@@ -1,0 +1,7 @@
+{
+ "meta": {
+  "task_name": "o_a_x",
+  "task_type": "Spark SQL",
+  "sql": "INSERT OVERWRITE TABLE app.out_a_x SELECT id, amt FROM app.user_a_info"
+ }
+}

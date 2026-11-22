@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+- **New: draft a `domain-profile/1` from the corpus.** `scope-lineage domain-profile evidence
+  --lineage --schema --out` counts, per table-name suffix, how statements read and write the
+  tables' partitions, and collects the column, key and table comments and table-name words a
+  writer drafts qualifiers and concept words from (`evidence.json`, `domain-profile-evidence/1`,
+  and `evidence.md`). Range reads suggest `incremental`; single-partition reads are only ever
+  pending, because reads cannot tell a daily full snapshot from a daily increment -- the tool
+  never suggests `full`. `scope-lineage domain-profile check` holds a draft to that evidence: a
+  word must hit the material under the downstream command's own matcher, every entry needs a
+  reason line, and a `full` suffix needs a person's accept in a
+  `domain-profile-confirmations/1` file (`--confirmed`). The runbook gains the optional step
+  S2a (writing prompt `references/domain-profile-prompt.md`, template `T-domain-profile`), and
+  `next_step.py` points to it when `env.sh` names no profile. See
+  [domain-profile](docs/en/domain-profile.md#drafting-a-profile-from-the-corpus).
+
 ## 0.14.0
 - **Re-parsing after `describe` no longer fails; it deletes the old `semantic.*`.** `describe`
   writes `semantic.json` / `semantic.md` next to `lineage.json` by default, but the task writer

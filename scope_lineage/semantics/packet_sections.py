@@ -207,17 +207,15 @@ def _producer_headers(table: str, producers: list, corpus) -> list[dict]:
 
 def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
     declared, used, produced = entry.pop("_declared"), entry.pop("_used"), entry.pop("_produced")
-    names = [str(column.get("name")) for column in declared]
-    declared = declared + [{"name": name} for name in used if name not in names]
     columns = [
         _column(entry["table"],
-                {"name": str(column.get("name")), "type": column.get("type"),
-                 "comment": _comment(column.get("comment"))},
-                {"partition": str(column.get("name")) in entry["partition_columns"],
-                 "used": str(column.get("name")) in used,
-                 "usages": used.get(str(column.get("name")), [])},
+                {"name": column["name"], "type": column["type"],
+                 "comment": _comment(column["comment"])},
+                {"partition": column["partition"],
+                 "used": column["name"] in used,
+                 "usages": used.get(column["name"], [])},
                 corpus)
-        for column in declared
+        for column in facts.time_columns(declared, list(used), entry["partition_columns"])
     ]
     written = _producer_columns(produced, used)
     return {

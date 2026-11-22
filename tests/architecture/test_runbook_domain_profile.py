@@ -24,8 +24,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "skills" / "scope-lineage-ontology"
 TEMPLATES = SKILL / "references" / "templates"
 
-# A call of one of the three commands that read the profile, however it is spelled.
-_PROFILED = r"(?:semantic\s+(?:packet|validate)|ontology)(?=\s|$)"
+# A call of one of the three commands that read the profile, or of the two that draft and
+# check one (S2a), however it is spelled.
+_PROFILED = r"(?:semantic\s+(?:packet|validate)|ontology|domain-profile\s+(?:evidence|check))(?=\s|$)"
 _CALL = re.compile(rf"(?:^|[\s;&|(`])(?P<tool>sl|scope-lineage)\s+{_PROFILED}")
 
 
@@ -61,7 +62,7 @@ CALLS = _calls()
 def test_the_runbook_calls_the_profiled_commands() -> None:
     """The scan finds the calls it guards (a silent regex would pass everything)."""
     commands = {re.search(_PROFILED, line).group(0).split()[-1] for *_rest, line in CALLS}
-    assert {"packet", "validate"} <= commands
+    assert {"packet", "validate", "evidence", "check"} <= commands
     assert any(path.startswith("skills/scope-lineage-ontology/references/templates/") for path, *_ in CALLS)
 
 
@@ -90,3 +91,25 @@ def test_runlib_exports_the_variable_the_tool_reads() -> None:
     assert f'export {DOMAIN_PROFILE_ENV}="$DOMAIN_PROFILE"' in text
     init = (SKILL / "scripts" / "init_run.py").read_text(encoding="utf-8")
     assert '"--domain-profile"' in init and '"DOMAIN_PROFILE"' in init
+
+
+# ``${VAR:+--flag "$VAR"}`` is one word in zsh (no word splitting of a parameter
+# expansion), so the tool receives ``--flag /path`` as a single argument and stops with a
+# usage error. The runbook writes such a command twice, A without the option, B with it.
+_CONDITIONAL_WORDS = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:\+[^}]*\s[^}]*\}")
+
+
+def test_no_runbook_command_relies_on_word_splitting() -> None:
+    offenders = [
+        f"{path.relative_to(ROOT).as_posix()}:{number}: {line.strip()}"
+        for path in sorted(SKILL.rglob("*"))
+        if path.suffix == ".md" and path.is_file()
+        for number, line in _code_lines(path)
+        if _CONDITIONAL_WORDS.search(line)
+    ]
+    assert offenders == []
+
+
+def test_the_word_splitting_guard_catches_the_pattern() -> None:
+    assert _CONDITIONAL_WORDS.search('sl x ${PATCH:+--metadata-patch "$PATCH"} --out o')
+    assert not _CONDITIONAL_WORDS.search('echo "${PATCH:+set}"')

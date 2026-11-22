@@ -1,0 +1,7 @@
+{
+ "meta": {
+  "task_name": "dws_a",
+  "task_type": "Spark SQL",
+  "sql": "INSERT OVERWRITE TABLE dws.order_a_1d PARTITION (dt='${bizdate}') SELECT id, SUM(amt) AS amt FROM ods.order_a_di WHERE dt = '${bizdate}' GROUP BY id"
+ }
+}

@@ -457,3 +457,56 @@ def test_a_current_env_gets_no_fix(tmp_path):
     (run / "env.sh").write_text("export SKILL='/x'\nexport LINEAGE_SKILL='/y'\n", encoding="utf-8")
     out = subprocess.run([sys.executable, str(SCRIPT), str(run)], capture_output=True, text=True)
     assert "先改 env.sh" not in out.stdout
+
+
+# ------------------------------------------------------------------ S2a (domain profile)
+
+
+def _through_s2(run: Path) -> None:
+    _write(run / "artifacts" / "task_a" / "lineage.json", "{}")
+    _write(run / "corpus" / "tables.json", "{}")
+    _write(run / "corpus" / "glossary.json", "{}")
+
+
+def test_without_a_profile_or_a_decision_s2a_follows_s2(run):
+    _through_s2(run)
+    out = _drive(run).stdout
+    assert _current(out) == "S2a"
+    assert "steps/S2a.md" in out
+
+
+def test_a_decision_file_skips_s2a(run):
+    _through_s2(run)
+    _write(run / "profile" / "DECISION", "skipped 不需要\n")
+    out = _drive(run).stdout
+    assert _current(out) == "S3"
+    assert "[x] S2a" in out
+
+
+def test_a_profile_given_at_s0_skips_s2a(run, tmp_path):
+    profile = _write(tmp_path / "domain-profile.json", "{}")
+    _write(run / "env.sh", f"export Q=\nexport DOMAIN_PROFILE='{profile}'   # 领域配置\n")
+    _through_s2(run)
+    out = _drive(run).stdout
+    assert _current(out) == "S3"
+    assert "[-] S2a" in out
+
+
+def test_a_run_whose_packets_were_built_does_not_go_back_to_s2a(run):
+    _through_s3(run)
+    _status(run, [{"table": T1, "stage": "packet"}, {"table": T2, "stage": "packet"}])
+    out = _drive(run).stdout
+    assert _current(out) == "S4"
+    assert "[-] S2a" in out
+
+
+def test_a_profile_newer_than_the_packets_sends_the_run_back_to_s3(run):
+    _through_s3(run)
+    _status(run, [{"table": T1, "stage": "packet"}, {"table": T2, "stage": "packet"}])
+    profile = _write(run / "profile" / "domain-profile.json", "{}")
+    _write(run / "env.sh", f"export Q=\nexport DOMAIN_PROFILE='{profile}'\n")
+    later = time.time() + 60
+    os.utime(profile, (later, later))
+    out = _drive(run).stdout
+    assert _current(out) == "S3"
+    assert "重建" in out

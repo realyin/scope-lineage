@@ -1,0 +1,256 @@
+{
+ "tables": [
+  {
+   "table_name": "ods.order_a_di",
+   "table_desc": "合成表 order_a_di",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "ods.order_b_di",
+   "table_desc": "合成表 order_b_di",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "ods.order_c_di",
+   "table_desc": "合成表 order_c_di",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "dws.order_a_1d",
+   "table_desc": "合成表 order_a_1d",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "dws.order_b_1d",
+   "table_desc": "合成表 order_b_1d",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "dws.order_c_1d",
+   "table_desc": "合成表 order_c_1d",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "ads.order_a_rpt",
+   "table_desc": "合成表 order_a_rpt",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "ads.order_b_rpt",
+   "table_desc": "合成表 order_b_rpt",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  },
+  {
+   "table_name": "ads.order_c_rpt",
+   "table_desc": "合成表 order_c_rpt",
+   "is_partition": 1,
+   "schema": [
+    {
+     "columnName": "id",
+     "columnType": "string",
+     "columnComment": "订单编号",
+     "columnIndex": 0,
+     "isPartition": 0
+    },
+    {
+     "columnName": "amt",
+     "columnType": "decimal(18,2)",
+     "columnComment": "订单金额",
+     "columnIndex": 1,
+     "isPartition": 0
+    },
+    {
+     "columnName": "dt",
+     "columnType": "string",
+     "columnComment": "分区日期",
+     "columnIndex": 2,
+     "isPartition": 1
+    }
+   ]
+  }
+ ]
+}

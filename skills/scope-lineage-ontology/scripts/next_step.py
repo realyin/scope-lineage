@@ -7,7 +7,8 @@ head. One that loses track skips a step, redoes a finished one, or stops at the 
 ``ontology`` and calls it done. This script reads only the files a run directory already
 holds and prints:
 
-  - the S0–S13 checklist, each step ``[x]`` done, ``[ ]`` not yet, or ``[-]`` skipped;
+  - the S0–S13 checklist, each step ``[x]`` done, ``[ ]`` not yet, or ``[-]`` skipped
+    (S2a, the optional domain-profile step, is skipped when env.sh names a profile);
   - the current step, why it is current, and the file of that step to follow
     (``references/steps/<step>.md``);
   - while table semantics is in progress (S4–S9), each table's next action and template,
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -37,6 +39,7 @@ STEPS = [
     ("S0", "环境、版本与运行目录"),
     ("S1", "血缘解析"),
     ("S2", "表卡与术语"),
+    ("S2a", "从语料生成领域配置（可选）"),
     ("S3", "选表与材料包"),
     ("S4", "写作"),
     ("S5", "校验与 blocked"),
@@ -81,6 +84,49 @@ def _question_set(run: Path) -> str:
         if line.startswith("export Q="):
             return line.removeprefix("export Q=").split("#", 1)[0].strip().strip("'\"")
     return ""
+
+
+def _env_value(run: Path, name: str) -> str:
+    """The value of ``export NAME=`` in env.sh, unquoted, without a trailing comment."""
+    for line in _lines(run / "env.sh"):
+        if line.startswith(f"export {name}="):
+            try:
+                words = shlex.split(line, comments=True)
+            except ValueError:
+                return ""
+            return words[1].split("=", 1)[1] if len(words) > 1 and "=" in words[1] else ""
+    return ""
+
+
+def _profile_step(run: Path, skipped: set[str]) -> tuple[tuple[str, str] | None, tuple[str, str] | None]:
+    """S2a: draft a domain profile from the corpus, between S2 and the first packet;
+    ``(S2a now, back to S3)``, each ``(step, reason)`` or None.
+
+    Skipped when env.sh already names a profile or ``profile/DECISION`` records the
+    decision (``enabled <sha256>`` / ``skipped <reason>``); a run whose packets were built
+    without either never comes back to it. A profile newer than the oldest packet sends
+    the run back to S3: every packet has to be rebuilt with it.
+    """
+    profile = _env_value(run, "DOMAIN_PROFILE")
+    decided = (run / "profile" / "DECISION").is_file()
+    packets = [path.stat().st_mtime for path in (run / "packets").glob("*/packet.json")]
+    if not decided and (profile or packets):
+        skipped.add("S2a")
+    if not profile and not decided and not packets:
+        return ("S2a", "S2 做完了，env.sh 的 DOMAIN_PROFILE 是空的，也没有 profile/DECISION"), None
+    path = Path(profile) if profile else None
+    if path and path.is_file() and packets and path.stat().st_mtime > min(packets):
+        return None, ("S3", f"领域配置 {path} 比已有的材料包新：回 S3 用同一条命令重建全部材料包"
+                            f"（packet_digest 会变）")
+    return None, None
+
+
+def _packet_gap(run: Path, tables: list[str], rebuild: tuple[str, str] | None) -> str | None:
+    """Why S3 is not done: tables without a packet, or a profile newer than the packets."""
+    no_packet = [table for table in tables if not (run / "packets" / table / "packet.json").is_file()]
+    if no_packet:
+        return "这些表还没有材料包：" + "、".join(no_packet)
+    return rebuild[1] if rebuild else None
 
 
 def _review_passes(run: Path) -> int:
@@ -176,14 +222,17 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
     missing = [f"corpus/{name}" for name in ("tables.json", "glossary.json") if not (run / "corpus" / name).is_file()]
     if missing:
         return "S2", "缺 " + "、".join(missing), [], skipped
+    profile_now, profile_rebuild = _profile_step(run, skipped)
+    if profile_now:
+        return (*profile_now, [], skipped)
 
     blocked = set(_lines(run / "blocked.txt"))
     tables = [table for table in _lines(run / "tables.txt") if table not in blocked]
     if not tables:
         return "S3", "tables.txt 不存在或是空的", [], skipped
-    no_packet = [table for table in tables if not (run / "packets" / table / "packet.json").is_file()]
-    if no_packet:
-        return "S3", "这些表还没有材料包：" + "、".join(no_packet), [], skipped
+    gap = _packet_gap(run, tables, profile_rebuild)
+    if gap:
+        return "S3", gap, [], skipped
 
     status = run / "status.json"
     if not status.is_file():

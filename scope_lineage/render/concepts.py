@@ -1426,13 +1426,45 @@ def _member_text(seed: _Seed, index: Mapping[str, Mapping]) -> str:
 
 
 def _word_votes(text: str) -> list[str]:
-    lowered = str(text or "").lower()
-    words, lists = set(_LATIN_WORD_RE.findall(lowered)), _WORDS.get()
+    lowered, words = _hint_text(text)
+    lists = _WORDS.get()
     return [
         kind
         for (kind, chinese), (_, latin) in zip(lists.hints, lists.latin_hints)
         if any(word in lowered for word in chinese) or words & latin
     ]
+
+
+def _hint_text(text: str) -> tuple[str, set[str]]:
+    """What a word vote reads in ``text``: the text lower-cased, and its latin words."""
+    lowered = str(text or "").lower()
+    return lowered, set(_LATIN_WORD_RE.findall(lowered))
+
+
+def word_hint_hits(word: str, text: str) -> bool:
+    """Whether ``word`` -- an ``event`` / ``entity`` / ``summary`` word -- votes on ``text``
+    the way :func:`_word_votes` reads it: a word in latin as a whole word, any case; any
+    other word as a substring. ``domain-profile check`` judges a caller's word by it."""
+    lowered, words = _hint_text(text)
+    return word.lower() in words if word.isascii() else word in lowered
+
+
+def table_name_words(table: str) -> list[str]:
+    """The latin words a table's name votes with, in order (``db.goods_df`` -> db, goods, df)."""
+    return _LATIN_WORD_RE.findall(str(table or "").lower())
+
+
+def builtin_concept_words() -> dict[str, list[str]]:
+    """The generic word lists, keyed as ``domain-profile/1``'s ``concept_words``: each vote
+    kind's words (its Chinese words, then its latin ones sorted), ``measure_suffixes`` and
+    ``filter_words``. What a caller's profile adds to, never replaces."""
+    words = {
+        kind: [*chinese, *sorted(latin)]
+        for (kind, chinese), (_, latin) in zip(WORD_HINTS, LATIN_WORD_HINTS)
+    }
+    words["measure_suffixes"] = list(NAME_MEASURE_SUFFIXES)
+    words["filter_words"] = list(NAME_FILTER_WORDS)
+    return words
 
 
 # ------------------------------------------------------------------ attributes

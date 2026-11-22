@@ -22,6 +22,7 @@
 | S0 | 环境、版本与运行目录 | [`steps/S0.md`](steps/S0.md) |
 | S1 | 血缘解析 | [`steps/S1.md`](steps/S1.md) |
 | S2 | 表卡与术语 | [`steps/S2.md`](steps/S2.md) |
+| S2a | 从语料生成领域配置（可选） | [`steps/S2a.md`](steps/S2a.md) |
 | S3 | 选表与材料包 | [`steps/S3.md`](steps/S3.md) |
 | S4 | 写作 | [`steps/S4.md`](steps/S4.md) |
 | S5 | 校验与 blocked | [`steps/S5.md`](steps/S5.md) |
@@ -54,6 +55,7 @@
 | S0 | 环境、版本、运行目录、账本 | 编排者 | `env.sh`、`TOOL_VERSION`、`ledger.md` | 账本模板 |
 | S1 | 血缘解析 | 编排者 | `artifacts/` | — |
 | S2 | 表卡与术语 | 编排者 | `corpus/tables.json`、`corpus/glossary.json` | — |
+| S2a | 从语料生成领域配置（可选，S0 没有现成配置时） | 编排者 + 子代理 + owner | `profile/`、`DECISION` | T-domain-profile |
 | S3 | 选表与材料包 | 编排者 | `tables.txt`、`packets/` | — |
 | S4 | 写作 | 子代理（每表一个） | `docs/<表>.json` | T1 |
 | S5 | 校验与 blocked | 编排者 | 校验结论、`blocked.txt` | T1（补失败） |
@@ -76,7 +78,7 @@ python3 "$SKILL/scripts/next_step.py" "$RUN"
 
 它打印三样东西：
 
-- S0–S13 的进度清单：`[x]` 做完，`[ ]` 没做，`[-]` 跳过（`Q` 为空时的 S11、可选的 S12），`[?]` 不知道；
+- S0–S13 的进度清单：`[x]` 做完，`[ ]` 没做，`[-]` 跳过（`Q` 为空时的 S11、可选的 S12、S0 已有领域配置时的 S2a），`[?]` 不知道；
 - 当前步、为什么是它、去读哪个文件（`steps/` 下那一步的文件，绝对路径）；
 - 表语义进行中（S4–S9）时，每张表的下一步和模板（附录 A）。
 
