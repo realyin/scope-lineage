@@ -197,7 +197,7 @@ def _document_drafted(view: CatalogView) -> tuple[int, int]:
     doc = view.document
     objects = [
         *(
-            doc[key]
+            doc.get(key) or []
             for key in (
                 "domains",
                 "identifiers",
@@ -205,6 +205,8 @@ def _document_drafted(view: CatalogView) -> tuple[int, int]:
                 "concepts",
                 "relations",
                 "constraints",
+                # 6.3-b: validate counts metrics; the page did not.
+                "metrics",
                 "terms",
             )
         ),

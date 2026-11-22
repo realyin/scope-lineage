@@ -300,6 +300,10 @@
 - **Catalog pages: a rule cites a table by its whole name.** `scopes.md` and `catalog query`
   matched a rule's expression by substring, so a rule about `db.t_order_refund` was listed under
   `db.t_order` too. The name must now stand alone or be followed by `.column`.
+- **Catalog pages count metrics in the drafted share.** `catalog validate` counted metrics, but
+  `index.md` (whole document) and each concept's `governance.md` row and page line left them
+  out. A metric now counts on the document and on the concept it is `on`. The ontology-json/3
+  schema lists `metrics` under `required`; `catalog build` has always written it.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
