@@ -132,7 +132,7 @@ def _fallback_role(scope_data: ScopeData) -> str:
         return "aggregate"
     if scope_data.joins:
         return "join"
-    if scope_data.filters:
+    if scope_data.filters or scope_data.qualify:
         return "filter"
     if scope_data.distinct:
         return "dedup"
@@ -151,7 +151,7 @@ def _operations(scope_data: ScopeData) -> list[str]:
         operations.append("lateral_view")
     if scope_data.joins:
         operations.append("join")
-    if scope_data.filters or scope_data.having:
+    if scope_data.filters or scope_data.having or scope_data.qualify:
         operations.append("filter")
     if any(c.transform == "AGGREGATE" for c in scope_data.columns) or scope_data.group_by:
         operations.append("aggregate")
@@ -217,7 +217,7 @@ def _business_summary(
 def _filter_expressions(scope_data: ScopeData) -> list[str]:
     return [f.expression for f in scope_data.filters] + [
         f"HAVING {h.expression}" for h in scope_data.having
-    ]
+    ] + [q.expression for q in scope_data.qualify]
 
 
 def _join_summary(join: Any) -> dict[str, str]:

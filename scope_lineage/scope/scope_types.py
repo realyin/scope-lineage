@@ -104,7 +104,7 @@ class ScopeJoin:
 
 @dataclass
 class ScopeFilter:
-    """A WHERE or HAVING filter within a scope."""
+    """A WHERE, HAVING or QUALIFY filter within a scope."""
     expression: str
     columns: List[SourceRef] = field(default_factory=list)
 
@@ -253,6 +253,10 @@ class ScopeData:
     # GROUP BY. Serialized only when not plain (audit 1.5).
     grouping_kind: Optional[str] = None
     having: List[ScopeFilter] = field(default_factory=list)
+    # Internal, not serialized as a scope key: the QUALIFY clause (D5). It is published as
+    # a filter logic block with `predicate_type="qualify"`, plus one window block for each
+    # window function the clause computes itself.
+    qualify: List[ScopeFilter] = field(default_factory=list)
     order_by: List[dict] = field(default_factory=list)
     lateral_views: List[dict] = field(default_factory=list)
     # Union-specific:

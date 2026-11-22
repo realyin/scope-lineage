@@ -1599,7 +1599,7 @@ def _build_depends_on_and_graph(result: ScopeLineageResult) -> None:
             if _is_dependency_scope(g.scope):
                 referenced.add(g.scope)
 
-        for h in scope_data.having:
+        for h in [*scope_data.having, *scope_data.qualify]:
             for c in h.columns:
                 if _is_dependency_scope(c.scope):
                     referenced.add(c.scope)

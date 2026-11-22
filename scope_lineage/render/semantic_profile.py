@@ -47,6 +47,8 @@ from collections import Counter, OrderedDict
 from dataclasses import replace
 from typing import Iterable, Mapping, NamedTuple, Sequence
 
+from sqlglot import exp
+
 from . import claims, glossary_values, semantic_text, values_rows
 from .diagnostics_view import all_warnings, fact_gaps_for, warnings_for
 from .mapping_markdown import lineage_document_digest
@@ -4180,12 +4182,33 @@ def _ranking_window_specifications(
 
 
 def _entry_keeps_first_row(entry: dict, output_field: str) -> bool:
-    """A ``filter_after_window`` / ``condition_filters`` entry that tests ``<col> = 1``."""
+    """A ``filter_after_window`` / ``condition_filters`` entry that tests ``<col> = 1``.
+
+    A window a QUALIFY computes itself has no output column (D5): its entry is the
+    conjunct that tests it, and it keeps the first row when that conjunct is
+    ``<window> = 1``.
+    """
+    if not output_field:
+        return _window_equals_one(entry.get("expression"))
     named = any(
         str(field.get("column")) == output_field for field in entry.get("fields") or []
     )
     return named and semantic_text.equals_one_predicate(
         entry.get("expression"), output_field
+    )
+
+
+def _window_equals_one(expression: str | None) -> bool:
+    node = semantic_text.parse_expression(expression)
+    if not isinstance(node, exp.EQ):
+        return False
+    sides = (node.this, node.expression)
+    return any(
+        isinstance(window, exp.Window)
+        and isinstance(literal, exp.Literal)
+        and not literal.is_string
+        and str(literal.this) == "1"
+        for window, literal in (sides, sides[::-1])
     )
 
 

@@ -325,7 +325,7 @@ def _collect_usage(result: ScopeLineageResult) -> _Usage:
             _add_sources(join.condition_columns, usage)
         for scope_filter in scope_data.filters:
             _add_sources(scope_filter.columns, usage)
-        for scope_filter in scope_data.having:
+        for scope_filter in [*scope_data.having, *scope_data.qualify]:
             _add_sources(scope_filter.columns, usage)
         _add_sources(scope_data.group_by, usage)
         for item in scope_data.order_by:

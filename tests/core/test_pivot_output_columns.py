@@ -93,8 +93,10 @@ def test_the_unaliased_shape_resolves_to_the_aggregated_column():
     for name in ("a_val", "b_val"):
         resolution = outputs[name].expression_resolution or {}
         assert resolution.get("status") == "resolved", name
+        # The FOR column decides which rows feed each pivoted column (audit 1.7).
         assert resolution.get("physical_source_fields") == [
-            {"table": "ods.src", "field": "amt"}
+            {"table": "ods.src", "field": "amt"},
+            {"table": "ods.src", "field": "k"},
         ], name
     assert result.diagnostics.lineage_fact_gaps == []
 

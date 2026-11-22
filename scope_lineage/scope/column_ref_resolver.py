@@ -16,8 +16,10 @@ from .parser import (
     _qualified_table,
     _normalize_table_name,
 )
+from .pivot_columns import GROUP as PIVOT_GROUP, NAME as PIVOT_NAME, pivot_columns
 from .scope_types import (
     AMBIGUOUS_SCOPE_ID,
+    CONSTANT_SCOPE_ID,
     SourceRef,
     ScopeLineageResult,
     DiagnosticWarning,
@@ -25,7 +27,7 @@ from .scope_types import (
 # Leaf helpers come from `_shared`, never from the orchestrator: importing it back
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
-from ._constants import _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR
+from ._constants import DIALECT, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR
 from .source_refs import _source_ref_binding_key
 from .sqlglot_walk import _REGEX_COLUMN_METACHARACTERS, _compiled_column_pattern, _find_alias_in_parent, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_item_from_ast_node, _source_ref_for_source, _source_scope_id
 
@@ -186,12 +188,13 @@ def _resolve_pivot_output_column(
     result: ScopeLineageResult,
     schema: dict | None,
 ) -> SourceRef | None:
-    """Resolve ``pivot_alias.column`` to the columns the PIVOT aggregates.
+    """Resolve ``pivot_alias.column`` to what that PIVOT / UNPIVOT column reads.
 
     A PIVOT turns the values of its FOR key into column names, so `p.A` is not a column of
     anything sqlglot registered as a source — the alias belongs to the pivot, and the name
-    comes from the IN list. Its value comes from the aggregate, so that is where the lineage
-    points (PIVOT-001).
+    comes from the IN list (PIVOT-001). A grouping column (audit 1.7) passes the pivoted
+    relation's column through; a pivoted column's value comes from the aggregate, so that
+    is where the lineage points.
 
     A non-literal IN list leaves the column set unknowable; returning None keeps the caller
     on its unresolved path rather than binding a name nobody proved exists.
@@ -200,18 +203,74 @@ def _resolve_pivot_output_column(
         pivot = _pivot_of_source_node(node)
         if pivot is None or getattr(pivot, "alias", None) != table_alias:
             continue
+        relation = _pivoted_relation(node, sg_scope, result, schema)
+        modelled = pivot_columns(pivot, relation[2] if relation else None)
+        if modelled is not None:
+            return _modelled_pivot_ref(modelled, col_name, relation, sg_scope, result, schema)
         names = _pivot_output_names(pivot)
         # Case-insensitively: the IN list carries the literal as written, while qualify
         # normalizes the reference, so `IN ('A')` and `p.a` are the same column.
         if not names or col_name.lower() not in {name.lower() for name in names}:
             return None
-        for aggregate in pivot.expressions:
-            for column in aggregate.find_all(exp.Column):
-                resolved = _resolve_column_ref(column, sg_scope, result, schema)
-                if resolved is not None:
-                    return resolved
-        return None
+        return _first_column_ref(pivot.expressions, sg_scope, result, schema)
     return None
+
+
+def _modelled_pivot_ref(
+    modelled: list,
+    col_name: str,
+    relation: tuple,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    column = next((item for item in modelled if item.name == col_name.lower()), None)
+    if column is None:
+        return None
+    if column.kind == PIVOT_GROUP:
+        alias, source, _names = relation
+        return _bound_source_ref(alias, source, column.relation_column, sg_scope, result)
+    if column.kind == PIVOT_NAME:
+        if not column.constants:
+            return None
+        literal = exp.Literal.string(column.constants[0]).sql(dialect=DIALECT)
+        return SourceRef(scope=CONSTANT_SCOPE_ID, column=literal)
+    return _first_column_ref(column.reads, sg_scope, result, schema)
+
+
+def _first_column_ref(
+    nodes: list,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    for node in nodes:
+        for column in node.find_all(exp.Column):
+            resolved = _resolve_column_ref(column, sg_scope, result, schema)
+            if resolved is not None:
+                return resolved
+    return None
+
+
+def _pivoted_relation(
+    node: exp.Expression,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> tuple[str, Scope | exp.Table, list[str]] | None:
+    """``(alias, source, column names)`` of the relation a PIVOT is applied to, if known."""
+    item = _source_item_from_ast_node(node, sg_scope)
+    if not item:
+        return None
+    alias, source = item
+    if isinstance(source, Scope):
+        upstream = result.scopes.get(getattr(source, _SCOPE_ID_ATTR, None) or "")
+        names = [column.name for column in upstream.columns] if upstream else []
+    elif isinstance(source, exp.Table) and schema:
+        names = list(schema.get(_normalize_table_name(_qualified_table(source)), []))
+    else:
+        names = []
+    return (alias, source, names) if names else None
 
 
 def _pivoted_source_nodes(sg_scope: Scope):

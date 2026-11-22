@@ -338,6 +338,44 @@
   also reads is not split (Hive reads the source once; sequential INSERTs would read the first
   branch's output) and gets the new task gap `multi_table_insert_unsupported` listing every
   target.
+- **A named window reads the columns of its definition.** `ROW_NUMBER() OVER w` with
+  `WINDOW w AS (PARTITION BY user_id ORDER BY ts)` was a CONSTANT and `SUM(amt) OVER w` lost
+  `user_id` and `ts`: the partition and order sit in the WINDOW clause, which nothing read.
+  Named windows are now inlined into every `OVER` that names them before scopes are built,
+  including a window built on another (`w2 AS (w1 ORDER BY ts)`, `w2 AS w1`) and an `OVER`
+  that refines one (`OVER (w ORDER BY ts)`). The window's `expression` / `raw_expression`
+  text now shows the inlined specification.
+- **QUALIFY is read (new `predicate_type="qualify"`).** The clause was ignored: no logic
+  block, role `pass_through`, and the window's columns appeared only in the raw SQL. It is now
+  a `logic_type=filter` block with `filter_predicate_detail.predicate_type="qualify"` (id
+  `logic:<scope>:qualify:<n>`), and each window function the clause computes gets its own
+  window block (`output_field` null, the testing conjunct in `filter_after_window`). A
+  ranking window pinned to a small constant makes the scope `dedup`, and `ROW_NUMBER() ... =
+  1` at ROOT proves its partition keys unique in the semantic profile, the same reading the
+  subquery form already had. The statement's output columns are unchanged (the clause is not
+  rewritten into a subquery). Consumers that list WHERE conditions from `logic_type=filter`
+  blocks should skip `predicate_type` other than `where`, as `mapping.md` does.
+- **A member of MAX_BY / MIN_BY / FIRST / LAST of a STRUCT keeps the aggregate.**
+  `MAX_BY(NAMED_STRUCT('val', a.amount), a.ts)` read through `.val` came back as the bare
+  `amount`: the aggregate and the `ts` that chooses the row were dropped. Only MAX / MIN were
+  recognised. The member now moves inside the aggregate (`MAX_BY(amount, ts)`), so its
+  sources are the member's columns plus the ordering column, with transform `AGGREGATE`.
+  Members are found in the AST by name, so a computed member of a plain STRUCT
+  (`NAMED_STRUCT('a', COALESCE(c1, 0), 'b', c2)` read through `.a`) reads only `c1` instead
+  of every column of the STRUCT.
+- **PIVOT and UNPIVOT produce Spark's column set.** A `SELECT *` over a PIVOT returned only
+  the IN-value columns, marked `DIRECT`, without the FOR column, and one column for several
+  aggregates; an outer reference to a grouping column was dropped as dangling. It now
+  returns the implicit grouping columns (the relation's columns neither aggregated nor
+  pivoted on) followed by one `AGGREGATE` column per IN value and aggregate, named
+  `<value>_<alias>` when there are several aggregates, each reading the aggregate's columns
+  and the FOR column; the grouping columns are recorded as the scope's GROUP BY, so the
+  semantic profile keys the output by them instead of calling it a single row. `p.<grouping
+  column>` through a pivot alias resolves. An UNPIVOT, which was silently expanded as the
+  original table, now gives the columns outside its IN list, the name column (`CONSTANT`,
+  one literal per IN item) and the value column read from the IN columns. Explicit
+  unqualified references to pivoted or unpivoted columns (`SELECT dept, q1 FROM ... PIVOT`)
+  are still reported as unresolved.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

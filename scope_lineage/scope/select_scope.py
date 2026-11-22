@@ -31,17 +31,19 @@ from .grouping import group_by_item_expressions, grouping_kind
 from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node
 from .column_ref_resolver import (
     _bound_source_ref,
+    _pivoted_relation,
     _input_ref_id_for_source_alias,
     _resolve_column_refs_in_expr,
 )
 from .sql_comments import subtree_comments
+from .pivot_columns import GROUP as PIVOT_GROUP, NAME as PIVOT_NAME, PivotColumn, pivot_columns
 
 
 def _resolve_select_scope(
     sg_scope: Scope, scope_id: str, scope_data: ScopeData,
     result: ScopeLineageResult, schema: dict | None = None,
 ) -> None:
-    """Resolve projections, joins, filters, group_by, having, order_by for a Select scope."""
+    """Resolve projections, joins, filters, group_by, having, qualify, order_by for a Select scope."""
     sel = sg_scope.expression
 
     # Resolve projections
@@ -76,11 +78,18 @@ def _resolve_select_scope(
         )
         scope_data.group_by = _unique_refs(scope_data.group_by_item_refs)
         scope_data.grouping_kind = grouping_kind(group)
+    else:
+        _record_pivot_grouping(sg_scope, scope_data, result, schema)
 
     # Resolve HAVING
     having = sel.args.get("having")
     if having:
         scope_data.having = _resolve_filter(having, sg_scope, result, schema)
+
+    # Resolve QUALIFY: a filter on the rows after the window functions (D5)
+    qualify = sel.args.get("qualify")
+    if qualify:
+        scope_data.qualify = _resolve_filter(qualify, sg_scope, result, schema)
 
     # Resolve ORDER BY
     order = sel.args.get("order")
@@ -466,12 +475,15 @@ def _pivot_star_columns(
     result: ScopeLineageResult,
     schema: dict | None,
 ) -> List[ScopeColumn]:
-    """Columns a `SELECT *` sees over a pivoted relation.
+    """Columns a `SELECT *` sees over a pivoted (or unpivoted) relation.
 
-    Each name in the PIVOT's IN list becomes a column whose value comes from the aggregate,
-    so that is where its lineage points. A non-literal IN list leaves the set unknowable and
-    yields nothing, keeping the caller on its EXPAND_ALL fallback rather than inventing
-    names.
+    The column set is Spark's (audit 1.7, see ``pivot_columns``): the relation's
+    implicit grouping columns pass through, and each pivoted column is an AGGREGATE of
+    the aggregate's columns and the FOR column; an UNPIVOT keeps the columns outside its
+    IN list, writes the name column, and reads the value column from the IN columns.
+    When the relation's own columns are unknown, only the IN-list columns are produced,
+    as before. A non-literal IN list leaves the set unknowable and yields nothing,
+    keeping the caller on its EXPAND_ALL fallback rather than inventing names.
     """
     from_ = sg_scope.expression.args.get("from_") if isinstance(sg_scope.expression, exp.Select) else None
     if from_ is None or getattr(from_, "this", None) is None:
@@ -479,6 +491,55 @@ def _pivot_star_columns(
     pivot = _pivot_of_source_node(from_.this)
     if pivot is None:
         return []
+    relation = _pivoted_relation(from_.this, sg_scope, result, schema)
+    modelled = pivot_columns(pivot, relation[2] if relation else None)
+    if modelled is not None:
+        return [
+            _pivot_scope_column(column, relation, sg_scope, result, schema)
+            for column in modelled
+        ]
+    if pivot.args.get("unpivot"):
+        return []
+    return _pivot_value_columns_only(pivot, sg_scope, result, schema)
+
+
+def _record_pivot_grouping(
+    sg_scope: Scope,
+    scope_data: ScopeData,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> None:
+    """A PIVOT groups by the relation columns it neither aggregates nor pivots on.
+
+    That implicit GROUP BY is the pivoted relation's grain: one output row per grouping
+    key. Recorded as this scope's GROUP BY so the pivoted aggregates are not read as a
+    whole-table aggregate (one row), which a pivot with grouping columns is not.
+    """
+    from_ = sg_scope.expression.args.get("from_")
+    node = getattr(from_, "this", None) if from_ is not None else None
+    pivot = _pivot_of_source_node(node) if node is not None else None
+    if pivot is None or pivot.args.get("unpivot"):
+        return
+    relation = _pivoted_relation(node, sg_scope, result, schema)
+    modelled = pivot_columns(pivot, relation[2] if relation else None)
+    if relation is None or modelled is None:
+        return
+    alias, source, _names = relation
+    scope_data.group_by_item_refs = [
+        [_bound_source_ref(alias, source, column.relation_column, sg_scope, result)]
+        for column in modelled
+        if column.kind == PIVOT_GROUP
+    ]
+    scope_data.group_by = _unique_refs(scope_data.group_by_item_refs)
+
+
+def _pivot_value_columns_only(
+    pivot: exp.Expression,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> List[ScopeColumn]:
+    """The IN-list columns alone: the answer when the pivoted relation's columns are unknown."""
     names = _pivot_output_names(pivot)
     if not names:
         return []
@@ -497,6 +558,45 @@ def _pivot_star_columns(
         )
         for name in names
     ]
+
+
+def _pivot_scope_column(
+    column: PivotColumn,
+    relation: tuple[str, Scope | exp.Table, list[str]] | None,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> ScopeColumn:
+    expression = exp.column(column.name).sql(dialect=DIALECT)
+    if column.kind == PIVOT_GROUP and relation is not None:
+        alias, source, _names = relation
+        return ScopeColumn(
+            name=column.name,
+            transform="DIRECT",
+            expression=exp.column(column.relation_column, table=alias).sql(dialect=DIALECT),
+            sources=[_bound_source_ref(alias, source, column.relation_column, sg_scope, result)],
+        )
+    if column.kind == PIVOT_NAME:
+        return ScopeColumn(
+            name=column.name,
+            transform="CONSTANT",
+            expression=expression,
+            sources=[
+                ref
+                for constant in column.constants
+                for ref in _constant_sources(exp.Literal.string(constant).sql(dialect=DIALECT))
+            ],
+        )
+    sources: list[SourceRef] = []
+    for node in column.reads:
+        sources.extend(_resolve_column_refs_in_expr(node, sg_scope, result, schema))
+    return ScopeColumn(
+        name=column.name,
+        # A PIVOT column aggregates; an UNPIVOT value column picks one IN column per row.
+        transform="AGGREGATE" if column.aggregated else "EXPRESSION",
+        expression=expression,
+        sources=_unique_refs([sources]),
+    )
 
 
 # Spark's grammar allows exactly one star modifier: `ASTERISK exceptClause?` and
@@ -804,7 +904,7 @@ def _resolve_filter(
     clause: exp.Expression, sg_scope: Scope,
     result: ScopeLineageResult, schema: dict | None = None,
 ) -> List[ScopeFilter]:
-    """Resolve a WHERE or HAVING clause into ScopeFilter(s)."""
+    """Resolve a WHERE, HAVING or QUALIFY clause into ScopeFilter(s)."""
     columns = _resolve_column_refs_in_expr(clause, sg_scope, result, schema)
     return [ScopeFilter(expression=clause.sql(dialect=DIALECT), columns=columns)]
 

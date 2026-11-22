@@ -2,12 +2,13 @@
 
 Priority (first match wins):
   dedup        — a RANKING window whose rank column a predicate pins to a small
-                 constant (the ROW_NUMBER-then-`rn = 1` pattern)
+                 constant (the ROW_NUMBER-then-`rn = 1` pattern), or a QUALIFY that
+                 pins a ranking window it computes itself
   window       — any other window scope (running aggregate, LAG/LEAD, an unfiltered
                  ranking); it adds a column and keeps every row
   aggregate    — scope has AGGREGATE column or group_by entries
   join         — scope has JOIN entries
-  filter       — scope has filters, no aggregates, no joins
+  filter       — scope has filters (WHERE or QUALIFY), no aggregates, no joins
   label        — scope has only CONSTANT columns (pure lookup/flag)
   pass_through — all columns DIRECT, no joins/filters
   transform    — catch-all for mixed expression scopes
@@ -28,6 +29,10 @@ from __future__ import annotations
 import re
 from typing import Iterator
 
+import sqlglot
+
+from ._constants import DIALECT, PARSE_OPTS
+from .qualify_clause import pinned_rank
 from .scope_types import ScopeLineageResult, ScopeData
 
 
@@ -62,12 +67,14 @@ def _infer_role(
     has_window = any(c.transform == "WINDOW" for c in scope_data.columns)
     has_aggregate = any(c.transform == "AGGREGATE" for c in scope_data.columns)
     has_join = len(scope_data.joins) > 0
-    has_filter = len(scope_data.filters) > 0
+    has_filter = len(scope_data.filters) > 0 or len(scope_data.qualify) > 0
     has_group_by = len(scope_data.group_by) > 0
     cols = scope_data.columns
     all_direct = all(c.transform in ("DIRECT", "CONSTANT") for c in cols) if cols else False
     all_constant = all(c.transform == "CONSTANT" for c in cols) if cols else False
 
+    if _qualify_pins_its_own_rank(scope_data):
+        return "dedup"
     if has_window:
         return "dedup" if _is_dedup_window(result, scope_id, scope_data) else "window"
     if has_aggregate or has_group_by:
@@ -102,6 +109,35 @@ def _is_dedup_window(
     return False
 
 
+def _qualify_pins_its_own_rank(scope_data: "ScopeData") -> bool:
+    """A QUALIFY that pins a ranking window it computes itself to a small constant.
+
+    ``QUALIFY ROW_NUMBER() OVER (...) = 1`` is the dedup pattern in one scope: the
+    window is no output column, so the column-based test above cannot see it. The window
+    blocks QUALIFY produces carry the conjunct that tests them; the pin is read from that
+    conjunct's AST (an alias pin ``QUALIFY rn = 1`` arrives expanded the same way).
+    """
+    if not scope_data.qualify:
+        return False
+    for block in scope_data.logic_blocks:
+        spec = block.window_specification or {}
+        if block.logic_type != "window" or spec.get("output_field"):
+            continue
+        for link in spec.get("filter_after_window") or []:
+            rank = _pinned_rank_of(str(link.get("expression") or ""))
+            if rank is not None and rank <= _MAX_PINNED_RANK:
+                return True
+    return False
+
+
+def _pinned_rank_of(expression: str) -> int | None:
+    try:
+        node = sqlglot.parse_one(expression, dialect=DIALECT, **PARSE_OPTS)
+    except Exception:  # noqa: BLE001 - an unparsable conjunct is no pin
+        return None
+    return pinned_rank(node) if node is not None else None
+
+
 def _ranking_window_columns(scope_data: "ScopeData") -> set[str]:
     """The output columns this scope computes with a ranking window function."""
     return {
@@ -120,8 +156,8 @@ def _readers(result: ScopeLineageResult, scope_id: str) -> Iterator["ScopeData"]
 
 
 def _predicates(scope_data: "ScopeData") -> Iterator[tuple[str, list]]:
-    """Every predicate a scope writes: WHERE, HAVING, and each JOIN's ON clause."""
-    for item in [*scope_data.filters, *scope_data.having]:
+    """Every predicate a scope writes: WHERE, HAVING, QUALIFY, and each JOIN's ON clause."""
+    for item in [*scope_data.filters, *scope_data.having, *scope_data.qualify]:
         yield item.expression or "", item.columns
     for join in scope_data.joins:
         yield join.condition_expression or "", join.condition_columns
