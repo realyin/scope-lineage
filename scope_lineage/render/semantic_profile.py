@@ -3576,8 +3576,13 @@ def _build_output_shape(
     keys, unexposed, key_evidence, confidence = _key_block(document, grain, decided)
     merge = _merge_shape(document, fields)
     validity = _validity_window(document)
+    # Decision 4.4: which set operation a `union_merge` is. `shape` stays `union_merge`
+    # for EXCEPT / INTERSECT too; this is the structured way to tell them from a union.
+    # Absent when the lineage names none (an older contract, or ROOT over several).
+    set_op = _set_op_at(document, _ROOT) if shape == SHAPE_UNION_MERGE else None
     return {
         "shape": shape,
+        **({"set_op": set_op} if set_op else {}),
         "shape_evidence": evidence,
         "grain": grain,
         # A key set nothing proves is published as "no key", not as a key with a caveat:

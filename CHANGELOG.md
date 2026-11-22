@@ -696,6 +696,14 @@
   sentence rather than as a `filter`. Readers of row filters (equality pins, first-row
   filters, not-null constraints, metric-path filters, the packet's business-date filter)
   skip it. Not Breaking: the WHEN blocks are new since 0.13.0.
+- **`output_shape` names the set operation of a `union_merge`.** `semantic.json` gains the
+  optional `output_shape.set_op` (`UNION_ALL`, `UNION`, `EXCEPT`, `INTERSECT`) when the
+  shape is `union_merge`, so a reader of the JSON can tell a difference or an intersection
+  from a union without reading the text; `shape` stays `union_merge` and the output
+  columns' `transform` stays `UNION`. A mixed chain gives its outer operator. The
+  semantic.md shape line (差集型 / 交集型 / 合并型, wording unchanged) now reads this key
+  instead of matching the stage action's text. A material packet does not carry it, so no
+  `packet_digest` changes.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
