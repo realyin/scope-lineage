@@ -117,10 +117,6 @@ NAMING_SUFFIXES = frozenset({"df", "di", "hf", "hi", "mf", "mi", "wf", "wi", "da
 # ``(path relative to scope_lineage/, module-level name) -> reason``: a constant still
 # allowed such literals. Keyed by the constant, so a new tuple in the same module is caught.
 NAMING_EXEMPT: dict[tuple[str, str], str] = {
-    ("render/ontology.py", "PERIOD_SUFFIXES"): (
-        "table_family folds a table's copies into one family key (families[]); not yet "
-        "moved to the profile -- an owner decision, since it changes every corpus's families"
-    ),
     ("render/concepts.py", "LATIN_COMMENT_BARE_SUFFIXES"): (
         "trims a storage tail written at the end of a *comment* (「…日志表_df」) before a "
         "name is read off it; it never decides a role or a kind"

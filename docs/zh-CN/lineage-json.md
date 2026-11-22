@@ -211,7 +211,7 @@ GROUP BY c.customer_id;
 | `outputs[]` | array<object> | 当前 scope 的详细输出字段事实。 |
 | `field_usage[]` | array<object> | 每个输入来源有哪些字段被逻辑块或输出字段使用。 |
 | `columns[]` | array<object> | 兼容性投影视图；新消费者优先读取信息更完整的 `outputs[]`。 |
-| `set_op` / `branches[]` | string / array<string> | 出现在 `kind=union` 的 scope 上：集合运算符和按顺序排列的输入分支。`set_op` 取 `UNION_ALL`、`UNION`（去重）、`EXCEPT` 或 `INTERSECT`。同一运算符的链合成一个 scope；运算符不同的嵌套链（`UNION ALL` 下的 `UNION` 链、`EXCEPT` 左侧的 `UNION`）自身是一个 `kind=union` 的分支，带自己的 `set_op` 和 `branches[]`。`EXCEPT` / `INTERSECT` 只有第一个分支提供列值，其余分支只决定哪些行留下，由 `set_operation_semantics_partial` 事实缺口报告。 |
+| `set_op` / `branches[]` | string / array<string> | 出现在 `kind=union` 的 scope 上：集合运算符和按顺序排列的输入分支。`set_op` 取 `UNION_ALL`、`UNION`（去重）、`EXCEPT` 或 `INTERSECT`。同一运算符的链合成一个 scope；运算符不同的嵌套链（`UNION ALL` 下的 `UNION` 链、`EXCEPT` 左侧的 `UNION`）自身是一个 `kind=union` 的分支，带自己的 `set_op` 和 `branches[]`。`EXCEPT` / `INTERSECT` 只有第一个分支提供列值，其余分支只决定哪些行留下，由 `set_operation_semantics_partial` 事实缺口报告。`set_op` 为 `EXCEPT` / `INTERSECT` 的 scope 上，输出列的 `transform` 仍是 `UNION`：它表示「集合运算的输出列」，值只取自第一个分支。 |
 | `union_branch_alignment` | object | UNION 分支、字段位置和对齐状态。仅相关 scope 输出。 |
 | `joins[]` | array<object> | 兼容性 JOIN 结构，保留左右输入、类型、ON 表达式和字段。精确关系优先读 `logic_blocks[].join_relation_detail`。 |
 | `filters[]` | array<object> | 兼容性 WHERE 条件和引用字段。精确条件拆分优先读 `filter_predicate_detail`。 |
@@ -321,7 +321,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | Detail key | 内容 |
 | --- | --- |
 | `join_relation_detail` | `join_type`、`left_input`、`right_input`、`left_alias`、`right_alias`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。`right_input` / `right_alias` 是本次 JOIN 加入的来源及它在这次 JOIN 里的别名——同一来源被关联多次时，每次 JOIN 各是各的别名。`left_input` / `left_alias` 是本 scope 的第一个 FROM 来源及其别名，不一定是 ON 条件实际引用的那一侧（链式自关联时 `left_alias` 取紧挨着的上一跳）；每个关联 key 真正的左右两侧以 `join_key_pairs[].left` / `.right` 为准；两侧各带 `bare`（布尔，可选）：这一侧在等式里是否就是一个裸列（`t.region = substr(u.user_id,1,2)` 的右侧是 `false`）。非裸列的等式照样记为键对，`trace_status` 与 warning 不受影响；但唯一性判定（fan-out、本体的表关系）只认右侧 `bare: true` 的键对。旧版产出没有这个字段时，读取方按键对的 `expression` 自行判断，解析不了按 `false` 处理。当该 JOIN 读取本语句自己的目标表时，另带 `target_self_reference`——引用别名，且当目标分区与引用侧分区谓词都是字面日期时给出可证明的天数偏移（`partition_offset_days`、`offset_proven: true`）；无法证明时保持 `offset_proven: false` 而不猜测。负偏移即典型的"取昨日兜底"形态——工具只陈述偏移，语义命名留给消费方。 |
-| `filter_predicate_detail` | WHERE/HAVING/QUALIFY 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。`predicate_type` 说明是哪个子句：`logic_type=filter` 的块上是 `where` 或 `qualify`，`logic_type=having` 的块上是 `having`。QUALIFY 块（id 为 `logic:<scope>:qualify:<n>`）在窗口函数算完之后过滤行；只列 WHERE 条件的消费者要跳过它。每个合取项带 `comments[]`，只收属于这一条的注释：它自己 `expression` 里的注释，前面再加上独占一行写在连接它的 `AND` 上方（或紧跟在这个 `AND` 后面）的注释——sqlglot 把这种注释挂在 `AND` 节点上，任何合取项的原文里都没有它，因此交给它下面那一条。行尾注释挂在该行最后一条谓词上。写在 `WHERE` / `HAVING` 本身上的注释（第一条谓词上方的 `WHERE -- 说明`）不属于任何合取项，只留在块的 `comments[]` 里。没有注释时不发该键；新增键，`schema_version` 不变。MERGE ROOT 上每个 `WHEN ... AND <条件>` 记成一个过滤块，`predicate_type` 为 `merge_when`（MERGE 的 ON 条件记在 `scopes.ROOT.joins[]`，`join_type` 为 `MERGE`，不生成 `join` 逻辑块）。 |
+| `filter_predicate_detail` | WHERE/HAVING/QUALIFY 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。`predicate_type` 说明是哪个子句：`logic_type=filter` 的块上是 `where` 或 `qualify`，`logic_type=having` 的块上是 `having`。QUALIFY 块（id 为 `logic:<scope>:qualify:<n>`）在窗口函数算完之后过滤行；只列 WHERE 条件的消费者要跳过它。每个合取项带 `comments[]`，只收属于这一条的注释：它自己 `expression` 里的注释，前面再加上独占一行写在连接它的 `AND` 上方（或紧跟在这个 `AND` 后面）的注释——sqlglot 把这种注释挂在 `AND` 节点上，任何合取项的原文里都没有它，因此交给它下面那一条。行尾注释挂在该行最后一条谓词上。写在 `WHERE` / `HAVING` 本身上的注释（第一条谓词上方的 `WHERE -- 说明`）不属于任何合取项，只留在块的 `comments[]` 里。没有注释时不发该键；新增键，`schema_version` 不变。MERGE ROOT 上每个 `WHEN ... AND <条件>` 记成一个过滤块，`predicate_type` 为 `merge_when`（MERGE 的 ON 条件记在 `scopes.ROOT.joins[]`，`join_type` 为 `MERGE`，不生成 `join` 逻辑块）。`merge_when` 块另带 `merge_when_index`（等于该子句的 `merge_spec.whens[].index`；无条件的 WHEN 不生成块，所以块号不等于子句序号）。它只决定一行走哪个 WHEN 分支，不过滤语句的行：只列 WHERE 条件的消费者要跳过它，和 QUALIFY 一样。 |
 | `aggregation_detail` | `group_by_items[]`、`aggregate_items[]`、`having` 及每项的表达式来源。 |
 | `window_specification` | 窗口函数、`partition_by[]`、`order_by[]`、窗口后过滤和 trace 状态。写在 QUALIFY 里的窗口函数单独成一个窗口块：`output_field` 为 null（它不是输出列），`filter_after_window[]` 里是检验它的那条 QUALIFY 合取项。命名窗口（`OVER w` 加 `WINDOW w AS (...)`）先被内联，所以这里的分区和排序与直接写在 `OVER` 里相同。 |
 
@@ -791,12 +791,12 @@ additive 且**带标记**的——被补丁写过的列多一个 `comment_source
 | Key | 含义 |
 | --- | --- |
 | `scope_id` / `name` / `kind` / `role` | 查询块身份和结构角色。 |
-| `operations[]` | 该 scope 出现的操作，如 `join`、`filter`、`aggregate`、`window`。 |
+| `operations[]` | 该 scope 出现的操作，如 `join`、`filter`、`aggregate`、`window`。MERGE ROOT 上的 `WHEN ... AND <条件>` 记为 `merge_when` 而不是 `filter`：它们决定源行走哪个分支，不删行。 |
 | `direct_inputs[]` | 直接输入的 scope 或物理表。 |
 | `direct_source_tables[]` | 当前 scope 直接读取的物理表。 |
 | `physical_source_tables[]` | 穿透上游 scope 后涉及的全部物理表。两个列表用同一个判定：不是本语句 scope 的名字就是表，带不带库名都算；在任务级文档里，同一脚本中更早的语句定义的临时视图或缓存关系是会话关系，两个列表都不收（它仍在 `direct_inputs` 里）。 |
 | `output_columns` | 输出字段数。 |
-| `logic` | joins、filters、aggregations、window functions、CASE、DISTINCT、UNION 等简明结构。 |
+| `logic` | joins、filters、aggregations、window functions、CASE、DISTINCT、UNION 等简明结构。MERGE ROOT 的 WHEN 条件列在 `merge_when_conditions` 下（没有时不发该键），不进 `filters`。 |
 | `business_summary` | 基于结构模板生成的确定性摘要；不应当作完整业务定义。 |
 
 用于 RAG 时，可以先索引 `scope_profile` 和 `end_to_end_lineage`；只有命中任务后再加载完整 `scopes`，减少上下文体积。

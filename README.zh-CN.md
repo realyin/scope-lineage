@@ -315,6 +315,9 @@ scope-lineage parse \
 
 ### 迁移到下一个版本（Unreleased）
 
+这个版本改正了一批血缘事实（见 CHANGELOG 的 Unreleased 段）。所有已保存的 `lineage.json` 都重跑 `parse`，并重建由它派生的产物
+（`describe`、`tables`、`glossary`、`ontology`、材料包、目录证据）；下面各项只列出除了重跑之外还要动手的地方。
+
 格式版本都不变，但部分字段的来源会变。投影里的名字既是源列、又是同一 SELECT 里更早的别名时
 （`SELECT fee AS amt, amt AS fee`），只要 Schema 能证明来源有这一列，现在就按 Spark 的规则读源列；以前一律按别名读，
 而且不报任何提示。Schema 定不下来的名字照旧按别名读，同时加一条 `lateral_alias_ambiguous` 警告。完整说明见
@@ -345,6 +348,7 @@ HAVING 和 QUALIFY 按同一条「源列优先」规则：其中的名字既是�
    内联 Schema 里归一到同一表名的两种写法，会在 `metadata_conflicts` 记一条 `catalog_collision`，保留第一种。
 8. 目录匹配键：目录视图匹配前先去引号、转小写，catalog 只在配置了时才剥（没配置时照旧取最后两段）。
    键为 `db.table` 的 Schema，在没有别的条目可能是它时，仍能描述读 `catalog.db.table` 的语句。
+   两个没配置的 catalog 下的同名表都匹配到同一张目录表时，报 `table_identity_ambiguous`，不挂证据。
 包里不再把数仓的表名后缀约定和业务领域词当作默认值。`semantic packet` 不经配置就不读表名后缀，所以名为 `…_df` 的输入表
 不再仅凭名字算全量快照，第 9 项也不再据此判 `incremental` 的文档失败；第 12 项只找成词的 增值税 / 税 / 手续费 / 测试
 （纳税人识别号 不再算带「税」限定）；概念层里的借贷词已移除，也不再读表名后缀：不配置约定时没有成员凭 `_di`
@@ -355,6 +359,19 @@ HAVING 和 QUALIFY 按同一条「源列优先」规则：其中的名字既是�
    `semantic validate` 和 `ontology`。一次运行的材料包要带着它重建：不带它生成的材料包 `name_convention`、
    `full_snapshot` 和 `packet_digest` 都不同。只想逐字保留某一层原来的读法时，只写那一层原来的后缀。
    见 [docs/zh-CN/domain-profile.md](docs/zh-CN/domain-profile.md)。
+
+10. 键列以 `id_` 或 `no_` 开头的语料，概念 id 会变（`id_card_no` 的词根从 `card` 变成 `id_card`，`concept:card` 变成
+    `concept:id_card`）。重跑 `ontology`；`concepts.overrides.json` 里按旧 id 写的条目会出现在
+    `concept_overrides_applied.unmatched`（`unknown_concept`），把键改成 `ontology.json` 现在发布的 id。
+11. `catalog validate` 现在检查指标用的属性归谁：`measure` 和属性维度必须属于 `on`，或属于与 `on` 相连的概念（相连的角色连同
+    它的扮演者）。不满足时报 `metric_measure` / `metric_dimension` 错误，以前能通过的目录可能失败。改法：换成 `on` 或相连概念的
+    属性，补上缺的关系或参与者，或把指标挂到拥有该属性的概念上。另外，`catalog build --lineage` 的粒度冲突多了一个规则
+    `grain_not_exposed`（键成立，但没有写到目标列上）；以前这种情形报的是 `grain_not_proven`。按规则名匹配的消费者要同时认这两个值。
+12. 投影只有一个 `now()` 调用的输出不再算 UDF：`has_udf` 变为 `false`，`expression_type` 变为 `function_expression`，列上不再有
+    `transform_subkind: "udf"`。重跑 `parse`，表语义运行重建材料包。
+13. 读 PIVOT / UNPIVOT 的语句输出会变。`SELECT *` 现在给出 Spark 的列集（隐式分组列在前，每个 IN 值、每个聚合各一列）；经别名
+    引用的列（`p.q1`）和 `SELECT *` 给出的是同一列，`transform` 是 `AGGREGATE`，来源包含 FOR 列；以前写成物理列 `表.p` 的引用
+    现在指向真实的列。重跑 `parse`，并重建由它派生的产物。
 
 ### 迁移到 0.11.0
 

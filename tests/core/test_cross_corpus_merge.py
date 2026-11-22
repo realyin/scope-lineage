@@ -717,3 +717,85 @@ def test_merge_mode_survives_a_bare_alias_another_corpus_makes_ambiguous(
     bare = _card(cards, "t")
     assert FINDING_AMBIGUOUS_BARE_NAME in [item["kind"] for item in bare["findings"]]
     assert "bare_reader" in [item["task"] for item in bare["consumed_by"]]
+
+
+# ------------------------------------- the spelling a statement used (DECISIONS 6.1)
+
+
+def _spelled(entries) -> list:
+    return [(item["task"], item.get("as")) for item in entries]
+
+
+def test_an_entry_records_the_spelling_its_statement_used() -> None:
+    host = _card(_cards(BARE_HOST_CASES, "corpus_1"), "ods.t")
+
+    assert _spelled(host["produced_by"]) == [("bare_writer", None)]
+    assert "as" not in host["produced_by"][0]
+    assert _spelled(host["consumed_by"]) == [("bare_reader", "t")]
+
+
+def test_the_ambiguous_bare_card_keeps_only_the_entries_that_used_the_bare_name() -> None:
+    merged = merge_table_cards(
+        _cards(BARE_HOST_CASES, "corpus_1"), _cards(BARE_RIVAL_CASES, "corpus_2")
+    )
+
+    bare = _card(merged, "t")
+    assert bare["produced_by"] == []
+    assert [(e["task"], e["corpus"]) for e in bare["consumed_by"]] == [
+        ("bare_reader", "corpus_1")
+    ]
+    assert "as" not in bare["consumed_by"][0]
+    assert FINDING_AMBIGUOUS_BARE_NAME in [item["kind"] for item in bare["findings"]]
+    host = _card(merged, "ods.t")
+    assert _spelled(host["produced_by"]) == [("bare_writer", None)]
+    assert host["consumed_by"] == []
+
+
+def test_sentinel_an_undisputed_bare_alias_keeps_its_spelling_on_the_host() -> None:
+    merged = merge_table_cards(_cards(BARE_HOST_CASES, "corpus_1"), _corpus_b())
+
+    host = _card(merged, "ods.t")
+    assert _spelled(host["consumed_by"]) == [("bare_reader", "t")]
+
+    # The merged document still says each entry's spelling, so merging it again with the
+    # corpus that makes ``t`` ambiguous splits the entries the same way.
+    again = merge_table_cards(merged, _cards(BARE_RIVAL_CASES, "corpus_2"))
+    assert _spelled(_card(again, "t")["consumed_by"]) == [("bare_reader", None)]
+    assert _card(again, "t")["produced_by"] == []
+    assert _card(again, "ods.t")["consumed_by"] == []
+
+
+def test_an_entry_names_its_spelling_when_the_merge_picks_a_longer_primary() -> None:
+    first = _cards((("w", "INSERT OVERWRITE TABLE dwd.t SELECT id FROM src.x"),), "c1")
+    second = _cards((("r", "INSERT OVERWRITE TABLE dw.o SELECT id FROM lake.dwd.t"),), "c2")
+
+    card = _card(merge_table_cards(first, second), "lake.dwd.t")
+    assert _spelled(card["produced_by"]) == [("w", "dwd.t")]
+    assert _spelled(card["consumed_by"]) == [("r", None)]
+
+
+def _without_spellings(document: dict) -> dict:
+    document = json.loads(json.dumps(document))
+    for card in document["tables"]:
+        for key in ("produced_by", "consumed_by"):
+            for entry in card[key]:
+                entry.pop("as", None)
+    return document
+
+
+def test_a_tables_json_without_spellings_is_merged_as_before(tmp_path: Path) -> None:
+    home = _without_spellings(_cards(BARE_HOST_CASES, "corpus_1"))
+
+    merged = merge_table_cards(home, _cards(BARE_RIVAL_CASES, "corpus_2"))
+
+    assert _spelled(_card(merged, "t")["produced_by"]) == [("bare_writer", None)]
+    assert _spelled(_card(merged, "t")["consumed_by"]) == [("bare_reader", None)]
+    assert _spelled(_card(merged, "ods.t")["consumed_by"]) == [("bare_reader", None)]
+
+    first = tmp_path / "old" / "tables.json"
+    first.parent.mkdir()
+    first.write_text(json.dumps(home), encoding="utf-8")
+    second = _built(tmp_path, "c2", BARE_RIVAL_CASES)
+    out = tmp_path / "merged"
+    args = ["tables", "--merge", str(first), "--merge", str(second), "--out", str(out)]
+    assert main(args) == 0

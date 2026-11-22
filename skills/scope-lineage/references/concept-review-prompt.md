@@ -50,7 +50,7 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 
 | 取值 | 怎么分 | 什么时候用 |
 | --- | --- | --- |
-| `family`（默认） | 按表族（`table_family`）分组，再按 `--review-batch-size` 装箱，**同一族绝不拆开** | 一张逻辑表被写成 `_di` / `_df` / `_tmp` 好几份——它们是同一个问题，分到两批就是问两遍 |
+| `family`（默认） | 按 `ontology.json` 已发布的表族（`tables[].family`，周期后缀按领域配置的 `table_name_convention` 折）分组，再按 `--review-batch-size` 装箱，**同一族绝不拆开** | 一张逻辑表被写成 `_di` / `_df` / `_tmp` 好几份——它们是同一个问题，分到两批就是问两遍 |
 | `domain` | 按表的 `naming_hints.domain`，没有就退到 `project`，再没有就进「未标注领域」一组 | 元数据标了域，而每个域背后是不同的业务方——一批正好对应一个人 |
 | `size` | 不分组，按影响（概念身上的关系条数）从大到小平铺切块 | 元数据两样都没说 |
 

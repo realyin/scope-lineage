@@ -231,7 +231,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                    "reference_only_edge": 0}},
   "tables": [
     {"id": "ods.customer", "kind": "physical_table",
-     "family": "ods.customer",   // Q3：去掉 _di / _tmp / _mid01 一类后缀后的表族键
+     "family": "ods.customer",   // Q3：去掉 _tmp / _mid01 一类后缀（以及配置约定里的 _di 等）后的表族键
      "comment": null,
      "identity": {
        "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
@@ -673,7 +673,7 @@ YAML 头也跟着改成概念在前：`concept_count` / `relation_count` / `tabl
 
 | # | 规则 |
 | --- | --- |
-| 1 | **表族**：表名小写后按 `_` 切段，从尾部逐段剥掉周期后缀（`_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` / `_wf` / `_all`）、阶段后缀（`_tmp` / `_mid<数字>` / `_step<数字>` / `_stage<数字>` / `_bak` / `_new` / `_old` / `_v<数字>`）与纯数字尾段，剥到不能再剥为止；剥的是**整段**，所以 `_dim` 不是 `_di`、`_info` 不是 `_i`，库名保留、最后一段永不剥（真叫 `tmp` 的表自成一族） |
+| 1 | **表族**：表名小写后按 `_` 切段，从尾部逐段剥掉周期后缀、阶段后缀（`_tmp` / `_mid<数字>` / `_step<数字>` / `_stage<数字>` / `_bak` / `_new` / `_old` / `_v<数字>`）与纯数字尾段，剥到不能再剥为止。周期后缀来自[领域配置](domain-profile.md)的 `table_name_convention`（`full` 与 `incremental` 的并集，例如 `_di` / `_df`）；内置的只有阶段后缀和数字段，所以不配置约定时 `ods.gadget_di` 和 `ods.gadget_df` 是两个族。剥的是**整段**，所以 `_dim` 不是 `_di`、`_info` 不是 `_i`，库名保留、最后一段永不剥（真叫 `tmp` 的表自成一族） |
 | 2 | **分组键**：（类型，表族，问题形状）。候选键的形状是列集合；发现的形状是发现的 `kind`；**关系按对端归组**——一条边的未决问题是「对端那张表按这组列唯一吗」，谁来关联、用本端哪个列名都不影响答案，所以分组键是（对端表族，对端列集合），表族折叠只负责把对端那张表的多份副本并成一组 |
 | 3 | **组内排序与代表**：组内条目保持清单原顺序，排第一的那条是 `representative`，`count` 是组内条数 |
 | 4 | **影响**：`impact` 是答完这一组能解开多少东西——关系算「关联对端的表数 + 关联它的任务数」，候选键算「确认后能从 `hypothesis` 升为已证明的边数」，发现算组内条数 |
@@ -1007,7 +1007,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 
 | 取值 | 怎么分组 | 装箱规则 |
 | --- | --- | --- |
-| `family`（默认） | 按 `table_family`——`_di` / `_df` / `_tmp` 是同一张逻辑表的几份副本，同一个问题 | 按组装进批次，**同一族绝不拆开**；一族大过 `--review-batch-size` 就整个占一批 |
+| `family`（默认） | 按 `ontology.json` 里已发布的表族（`tables[].family`）——`_tmp` / `_mid01`，以及配置约定里的 `_di` / `_df`，是同一张逻辑表的几份副本，同一个问题 | 按组装进批次，**同一族绝不拆开**；一族大过 `--review-batch-size` 就整个占一批 |
 | `domain` | 按表的 `naming_hints.domain`，没有退到 `project`，再没有进「未标注领域」一组 | 同上，只是组的单位换成域 |
 | `size` | 不分组 | 按影响从大到小平铺，按 `--review-batch-size` 切块 |
 

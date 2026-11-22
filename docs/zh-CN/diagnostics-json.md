@@ -200,7 +200,7 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `expression_sql` | string/null | 无法完整解析来源的表达式。 |
 | `expression_resolution_status` | string | 表达式解析状态，如 unresolved/partially resolved。 |
 | `source_kind` | string | 当前来源类别，未确定时通常为 `unresolved`。 |
-| `missing_reasons[]` | array<string> | 解析器观察到的直接原因。 |
+| `missing_reasons[]` | array<string> | 解析器观察到的直接原因。它是集合，不保证只有一项。裸列多源歧义一定带 `ambiguous_unqualified`；`no_physical_source_fields` 表示「没有走到任何物理字段」，可能同时出现，也可能不出现（来源是 CTE 等内部 scope 时没有）。判断歧义请检查是否包含 `ambiguous_unqualified`，不要比较整个列表。没有连接条件的 JOIN（CROSS JOIN、逗号连接）的 `condition_expression_resolution` 也带 `no_physical_source_fields`，它说的是条件不存在，与输出列无关。 |
 | `needed_fact` | string | 要关闭缺口需要补充的事实。 |
 | `root_impact` | boolean | 是否影响最终目标字段。 |
 | `owner_hint` | string | 建议由 parser fact backfill、内部补全或 review 处理。 |

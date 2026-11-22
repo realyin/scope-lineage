@@ -222,7 +222,7 @@ evidence. The common fields Core currently generates are:
 | `expression_sql` | string/null | The expression whose source could not be fully resolved. |
 | `expression_resolution_status` | string | Expression resolution status, such as unresolved or partially resolved. |
 | `source_kind` | string | The current source category; usually `unresolved` when undetermined. |
-| `missing_reasons[]` | array<string> | The direct reasons the parser observed. |
+| `missing_reasons[]` | array<string> | The direct reasons the parser observed. It is a set and may hold more than one item. A bare column several sources could own always carries `ambiguous_unqualified`; `no_physical_source_fields` means no physical field was reached and may or may not accompany it (it is absent when a source is an internal scope such as a CTE). Test for `ambiguous_unqualified` by membership, not by comparing the whole list. A JOIN without a condition (CROSS JOIN, comma join) also carries `no_physical_source_fields` on its `condition_expression_resolution`; that describes the absent condition, not an output column. |
 | `needed_fact` | string | The fact that must be supplied to close the gap. |
 | `root_impact` | boolean | Whether it affects a final target field. |
 | `owner_hint` | string | Whether parser fact backfill, internal completion, or review is suggested. |

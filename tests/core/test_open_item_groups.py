@@ -34,6 +34,7 @@ from scope_lineage.render.ontology import (
     OPEN_ITEM_KEY,
     OPEN_ITEM_RELATION,
     build_ontology,
+    copy_suffixes,
     render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
@@ -130,6 +131,15 @@ CASES = (
     ),
 )
 
+# 5.1: the period suffixes are the caller's convention (``domain-profile/1``'s
+# ``table_name_convention``); this corpus is folded under the list the package used to
+# build in, so every group below is the one it always was.
+CONVENTION = {
+    "full": ["df", "hf", "mf", "wf", "all"],
+    "incremental": ["di", "hi", "mi", "wi"],
+}
+PERIOD = copy_suffixes(CONVENTION)
+
 PARTY_FAMILY = "ods.demo_party"
 ORDER_FAMILY = "ods.demo_order"
 CHANNEL_FAMILY = "dim.demo_channel"
@@ -147,6 +157,7 @@ def _ontology(*cases, overrides=None) -> dict:
         tables=build_table_cards(profiles, artifact_root="corpus"),
         overrides=overrides,
         artifact_root="corpus",
+        name_convention=CONVENTION,
     )
 
 
@@ -193,7 +204,9 @@ def _section(markdown: str, title: str) -> str:
     "suffix", ["di", "df", "hi", "hf", "mi", "mf", "wi", "wf", "all"]
 )
 def test_a_date_or_period_suffix_is_stripped(suffix: str) -> None:
-    assert table_family(f"ods.demo_party_{suffix}") == PARTY_FAMILY
+    assert table_family(f"ods.demo_party_{suffix}", PERIOD) == PARTY_FAMILY
+    # Without a convention a period segment is part of the name (5.1).
+    assert table_family(f"ods.demo_party_{suffix}") == f"ods.demo_party_{suffix}"
 
 
 @pytest.mark.parametrize(
@@ -208,7 +221,7 @@ def test_a_numeric_tail_is_stripped() -> None:
 
 
 def test_two_suffixes_are_stripped_in_one_pass() -> None:
-    assert table_family("ods.demo_party_tmp_di") == PARTY_FAMILY
+    assert table_family("ods.demo_party_tmp_di", PERIOD) == PARTY_FAMILY
     assert table_family("ods.demo_party_mid02_tmp") == PARTY_FAMILY
 
 
@@ -224,19 +237,21 @@ def test_two_suffixes_are_stripped_in_one_pass() -> None:
     ],
 )
 def test_a_name_that_only_looks_like_a_suffix_is_not_folded(table: str) -> None:
-    assert table_family(table) == table
+    assert table_family(table, PERIOD) == table
 
 
 def test_a_name_that_is_nothing_but_a_suffix_keeps_itself() -> None:
     """Stripping the last segment would fold every staging table into one family."""
     assert table_family("ods.tmp") == "ods.tmp"
-    assert table_family("ods.di") == "ods.di"
+    assert table_family("ods.di", PERIOD) == "ods.di"
 
 
 def test_the_database_is_part_of_the_family() -> None:
-    assert table_family("mart.demo_party_di") == "mart.demo_party"
-    assert table_family("ods.demo_party_di") != table_family("mart.demo_party_di")
-    assert table_family("spark_catalog.ods.demo_party_di") == (
+    assert table_family("mart.demo_party_di", PERIOD) == "mart.demo_party"
+    assert table_family("ods.demo_party_di", PERIOD) != table_family(
+        "mart.demo_party_di", PERIOD
+    )
+    assert table_family("spark_catalog.ods.demo_party_di", PERIOD) == (
         "spark_catalog.ods.demo_party"
     )
 

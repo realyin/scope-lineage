@@ -780,7 +780,7 @@ byte for byte what it was.
 | `representations["db.table"]` | `refresh` | `--lineage` | those tasks' schedule cycle (or cron) |
 | `representations["db.table"]` | `upstream_tables` / `downstream_tables` | `--lineage` | one hop of table lineage: what the writers read, what the readers write |
 | `representations["db.table"]` | `grain_proof` | `--lineage` | the best grain any writer proves: `confidence` (`proven` / `candidate` / `none`), `keys` (target column names; keys a WHERE pins are left out), `basis`, `task` |
-| `representations["db.table"]` | `conflicts` | `--lineage` | `grain_not_proven` (declared `proven`, lineage cannot prove it), `grain_not_exposed` (declared `proven`, lineage proves a key the write does not expose on target columns) or `grain_mismatch` (both proven, different columns) |
+| `representations["db.table"]` | `conflicts` | `--lineage` | `grain_not_proven` (declared `proven`, lineage cannot prove it), `grain_not_exposed` (declared `proven`, lineage proves a key the write does not expose on target columns), `grain_mismatch` (both proven, different columns) or `table_identity_ambiguous` (corpus names that are not one table all match this catalog table, listed in `names`; no other lineage evidence is attached) |
 | `representations["db.table"]` | `table_comment` | `--tables` | the table comment on the table card |
 | `representations["db.table"]` | `declared_columns` / `used_columns` | `--tables` | how many columns the metadata declares and the corpus uses |
 | `bindings["db.table.column"]` | `sources` / `expression` | `--lineage` | the physical source columns and the final expression (at most 200 characters), only for a binding without a hand-written `derivation` |
@@ -829,6 +829,13 @@ byte for byte what it was.
 - **Tables** match on their last two dotted segments: the demo's loan task writes
   `spark_catalog.demo_dwd.dwd_lending_loan_df`, and it lands on the representation
   `demo_dwd.dwd_lending_loan_df`. A table the corpus never names gets no entry.
+  The limit: the catalog names tables `db.table`, so it cannot tell two catalogs' tables of
+  the same name apart. When the names matched to one catalog table are not spellings of one
+  table (`cat1.ods.t` and `cat2.ods.t` with `SCOPE_LINEAGE_CATALOG_PREFIXES` unset; `ods.t`
+  beside one `cat1.ods.t` is one table), the table gets only the conflict
+  `table_identity_ambiguous`, listing those names, and no lineage evidence (no
+  `grain_proof`, no binding sources, and JOINs touching it are not counted for relations).
+  Configure the catalogs in `SCOPE_LINEAGE_CATALOG_PREFIXES` if they are one table.
 - **Grain**: partition columns are left out of both sides before a grain is compared, so a
   catalog grain that names `stat_date` does not disagree with a statement that writes one
   `stat_date` partition. A declared grain whose identifier has no bound column is not

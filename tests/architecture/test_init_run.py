@@ -7,6 +7,7 @@ them quoted, so a value with a space or a ``$`` arrives as it was given.
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -158,3 +159,57 @@ def test_three_review_passes_are_refused(tmp_path):
     done = _init("--run", str(tmp_path / "a"), "--scratch", str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s",
                  "--review-passes", "3")
     assert done.returncode != 0 and not (tmp_path / "a" / "env.sh").exists()
+
+
+# ------------------------------------------------- 5.3: the run's domain profile
+
+_CLEAN_ENV = {key: value for key, value in os.environ.items() if key != "SCOPE_LINEAGE_DOMAIN_PROFILE"}
+_PROBE = (
+    "import argparse, sys; sys.path.insert(0, sys.argv[1]); "
+    "from scope_lineage.cli_semantic import read_domain_profile; "
+    "p = read_domain_profile(argparse.Namespace(domain_profile=None)); "
+    "print(p if isinstance(p, int) else (p.qualifier_terms, p.name_convention))"
+)
+
+
+def _sourced(shell, env_file: Path, command: str, env=None) -> str:
+    done = subprocess.run([shell, "-c", f". {shlex.quote(str(env_file))} && {command}"],
+                          capture_output=True, text=True, env=_CLEAN_ENV if env is None else env)
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+def _profile_after_sourcing(shell, env_file: Path) -> str:
+    """What a tool command started from a sourced env.sh reads as its domain profile."""
+    return _sourced(shell, env_file, f"{shlex.quote(sys.executable)} -c {shlex.quote(_PROBE)} {shlex.quote(str(ROOT))}")
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_domain_profile_reaches_every_tool_command_through_the_environment(shell, tmp_path):
+    profile = tmp_path / "my profile.json"
+    profile.write_text('{"doc_format": "domain-profile/1", "qualifier_terms": ["冲正"], '
+                       '"table_name_convention": {"full": ["df"]}}', encoding="utf-8")
+    run = tmp_path / "run"
+    done = _init(*_args(tmp_path, run), "--domain-profile", str(profile))
+    assert done.returncode == 0, done.stderr
+    assert _sourced(shell, run / "env.sh", 'printf "%s|%s" "$DOMAIN_PROFILE" "$SCOPE_LINEAGE_DOMAIN_PROFILE"') == (
+        f"{profile}|{profile}")
+    assert _profile_after_sourcing(shell, run / "env.sh") == "(('冲正',), {'full': ('df',)})"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_without_a_domain_profile_the_variable_is_left_unset(shell, tmp_path):
+    run = tmp_path / "run"
+    assert _init(*_args(tmp_path, run)).returncode == 0
+    script = '[ -z "$DOMAIN_PROFILE" ] && [ -z "${SCOPE_LINEAGE_DOMAIN_PROFILE+x}" ] && echo unset'
+    assert _sourced(shell, run / "env.sh", script) == "unset"
+    assert _profile_after_sourcing(shell, run / "env.sh") == "((), None)"
+    # A profile left in the shell from another run does not leak into this one.
+    leftover = {**_CLEAN_ENV, "SCOPE_LINEAGE_DOMAIN_PROFILE": str(tmp_path / "other.json")}
+    assert _sourced(shell, run / "env.sh", script, env=leftover) == "unset"
+
+
+def test_a_missing_domain_profile_is_refused(tmp_path):
+    run = tmp_path / "run"
+    done = _init(*_args(tmp_path, run), "--domain-profile", str(tmp_path / "absent.json"))
+    assert done.returncode == 1 and "--domain-profile" in done.stderr and not (run / "env.sh").exists()

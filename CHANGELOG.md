@@ -25,7 +25,7 @@
   returned the int 2 for "cannot read" and handed any other JSON value on, so a file holding
   `false` or `0` exited 0 with no output, `7` exited 7 and `300` exited 44. Every
   `questions` subcommand now reports `top level is <type>, not an object` and exits 2 (a
-  top-level list or null, which used to exit 1 with a doc_format message, exits 2 too).
+  top-level list or null, which used to exit 1 with a doc_format message, exits 2 too). Who is affected: scripts that matched on exit code 1 (or on 0 for a file holding `false` or `0`) for a `questions` file whose top level is not an object.
 - **`questions grading-sheet` reads code fences the CommonMark way.** A line like
   ```` ```dt``` 是分区列 ```` opened a fence, and a ```` ```bash ```` line inside a block closed
   it, so every later answer heading was swallowed into the first answer ("no answer for ...").
@@ -363,7 +363,7 @@
   Members are found in the AST by name, so a computed member of a plain STRUCT
   (`NAMED_STRUCT('a', COALESCE(c1, 0), 'b', c2)` read through `.a`) reads only `c1` instead
   of every column of the STRUCT.
-- **PIVOT and UNPIVOT produce Spark's column set.** A `SELECT *` over a PIVOT returned only
+- **Breaking -- PIVOT and UNPIVOT produce Spark's column set.** A `SELECT *` over a PIVOT returned only
   the IN-value columns, marked `DIRECT`, without the FOR column, and one column for several
   aggregates; an outer reference to a grouping column was dropped as dangling. It now
   returns the implicit grouping columns (the relation's columns neither aggregated nor
@@ -375,7 +375,7 @@
   original table, now gives the columns outside its IN list, the name column (`CONSTANT`,
   one literal per IN item) and the value column read from the IN columns. Explicit
   unqualified references to pivoted or unpivoted columns (`SELECT dept, q1 FROM ... PIVOT`)
-  are still reported as unresolved.
+  are still reported as unresolved. Who is affected and what to do: see the next PIVOT entry.
 - **A `JOIN ... USING` key is the side Spark outputs.** sqlglot expands a merged USING column
   into `COALESCE(left, right)`, so an INNER join's key was published as a `cleaning`
   EXPRESSION over both tables. INNER, LEFT, SEMI and ANTI now read the left key, RIGHT the
@@ -417,15 +417,16 @@
   is not a scope of the statement; in a task document a temporary view or cached relation an
   earlier statement defined is a session relation and is in neither list (it stays in
   `direct_inputs`), and `business_summary` follows.
-- **Key-fold candidates: a leading `id_` / `no_` stays in the key stem.** `key_stem` took `id`
+- **Breaking -- key-fold candidates: a leading `id_` / `no_` stays in the key stem.** `key_stem` took `id`
   / `no` off the front of a key as well as the back, so `id_card_no` reduced to `card` and an
   identity-card table folded into one concept with a bank card's `card_no`. Only a trailing
   `id` / `no` is a key marker now (the other affixes are still taken off both ends), and the
   role names read from column names follow. Concept ids change where a key column starts with
-  `id_` or `no_` (`concept:card` → `concept:id_card` in that example). **Migration:** an entry in
-  `concepts.overrides.json` that names such a concept by its old id is reported as unknown on
-  the next run; rename it to the id `ontology.json` now publishes (the `identity.stem` of the
-  concept holding those tables).
+  `id_` or `no_` (`concept:card` → `concept:id_card` in that example). Who is affected: corpora with a key column
+  that starts with `id_` or `no_`, and any `concepts.overrides.json` that names such a concept by
+  its old id. What to do: an entry that names the old id is reported as unknown on the next run;
+  rename it to the id `ontology.json` now publishes (the `identity.stem` of the concept holding
+  those tables) (see the READMEs' migration section).
 - **Key-fold candidates: one English comment no longer retires a key stem.** The generic-stem
   evidence rule intersected the Chinese two-character fragments of three or more different
   comments, and an English comment has none, so `客户编号` / `客户号` / `Customer ID` retired
@@ -447,12 +448,12 @@
   `index.md` (whole document) and each concept's `governance.md` row and page line left them
   out. A metric now counts on the document and on the concept it is `on`. The ontology-json/3
   schema lists `metrics` under `required`; `catalog build` has always written it.
-- **`catalog validate` checks whose attributes a metric uses.** A metric's `measure` and its
+- **Breaking -- `catalog validate` checks whose attributes a metric uses.** A metric's `measure` and its
   attribute dimensions must belong to `on` or to a concept linked to `on` (a linked role with
   its player); otherwise `metric_measure` / `metric_dimension` is an error. Catalogs whose
   metrics measured or broke down by an unrelated concept's attribute used to pass and now fail.
   New warning `grain_identifier_unbound`: a representation's grain names an identifier no
-  column of the table binds.
+  column of the table binds. Who is affected: catalogs with a metric whose `measure` or attribute dimension belongs to a concept that is neither `on` nor linked to it. What to do: point the metric at an attribute of `on` or of a linked concept, add the missing relation or participant, or move the metric to the concept that owns the attribute (see the READMEs' migration section).
 - **`catalog merge --atomic`.** New option (with `--out` or `--in-place`): the merge goes into a
   hidden staging copy, is validated there, and reaches the target only with no conflicts, no
   unknown concepts and no validation errors; otherwise nothing is written and stderr says so.
@@ -523,14 +524,14 @@
   the alias, is unchanged. Who is affected: stored lineage whose HAVING or QUALIFY uses such a
   name; the `raw_expression` and `fields` of that filter block change. What to do: re-run
   `parse` (see the READMEs' migration section).
-- **`SELECT now() AS ts` is no longer reported as a UDF.** sqlglot parses `now()` as an
+- **Breaking -- `SELECT now() AS ts` is no longer reported as a UDF.** sqlglot parses `now()` as an
   anonymous call, and a projection that was one anonymous call got the `udf` subtype without
   the function catalog being asked, so `has_udf` was true and the output was typed
   `udf_expression` although the catalog lists `now`. The subtype now consults the catalog; an
   unknown name is still a UDF. Such an output now reads `has_udf: false`,
   `expression_type: function_expression`, and its column carries no `transform_subkind`
   (it was `udf`). `current_timestamp()`, `current_date()` and `unix_timestamp()`
-  parse to named nodes and were never affected.
+  parse to named nodes and were never affected. No format changes number; existing values change. Who is affected: stored lineage, profiles and table-semantics packets of statements whose projection is a single `now()` call; consumers that count `has_udf` or match `transform_subkind == "udf"` see fewer hits. What to do: re-run `parse` and rebuild packets (see the READMEs' migration section).
 - **`describe` no longer describes EXCEPT / INTERSECT as a UNION.** The profile read every set
   operation as a sum of branches: the grain blocker said 「行数为各分支之和」, the stage action
   「合并 2 个分支」, the shape line 合并型, and every branch's table was `driving`. EXCEPT keeps
@@ -573,7 +574,8 @@
   `semantic packet`, `semantic validate` and `ontology` with `--domain-profile`; see
   `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
   (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
-  word in a package string literal.
+  word in a package string literal, and on a literal that is a table-name suffix (`df`, `di`,
+  ...) outside the one constant it exempts with its reason (the comment-tail trim).
 - **`expression_features.operators` ignores comments and string literals.** The operator list
   was scanned over the raw expression, so the `*` and `/` of a `/* ... */` remark or the `-` of
   `'2024-01-01'` were listed as operators. It now reads code only, as `functions` already did.
@@ -626,9 +628,6 @@
   nobody on 30.16.0 / 30.17.0 (the answer is unchanged there); on 30.0.0 (and likely the
   versions between, not measured) those 26 names stop being UDFs and `hex_encode` becomes one,
   as on 30.17.0.
-  word in a package string literal, and on a literal that is a table-name suffix (`df`, `di`,
-  ...) outside the two constants it exempts with their reasons (`table_family`'s
-  `PERIOD_SUFFIXES`, and the comment-tail trim).
 - **A JOIN with no key pair onto a carded table no longer says the table has no key fact.**
   With `--tables`, a JOIN onto a physical table whose card proves a key, but whose ON clause
   offers no usable key pair (joined by OR, say), stays `unknown` as before; its `reason` now
@@ -667,7 +666,7 @@
   subquery became `MAX(o.i.k)`. The reference is now put back as later sqlglot versions
   leave it (`i.flag`, still marked unqualified) before columns are resolved. Outputs on
   sqlglot 30.16 / 30.17 do not change.
-- **A reference through a PIVOT / UNPIVOT alias is the column `SELECT *` gives.** Two gaps
+- **Breaking -- a reference through a PIVOT / UNPIVOT alias is the column `SELECT *` gives.** Two gaps
   were left in the alias form. With the PIVOT written straight on a table
   (`FROM s.sales PIVOT (SUM(amt) FOR quarter IN ('Q1', 'Q2')) p`), `p.dept` was published
   as a physical column `s.sales.p`. sqlglot rewrites the tree as `sales.p.dept` in
@@ -680,7 +679,79 @@
   column (expression `q1`, as under `*`) instead of a `DIRECT` copy of `amt`, so its
   `physical_source_fields` gain the FOR column. A pivot column inside a larger
   expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
-  `partially_resolved`, as before.
+  `partially_resolved`, as before. Who is affected: stored lineage of statements that read a PIVOT or UNPIVOT (through `SELECT *` or through its alias): column lists, `expression`, `transform` and physical sources change. What to do: re-run `parse` and rebuild what was derived from it (see the READMEs' migration section).
+- **`catalog build --lineage` no longer merges two tables that differ only by an unconfigured
+  catalog.** The catalog names tables `db.table` and matched a corpus name by its last two
+  segments, so `cat1.ods.t` and `cat2.ods.t` both fed the evidence of `ods.t`, and a key proven
+  for one was published as the other's `grain_proof`. When the names matched to one catalog
+  table are not spellings of one table, the table now gets the conflict
+  `table_identity_ambiguous` (with the `names`) and no lineage evidence, and JOINs touching it
+  are not counted for relations. Configure `SCOPE_LINEAGE_CATALOG_PREFIXES` if they are one
+  table.
+- **`tables --merge` no longer lists a statement on a bare-name card it never wrote or read.**
+  Once another corpus made a bare `t` ambiguous, the `t` card listed the producer that wrote
+  `ods.t` and the bare-name reader stayed on `ods.t` too. A producer or consumer entry now
+  records the spelling its statement used when that differs from the card's table (`as`), and
+  the merge gives the ambiguous bare-name card only the entries that used the bare name; the
+  qualified card keeps the rest. A `tables.json` written before the field existed is merged as
+  before, with those entries on both cards.
+- **Breaking (part of the domain-profile change above) -- table families fold period
+  suffixes only when `table_name_convention` lists them.** `ontology`'s `families[]`,
+  `tables[].family` and the grouping of open items (`open_item_groups[]`,
+  `finding_groups[]`, their `group_id`s) stripped a built-in list of period suffixes
+  (`_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` / `_wf` / `_all`) from every table
+  name; they now strip only the suffixes the `domain-profile/1` convention lists (the union
+  of its `full` and `incremental`). Without a convention `ods.gadget_di` and `ods.gadget_df`
+  are two families and open items are grouped more finely; `_tmp` / `_bak` / `_new` /
+  `_old` and numbered steps still fold. A table that merely ended in one of those segments
+  (`xiao_mi`) is no longer folded into another family. With the example profile the
+  families are what they were. `--review-batches-by family` reads the family
+  `ontology.json` published instead of recomputing it. Overrides are unaffected: their keys
+  name tables, relations and concepts, never a family. The architecture test's exemption for
+  this list is gone. What to do: pass the same `--domain-profile` to `ontology` as to the
+  other commands.
+- **`SCOPE_LINEAGE_DOMAIN_PROFILE` names the domain profile once for a whole run.** Every
+  command that takes `--domain-profile` (`semantic packet`, `semantic validate`, `ontology`)
+  reads the file this environment variable names when the flag is not given (a non-empty
+  value only); the flag wins when both are given. A command that reads a profile says on
+  stderr which file and from where (`domain profile: <file> (from …)`); a file named by the
+  variable that cannot be read exits 2 with the variable named. The runbook's
+  `init_run.py --domain-profile <file>` writes `DOMAIN_PROFILE` into `env.sh`, and
+  `runlib.sh` exports it as the variable (and unsets a leftover one when the run has no
+  profile), so the runbook's calls, the subagent templates' included, carry no flag of
+  their own; an architecture test keeps every such call on that path. Additive: without the
+  variable nothing changes.
+- **A MERGE WHEN condition is a branch condition, not a row filter.** The WHEN blocks on a
+  MERGE ROOT (`predicate_type: "merge_when"`, above) were read by the derived views as a
+  WHERE: `describe` wrote `WHEN MATCHED AND s.op = 'D' THEN DELETE` as 「只保留 op = 'D'
+  的记录」, the opposite of what it does, and published it as a `kind: filter` rule. The
+  block also carries `merge_when_index` (the clause's `merge_spec.whens[].index`; a WHEN
+  with no condition gets no block, so the block number alone did not name the clause).
+  The derived views read it as a branch condition: `describe` publishes a rule of kind
+  `merge_when` with the clause and its action (`merge_when_index`, `clause`, `action`;
+  one rule per WHEN, not per conjunct), its stage action has type `merge_when` and reads
+  「匹配到目标行且 s.op = 'D' 时，删除该目标行（…）」, the structural summary counts it as
+  「MERGE 分支条件 N 处」 instead of 「过滤 N 处」, `render`'s stage list labels it
+  「MERGE 分支条件」, and a material packet lists it as a `merge_when` rule with that
+  sentence rather than as a `filter`. Readers of row filters (equality pins, first-row
+  filters, not-null constraints, metric-path filters, the packet's business-date filter)
+  skip it. Not Breaking: the WHEN blocks are new since 0.13.0.
+- **The scope profile reads a MERGE WHEN condition as a branch condition too.** In
+  `lineage.json`'s `scope_profile`, a MERGE ROOT counted its `WHEN ... AND <condition>`
+  conditions as `filter`: `operations` listed `filter`, `business_summary` said
+  「按过滤条件保留记录」 (also printed as mapping.md's 概要) and `logic.filters` listed them.
+  They are now the operation `merge_when`, the summary says 「按 WHEN 条件选择写入分支」, and
+  `logic` lists them under the new key `merge_when_conditions` (absent when there are
+  none); `logic.filters` keeps only row filters. mapping.md reads the new key and still
+  recognises the old layout. Not Breaking: the WHEN conditions are new since 0.13.0.
+- **`output_shape` names the set operation of a `union_merge`.** `semantic.json` gains the
+  optional `output_shape.set_op` (`UNION_ALL`, `UNION`, `EXCEPT`, `INTERSECT`) when the
+  shape is `union_merge`, so a reader of the JSON can tell a difference or an intersection
+  from a union without reading the text; `shape` stays `union_merge` and the output
+  columns' `transform` stays `UNION`. A mixed chain gives its outer operator. The
+  semantic.md shape line (差集型 / 交集型 / 合并型, wording unchanged) now reads this key
+  instead of matching the stage action's text. A material packet does not carry it, so no
+  `packet_digest` changes.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

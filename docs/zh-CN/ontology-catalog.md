@@ -690,7 +690,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `representations["库.表"]` | `refresh` | `--lineage` | 这些任务的调度周期（或 cron） |
 | `representations["库.表"]` | `upstream_tables` / `downstream_tables` | `--lineage` | 表级血缘一跳：写它的任务读了什么，读它的任务写了什么 |
 | `representations["库.表"]` | `grain_proof` | `--lineage` | 所有生产语句里证据最强的粒度：`confidence`（`proven` / `candidate` / `none`）、`keys`（目标表的列名，被 WHERE 钉死的键不算）、`basis`、`task` |
-| `representations["库.表"]` | `conflicts` | `--lineage` | `grain_not_proven`（目录声明 `proven`，血缘证明不了）、`grain_not_exposed`（目录声明 `proven`，血缘证明的键没有写到目标列上）或 `grain_mismatch`（两边都已证明，列不同） |
+| `representations["库.表"]` | `conflicts` | `--lineage` | `grain_not_proven`（目录声明 `proven`，血缘证明不了）、`grain_not_exposed`（目录声明 `proven`，血缘证明的键没有写到目标列上）、`grain_mismatch`（两边都已证明，列不同）或 `table_identity_ambiguous`（血缘里不是同一张表的几个名字都落到这张目录表上，`names` 列出它们；此时不挂其他血缘证据） |
 | `representations["库.表"]` | `table_comment` | `--tables` | 表卡上的表注释 |
 | `representations["库.表"]` | `declared_columns` / `used_columns` | `--tables` | 元数据声明了几列、语料用到了几列 |
 | `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
@@ -738,6 +738,11 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 
 - **表**按最后两段匹配：示例里的借据任务写的是 `spark_catalog.demo_dwd.dwd_lending_loan_df`，
   它落到表现 `demo_dwd.dwd_lending_loan_df` 上。语料没提到的表没有条目。
+  限制：目录把表写成 `库.表`，无法区分两个 catalog 下的同名表。落到同一张目录表上的名字不是同一张表时
+  （`SCOPE_LINEAGE_CATALOG_PREFIXES` 没配置的 `cat1.ods.t` 和 `cat2.ods.t`；`ods.t` 和一个 `cat1.ods.t`
+  算同一张），这张表只有一条 `table_identity_ambiguous` 冲突，列出这些名字，不挂任何血缘证据
+  （没有 `grain_proof`、绑定列的来源，涉及它的 JOIN 不计入关系）。实际是同一张表，就把这些 catalog 配进
+  `SCOPE_LINEAGE_CATALOG_PREFIXES`。
 - **粒度**：比较前两边都去掉分区列，所以目录粒度里写了 `stat_date`、而语句只写一个 `stat_date`
   分区时不算矛盾。声明粒度里某个标识符在本表没有绑定列时，不做比较。
 - **关系**只在两端概念都有表现表时统计；统计过但没有 JOIN 支持的是 `count: 0`，无法统计的没有 `joins`（没有 `source_joins` 时也就没有条目）。
