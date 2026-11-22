@@ -98,9 +98,7 @@ def run_domain_profile(args: argparse.Namespace, parser: argparse.ArgumentParser
     if not args.format_only and not (args.reasons and args.evidence):
         parser.error("domain-profile check: --reasons and --evidence are required "
                      "unless --format-only")
-    from .cli_domain_profile_check import run_check
-
-    return run_check(args)
+    return _run_check(args)
 
 
 # ------------------------------------------------------------------ evidence
@@ -122,9 +120,9 @@ def discover_lineage(lineage: str):
 
 
 def tool_version() -> str:
-    from .cli import _package_version
+    from .semantics.profile_check import current_version
 
-    return _package_version()
+    return current_version()
 
 
 def _relative(path: str | None) -> str | None:
@@ -174,3 +172,77 @@ def _run_evidence(args: argparse.Namespace) -> int:
     (out / "evidence.md").write_text(render_evidence_markdown(evidence), encoding="utf-8")
     print(evidence_summary(evidence))
     return 0
+
+
+# ------------------------------------------------------------------ check
+
+
+def _read_text(path: str, flag: str) -> str | int:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        print(f"{flag} {path}: not readable ({error})", file=sys.stderr)
+        return 2
+
+
+def _read_json(path: str, flag: str, *, bad_json_code: int):
+    """The parsed file, or ``(exit code,)`` -- unreadable is 2, not JSON ``bad_json_code``."""
+    text = _read_text(path, flag)
+    if isinstance(text, int):
+        return (text,)
+    try:
+        return json.loads(text)
+    except ValueError as error:
+        print(f"{flag} {path}: not valid JSON ({error})", file=sys.stderr)
+        return (bad_json_code,)
+
+
+def _failed(value) -> bool:
+    return isinstance(value, tuple)
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    from .semantics.profile_check import EvidenceError, check_format, check_profile, stale_hint
+
+    # A draft that is not JSON is the writer's mistake: rewrite it (1), not a usage error.
+    profile = _read_json(args.profile, "--profile", bad_json_code=1)
+    if _failed(profile):
+        return profile[0]
+    if args.format_only:
+        errors = check_format(profile)
+        return _report(errors, [], 0 if errors else _entry_count(profile))
+    reasons = _read_text(args.reasons, "--reasons")
+    evidence = _read_json(args.evidence, "--evidence", bad_json_code=2)
+    confirmed = (None if not args.confirmed
+                 else _read_json(args.confirmed, "--confirmed", bad_json_code=1))
+    for value in (reasons, evidence, confirmed):
+        if isinstance(value, int) or _failed(value):
+            return value if isinstance(value, int) else value[0]
+    try:
+        result = check_profile(profile, reasons, evidence, confirmed)
+    except EvidenceError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    if args.lineage:
+        found = discover_lineage(args.lineage)
+        if isinstance(found, int):
+            return found
+        hint = stale_hint(evidence, lineage_digest(found[0], found[1]))
+        if hint:
+            result.hints.append(hint)
+    return _report(result.errors, result.hints, result.entries)
+
+
+def _entry_count(profile) -> int:
+    from .semantics.profile_check import draft_entries
+
+    return len(set(draft_entries(profile)))
+
+
+def _report(errors: list[str], hints: list[str], entries: int) -> int:
+    for error in errors:
+        print(f"error: {error}")
+    for hint in hints:
+        print(f"hint: {hint}")
+    print(f"Checked {entries} entr(ies): {len(errors)} error(s), {len(hints)} hint(s)")
+    return 1 if errors else 0
