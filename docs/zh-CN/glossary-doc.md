@@ -379,6 +379,7 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 一个 `--template` 路径写两个文件：`.md` 是给人填的（一列一节，一取值一行），同名 `.json` 是
 `--overrides` 直接读得回去的（`doc_format: "glossary-overrides-template/1"`，`values` 的键是
 `<表.列>=<去引号取值>`，`meaning` 为空串，`date` 取当天）。两个文件问的是同一批取值。
+路径以 `.json` 结尾时，它就是那份 JSON，给人填的表格写在旁边的同名 `.md`。
 
 `--template` 仍然需要 `--out`：模板是**对字典的一次排名**，不是字典的替代品。少给 `--out`
 时命令以退出码 2 停下，并把这句理由一起打出来。

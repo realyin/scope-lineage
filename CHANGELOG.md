@@ -31,6 +31,8 @@
   it, so every later answer heading was swallowed into the first answer ("no answer for ...").
   A backtick fence's info string may not hold a backtick, and a closing fence is the opener's
   character, at least as long, with nothing else on the line.
+- **`glossary --template t.json` writes `t.md` and `t.json`.** It used to write the form to
+  `t.json` and then overwrite it with the data, leaving no form.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
