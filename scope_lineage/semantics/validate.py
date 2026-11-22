@@ -122,7 +122,9 @@ def report_flags(report: dict) -> dict[str, list[str]]:
 
     The flags of ``semantic status``, read from the report instead of the packets: a
     digest failure is ``no_packet`` when the report found no packet, else
-    ``packet_stale``; any other failure, or a schema error, is ``invalid``.
+    ``packet_stale``; any other failure, or a schema error, is ``invalid``. The digest
+    failure's ``reason_code`` decides; a report written before that field existed is read
+    by its message's ``no packet`` prefix.
     """
     found: dict[str, list[str]] = {}
     for entry in report.get("tables") or []:
@@ -130,13 +132,19 @@ def report_flags(report: dict) -> dict[str, list[str]]:
         flags = []
         for item in failures:
             if item.get("check") == "digest":
-                no_packet = str(item.get("message", "")).startswith("no packet")
-                flags.append("no_packet" if no_packet else "packet_stale")
+                flags.append("no_packet" if _digest_reason(item) == "no_packet" else "packet_stale")
         if entry.get("schema_errors") or any(item.get("check") != "digest" for item in failures):
             flags.append("invalid")
         if flags and entry.get("table"):
             found[entry["table"]] = flags
     return found
+
+
+def _digest_reason(item: dict) -> str:
+    reason = item.get("reason_code")
+    if reason in ("no_packet", "stale"):
+        return reason
+    return "no_packet" if str(item.get("message", "")).startswith("no packet") else "stale"
 
 
 def render_validation_text(report: dict) -> str:

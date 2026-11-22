@@ -475,6 +475,10 @@
   dicts, so a process parsing many statements kept every key it had seen. Each is now an LRU of
   4096 entries, an order of magnitude above what the largest statements measured need; output
   and single-parse time are unchanged.
+- **`semantic validate --json`: a failed `digest` item carries `reason_code`** (`no_packet` or
+  `stale`). `semantic render --validation` now decides `no_packet` / `packet_stale` by it rather
+  than by the message wording; a report without the field (written by an earlier version) is
+  still read by the `no packet` prefix. Additive: no other field and no exit code changes.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

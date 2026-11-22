@@ -213,16 +213,19 @@ def _sourced_items(document: dict):
 def check_digest(document: dict, packet: dict) -> list[dict]:
     if document["packet_digest"] == packet["packet_digest"]:
         return [result("digest", "pass", "packet_digest")]
-    return [result("digest", "fail", "packet_digest", (
+    return [{**result("digest", "fail", "packet_digest", (
         f"stale: 文档按材料包 {document['packet_digest']} 写成，当前材料包是 "
         f"{packet['packet_digest']}；材料包变了，按新材料包整份重写（旧审读改名为 "
         f"reviews/<db.table>.prior.md，旧文档复制为 reviews/<db.table>.prior.json），"
-        f"不要只改 packet_digest"))]
+        f"不要只改 packet_digest")), "reason_code": "stale"}]
 
 
 def missing_packet(document: dict) -> dict:
-    return result("digest", "fail", "packet_digest", (
-        f"no packet for {document['table']}: 表名写错了，或还没为它生成材料包"))
+    # ``reason_code`` is what a reader of the report decides by (``report_flags``); the
+    # message is for people and may be reworded (audit 2.5).
+    return {**result("digest", "fail", "packet_digest", (
+        f"no packet for {document['table']}: 表名写错了，或还没为它生成材料包")),
+        "reason_code": "no_packet"}
 
 
 # 9 ------------------------------------------------------------------ time
