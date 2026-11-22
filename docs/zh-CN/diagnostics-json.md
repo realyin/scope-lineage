@@ -103,6 +103,7 @@ scope_lineage/schemas/diagnostics.schema.json
 | `merge_delete_ignored` | `WHEN ... THEN DELETE` 是行级操作，不产出 `ROOT` 输出字段；`msg` 指明它来自 `MATCHED` 还是 `NOT MATCHED BY SOURCE` 分支。 | 无需处理；字段级覆盖率不要把该分支算作缺失。 |
 | `merge_branch_not_representable` | 该写入来自 `WHEN NOT MATCHED BY SOURCE`——Spark 三种 WHEN 子句中的第三种，契约 1.0 的 `merge_branch` 枚举只命名两种。 | 读 `merge_branch_qualifier` 取子句种类；不要把 `merge_branch` 的缺席理解为「这不是一条 MERGE 写入」（语句种类见顶层 `stmt_kind`）。 |
 | `identifiers_quoted_for_parse` | 列名与 SQL 关键字撞名（如 `not`、`like`、`out`、`using`）且原文未加引号，工具为完成解析给这些标识符补了反引号；`msg` 列出补引号的全部标识符。 | 无需处理，血缘正常。建议在源 SQL 中给这些列名加引号，避免依赖工具修补。 |
+| `parameter_names_quoted_for_parse` | 表名的一部分里嵌着调度参数（`db.src_${region}`、`db.${p}_src`），sqlglot 无法把它读成一个名字；工具为完成解析把整段加了反引号（`` db.`src_${region}` ``），表 id 因此保留参数原样，按下文「表名里还留着调度参数」报告。`msg` 列出补引号的全部名字。只在名字位置（带点的名字，或紧跟 `FROM` / `JOIN` / `TABLE` / `INTO` / `VIEW`）改写，值里的 `${...}` 不动。 | 无需处理此条；按 `input_incomplete` 提供参数已替换的 SQL 重跑。 |
 | `multi_table_insert_split` | 只在任务文档里出现。sqlglot 解析不了 Hive 的 FROM 开头多表写入（`FROM src INSERT ... SELECT ... INSERT ... SELECT ...`），工具在解析前把它改写成每个目标一条 `INSERT ... SELECT <投影> FROM <共享 FROM> <该分支的子句>`；`statement_id` 是其中第一条，`msg` 列出目标表。语句编号、`table_state_graph` 和行号都按拆开后的语句计；脚本行数不变。 | 无需处理，每个目标都有自己的血缘。对照源脚本数语句时，按每个目标一条计。 |
 | `session_scoped_relations_present` | 本脚本产出了只存活于会话、不落存储的关系（`TEMP VIEW` / `GLOBAL TEMP VIEW` / `CACHE [LAZY] TABLE`），`msg` 列出全部关系名。 | 按 catalog 对账前，先把这些关系从 `final_table_states` 和表级覆盖统计里排除；字段血缘本身有效，两跳各自保留。 |
 | `filter_in_join_on_clause` | JOIN ON 中包含常量比较等行过滤。 | 影响逻辑解释时区分 join key 与 condition filter。 |
@@ -167,6 +168,8 @@ warning 不是固定封闭枚举；机器处理应对已知类型设策略，对
 - `warnings[]` 里有一条 `type: "input_incomplete"`；
 - `metadata_coverage.unbound_parameter_tables` 列出这张表（只在非空时出现），它不在 `missing_tables` 里。
   批量的 `metadata_gaps.json` 把它列在 `unbound_parameter_tables` 下，`parse` 会打印一行 `Input incomplete:`。
+
+参数嵌在名字中间（`FROM db.src_${region}`）同样适用：表 id 是 `db.src_${region}`，`warnings[]` 另有一条 `parameter_names_quoted_for_parse` 说明为解析补了引号。
 
 处理办法是提供参数已替换好的 SQL 重跑。值里的参数（`dt = '${dt}'`）不是表名，不受影响。
 

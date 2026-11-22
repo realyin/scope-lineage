@@ -586,6 +586,33 @@
   the `addr`.`city` inside the path as a column of a source aliased `addr`. The guard added for
   the alias-named member above covers this shape too; new tests and
   `examples/sql/struct_access_nested_member.sql` pin it.
+- **A run parameter spliced into a table name keeps the whole name.** `FROM db.src_${region}`
+  tokenizes as the word `src_` followed by a parameter, which sqlglot cannot place: the
+  statement fell back to syntax recovery, the table became `db.src_` and was reported as
+  missing metadata, and a table JOINed after it disappeared from the lineage. Such a name part
+  is now backtick-quoted before parsing (only in name positions: a dotted name, or right after
+  `FROM` / `JOIN` / `TABLE` / `INTO` / `VIEW`; a `${...}` in a value is untouched), so the table
+  id is `db.src_${region}`, it is listed under `unbound_parameter_tables` with
+  `input_incomplete` instead of `missing_tables`, the rest of the statement survives, and the
+  quoting is disclosed as a new `parameter_names_quoted_for_parse` warning. Who is affected:
+  scripts with a parameter inside a table-name part; their `source_tables`, metadata coverage
+  and `analysis_status` change (`syntax_recovered` gives way to `input_incomplete`).
+- **`parse` reports an unusable metadata file as an input error instead of a Traceback.** A
+  `--schema` or `--target-ddl-metadata` file that is missing, empty after its BOM, not UTF-8
+  or not valid JSON raised `MetadataFileError` out of the CLI: a Python Traceback and exit
+  code 1, the code that means "a task failed". `parse` now prints the error's message on
+  stderr (first line: cause and file) and exits 2, like a bad `--metadata-patch`. Who is
+  affected: scripts that matched on exit code 1 or on the Traceback text for this case.
+- **`has_udf` no longer depends on the installed sqlglot version.** The function catalog folded
+  in the names the installed sqlglot's Spark / Spark2 / Hive registries held, and those differ
+  across the supported range: 30.0.0 lacks 26 names 30.17.0 has (`try_divide`, `negative`,
+  `rint`, `nanvl`, `shuffle`, `regexp_substr` ...), and 30.16.0 dropped `hex_encode`. So
+  `try_divide(a, b)` was a UDF on 30.0.0 and not on 30.17.0. The registry names are now a
+  snapshot taken from sqlglot 30.17.0 (`scope_lineage/_function_names_snapshot.py`); a test
+  reports what a newer sqlglot registers beyond it without changing output. Who is affected:
+  nobody on 30.16.0 / 30.17.0 (the answer is unchanged there); on 30.0.0 (and likely the
+  versions between, not measured) those 26 names stop being UDFs and `hex_encode` becomes one,
+  as on 30.17.0.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

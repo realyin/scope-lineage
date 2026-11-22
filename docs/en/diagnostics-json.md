@@ -107,6 +107,7 @@ include:
 | `merge_delete_ignored` | `WHEN ... THEN DELETE` is a row-level operation and produces no `ROOT` output field; `msg` states whether it came from the `MATCHED` or the `NOT MATCHED BY SOURCE` branch. | No action needed; do not count that branch as missing in field-level coverage. |
 | `merge_branch_not_representable` | This write comes from `WHEN NOT MATCHED BY SOURCE` — the third of Spark's three WHEN clauses, while contract 1.0's `merge_branch` enum names only two. | Read `merge_branch_qualifier` for the clause kind; do not read an absent `merge_branch` as "this is not a MERGE write" (the statement kind is in the top-level `stmt_kind`). |
 | `identifiers_quoted_for_parse` | A column name collides with a SQL keyword (such as `not`, `like`, `out`, `using`) and was unquoted in the original, so the tool added backticks to those identifiers to complete the parse; `msg` lists every identifier it quoted. | No action needed, lineage is normal. Consider quoting those column names in the source SQL rather than relying on the tool's repair. |
+| `parameter_names_quoted_for_parse` | A scheduler parameter is spliced into part of a name (`db.src_${region}`, `db.${p}_src`), which sqlglot cannot read as one name; the tool backtick-quoted the whole part to complete the parse (`` db.`src_${region}` ``), so the table id keeps the parameter and is reported as described under "A table name that still holds a scheduler parameter" below. `msg` lists every name it quoted. Only name positions (a dotted name, or right after `FROM` / `JOIN` / `TABLE` / `INTO` / `VIEW`) are rewritten; a `${...}` in a value is left alone. | Nothing to do for this entry; act on `input_incomplete` and rerun with the parameters replaced. |
 | `multi_table_insert_split` | Task document only. A Hive FROM-first multi-table insert (`FROM src INSERT ... SELECT ... INSERT ... SELECT ...`), which sqlglot cannot parse, was rewritten before parsing into one `INSERT ... SELECT <projection> FROM <shared FROM> <branch clauses>` per target; `statement_id` is the first of them and `msg` lists the targets. Statement ids, `table_state_graph` and line numbers follow the split statements; the script keeps its line count. | No action needed, each target has its own lineage. When matching statements to the source script, count one statement per target. |
 | `session_scoped_relations_present` | This script produced relations that live only for the session and are never stored (`TEMP VIEW` / `GLOBAL TEMP VIEW` / `CACHE [LAZY] TABLE`); `msg` lists every such relation name. | Before reconciling against the catalog, exclude these relations from `final_table_states` and from table-level coverage counts; the field lineage itself is valid, and both hops are preserved separately. |
 | `filter_in_join_on_clause` | A JOIN ON contains row filtering such as a constant comparison. | When explaining the logic, distinguish join keys from condition filters. |
@@ -181,6 +182,10 @@ bound. The table id keeps the parameter (`cat.${db_name}.t`), and the artifact s
 - `metadata_coverage.unbound_parameter_tables` lists the table (present only when non-empty), and it
   is not among `missing_tables`. The batch `metadata_gaps.json` lists it under
   `unbound_parameter_tables`, and `parse` prints an `Input incomplete:` line.
+
+The same holds when the parameter sits inside a name part (`FROM db.src_${region}`): the table id is
+`db.src_${region}`, and `warnings[]` also carries a `parameter_names_quoted_for_parse` entry saying
+the name was quoted to parse.
 
 Supply the SQL with the parameters replaced and rerun. A parameter in a value (`dt = '${dt}'`) is not
 a table name and changes nothing.

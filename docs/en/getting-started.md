@@ -358,6 +358,11 @@ scope-lineage parse \
 `--allow-partial` only changes the exit code. It does not turn failures into successes and it
 hides no diagnostics.
 
+When a file named by `--schema` / `--schema-fallback` / `--target-ddl-metadata` cannot be used
+(missing, empty after its BOM, not UTF-8, not valid JSON), `parse` prints the error on stderr
+(the first line names the cause and the file), exits 2, prints no traceback and writes no
+artifacts. `--allow-partial` does not change this.
+
 Task-level DELETE/TRUNCATE/UPDATE and multi-statement final state are always produced — since
 0.2.0 the task document (contract 2.0) is the only artifact. `--contract-version` still accepts
 `2.0` for one release so that an explicit `1.0` request fails with a clear message instead of an

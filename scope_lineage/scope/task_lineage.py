@@ -23,6 +23,7 @@ from .scope_types import (
 )
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
+from .spliced_parameters import quote_spliced_parameters
 from .multi_insert import MultiTableInsert, split_multi_table_inserts
 from .scope_builder import (
     _is_ctas,
@@ -409,7 +410,7 @@ def _parse_script_trees(
 
 
 def _repair_disclosure_warnings(
-    ctas_repairs: list[str], quoted_identifiers: list[str]
+    ctas_repairs: list[str], quoted_identifiers: list[str], parameter_names=()
 ) -> list[dict]:
     """Declare each text-level repair `_parse_script_trees` had to make.
 
@@ -434,6 +435,15 @@ def _repair_disclosure_warnings(
             "msg": (
                 "quoted keyword-colliding identifiers to parse the script: "
                 + ", ".join(quoted_identifiers)
+            ),
+        })
+    if parameter_names:
+        warnings.append({
+            "type": "parameter_names_quoted_for_parse",
+            "scope": "TASK",
+            "msg": (
+                "quoted names with a run parameter spliced into them to parse the script: "
+                + ", ".join(parameter_names)
             ),
         })
     return warnings
@@ -546,7 +556,9 @@ def _parse_task_lineage(
     state_builder = _StateBuilder(schema)
     statements: list[dict] = []
     statement_lineage: dict[str, object] = {}
-    warnings: list[dict] = _repair_disclosure_warnings(ctas_repairs, quoted_identifiers)
+    warnings: list[dict] = _repair_disclosure_warnings(
+        ctas_repairs, quoted_identifiers, quote_spliced_parameters(sql)[1]
+    )
     gaps: list[dict] = []
     multi_inserts = split_multi_table_inserts(sql)[1]
     warnings.extend(_multi_table_insert_split_warnings(multi_inserts))

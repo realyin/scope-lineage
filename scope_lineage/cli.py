@@ -28,7 +28,7 @@ from .cli_semantic import add_semantic_parser, run_semantic
 from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
 from .contract import write_task_lineage
 from .corpus_cache import _code_digest, add_incremental_arguments, open_cache
-from .metadata.schema_metadata import load_schema, load_schema_sources
+from .metadata.schema_metadata import MetadataFileError, load_schema, load_schema_sources
 from .metadata.target_table_metadata import load_target_table_metadata
 from .scope.expansion_budget import EXPANSION_MAX_SUBSTITUTIONS
 from .scope.task_lineage import parse_task_lineage
@@ -1003,21 +1003,27 @@ def _parse_inputs(args: argparse.Namespace) -> int:
         for path in [args.schema, *args.schema_fallback]
         if path
     ]
-    schema = None
-    if schema_paths:
-        loader = load_schema_sources if len(schema_paths) > 1 else load_schema
-        schema = loader(
-            schema_paths if len(schema_paths) > 1 else schema_paths[0],
-            sanitize_nul=args.sanitize_metadata_nul,
+    # An unusable metadata file is an input error like a bad --metadata-patch: its
+    # message on stderr and exit 2, not a Traceback with the "a task failed" exit 1.
+    try:
+        schema = None
+        if schema_paths:
+            loader = load_schema_sources if len(schema_paths) > 1 else load_schema
+            schema = loader(
+                schema_paths if len(schema_paths) > 1 else schema_paths[0],
+                sanitize_nul=args.sanitize_metadata_nul,
+            )
+        target_metadata = (
+            load_target_table_metadata(
+                args.target_ddl_metadata,
+                sanitize_nul=args.sanitize_metadata_nul,
+            )
+            if args.target_ddl_metadata
+            else None
         )
-    target_metadata = (
-        load_target_table_metadata(
-            args.target_ddl_metadata,
-            sanitize_nul=args.sanitize_metadata_nul,
-        )
-        if args.target_ddl_metadata
-        else None
-    )
+    except MetadataFileError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     # WI-2.6. Applied to each statement document by the same function
     # `describe --metadata-patch` uses, so the two paths publish one document.
     # The answers are masked as they are read, under the same switch the SQL author's
