@@ -573,6 +573,20 @@
   references) with the reason `ambiguous_unqualified`, readiness is `blocked`, and the
   field mapping chain's `chain_status` is `unresolved` instead of `partially_resolved`.
   Metadata that rules the joined table out still resolves it, as does a qualified `c.v`.
+- **A bare column a correlated subquery's tables lack resolves to the enclosing query.** In
+  `... FROM s.o o WHERE EXISTS (SELECT 1 FROM s.i i WHERE i.k = o.id AND flag = 1)` with
+  metadata saying `s.i` has no `flag` and `s.o` does, Spark resolves `flag` as an outer
+  reference to `s.o.flag`; the resolver searched only the subquery's own sources, so the
+  column was `UNKNOWN` (`column_not_found`) and the INSERT's condition a
+  `row_condition_source_unresolved` gap. It now looks in each enclosing query when every
+  source of a subquery in an expression is known not to have the column, and binds when
+  exactly one source there is known to have it (a query in FROM does not look outward). The
+  DELETE / UPDATE / MERGE predicate path had the sharper form of the same blind spot: a bare
+  column in a one-table subquery was given to that table without asking the schema, so the
+  example's `flag` against `DELETE FROM m.t` was published as `s.i.flag`, a field metadata
+  says does not exist; it is now the enclosing query's table or the written table, and
+  `UNKNOWN` with the gap when none of them has it. Without metadata both paths keep the
+  subquery's table, as before.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

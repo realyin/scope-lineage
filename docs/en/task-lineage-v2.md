@@ -682,7 +682,11 @@ strict gate return non-zero.
 
 In a DELETE, UPDATE or MERGE condition, an unqualified column in a subquery over several tables
 is first assigned by schema: when exactly one table has the column and every other is known not
-to, it is recorded on that table. When that cannot be decided (several tables have it, or one
+to, it is recorded on that table. When every table of the subquery is known not to have it (one
+table or several), it is looked up the way Spark resolves an outer reference: in each enclosing
+query in turn, then the written table (a query in FROM is not correlated and does not look
+outward). Without metadata, a one-table subquery keeps the column as before. When that cannot be
+decided (several tables have it, or one
 lacks metadata), the field gets no name -- no `{"table": "UNKNOWN", ...}` entry is written in
 row_membership_sources or value_condition_sources -- and row_condition_source_unresolved is
 recorded, with the fields statement_id, target_table, column (when there is one), columns,

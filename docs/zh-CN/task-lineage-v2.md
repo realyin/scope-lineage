@@ -591,7 +591,9 @@ USING 列不对应任何名字，也不是缺口。该缺口
 root_impact=true，因此会令 analysis_status=partial 并使 strict 门禁返回非零。
 
 DELETE、UPDATE 或 MERGE 的条件里，子查询读多张表时，未限定的列先按 schema 判断归属：恰好一张表
-有这一列、其余表都已知没有时，就记到那张表上。判断不了（几张表都有，或有表缺元数据）时，这个字段不补位
+有这一列、其余表都已知没有时，就记到那张表上。子查询的表（一张或几张）都已知没有这一列时，按 Spark 解析
+外层引用的顺序往外找：逐层找外层查询，最后是被写的表（FROM 里的子查询不是关联子查询，不往外找）。没有
+元数据时，单表子查询仍按原来的做法把列记到那张表上。判断不了（几张表都有，或有表缺元数据）时，这个字段不补位
 名字——row_membership_sources、value_condition_sources 里都不写 `{"table": "UNKNOWN", ...}`——同时记录
 row_condition_source_unresolved，字段为 statement_id、target_table、column（只有一列时）、columns、
 root_impact=true 和 needed_fact。这和 INSERT 条件是同一条规则：`trace_complete` 仍然只回答值是否追到，

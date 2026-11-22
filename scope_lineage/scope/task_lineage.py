@@ -2060,14 +2060,8 @@ def _expression_field_sources(
         select = column.find_ancestor(exp.Select)
         if column.table:
             table = _qualified_column_table(column, select, target_table, target_names)
-        elif select is None:
-            table = target_table
         else:
-            direct_tables = _direct_tables(select)
-            if len(direct_tables) == 1:
-                table = _table_name(direct_tables[0])
-            else:
-                table = _sole_table_with_column(direct_tables, column.name, states)
+            table = _unqualified_column_table(column.name, select, target_table, states)
         if table == "UNKNOWN" and unresolved is not None and column.name not in unresolved:
             unresolved.append(column.name)
         sources.append({"table": table, "column": column.name})
@@ -2133,6 +2127,48 @@ def _qualified_column_table(
     if qualifier in target_names or full in target_names:
         return target_table
     return "UNKNOWN"
+
+
+def _unqualified_column_table(
+    column: str,
+    select: exp.Select | None,
+    target_table: str,
+    states: "_StateBuilder | None",
+) -> str:
+    """The table a bare predicate column belongs to, looked up the way Spark does.
+
+    The query the column sits in first: its one table, or the one of its tables the schema
+    proves to own it. When every table there is known not to have it, the enclosing query
+    (an outer reference), and finally the written table unless it too is known not to
+    have it (then ``UNKNOWN``: no table owns it). Outside every query the column is the
+    written table's, as it always was. A query in FROM is not correlated, so the search
+    stops at it. Without metadata saying otherwise, a one-table query keeps the column, as
+    it always did.
+    """
+    scope = select
+    while scope is not None:
+        tables = _direct_tables(scope)
+        known = [_known_table_columns(_table_name(table), states) for table in tables]
+        if any(columns is None or column.lower() in columns for columns in known):
+            if len(tables) == 1:
+                return _table_name(tables[0])
+            return _sole_table_with_column(tables, column, states)
+        if _is_derived_table(scope):
+            return "UNKNOWN"
+        scope = scope.find_ancestor(exp.Select)
+    if select is None:
+        return target_table
+    columns = _known_table_columns(target_table, states)
+    if columns is None or column.lower() in columns:
+        return target_table
+    return "UNKNOWN"
+
+
+def _is_derived_table(select: exp.Select) -> bool:
+    subquery = select.parent
+    return isinstance(subquery, exp.Subquery) and isinstance(
+        subquery.parent, (exp.From, exp.Join)
+    )
 
 
 def _sole_table_with_column(
