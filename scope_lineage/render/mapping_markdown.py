@@ -1137,6 +1137,7 @@ _WARNING_GLOSSES = {
     "target_field_binding_fallback": "目标字段绑定未能使用 DDL 权威顺序，回退到投影别名",
     "star_not_expanded": "SELECT * 未能展开（缺少 schema 元数据）",
     "ambiguous_unqualified": "未限定列有多个可行来源，保持歧义未归属",
+    "lateral_alias_ambiguous": "投影里的名字按同层别名读了，但列未知的来源可能也有这一列（Spark 先读源列）",
 }
 
 WARNINGS_DOC_FORMAT = "warnings-md/1"

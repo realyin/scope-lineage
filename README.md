@@ -316,6 +316,22 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to the next release (Unreleased)
+
+No format changes number, but some field sources change. A SELECT-list name that is both a
+source column and an earlier alias in the same SELECT (`SELECT fee AS amt, amt AS fee`) now
+reads the source column, as Spark does, wherever Schema proves the source has it; before, the
+alias always won, silently. A name the Schema cannot settle keeps the alias reading and adds a
+`lateral_alias_ambiguous` warning. Full entry: the **Breaking** item under Unreleased in
+[CHANGELOG.md](CHANGELOG.md).
+
+1. Re-run `parse` for stored lineage documents. Expect changed `sources`, `expression` and
+   `end_to_end_lineage` only on outputs of this shape; no other output moves.
+2. Treat `lateral_alias_ambiguous` like `ambiguous_unqualified`: supply the named source's Schema
+   and re-run, or confirm the alias reading by hand.
+3. In a table-semantics run, rebuild packets with the same `semantic packet` command; documents
+   whose packet changed become `packet_stale` and are rewritten as usual (runbook S3 and S4).
+
 ### Migrating to 0.11.0
 
 Every format keeps its number and every catalog change is additive: a catalog written for

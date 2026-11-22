@@ -375,6 +375,17 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `merge_branch_qualifier` | 枚举无法命名的 WHEN 子句种类，目前只有 `not_matched_by_source`。被枚举命名的两种分支上不出现。 |
 | `comments[]` | 写在该投影上的 SQL 注释原文：别名节点自身的在前，表达式子树内其余按遍历序。无注释时不发本键。自由文本，不参与任何标识符解析——见 §18。 |
 
+### 投影里的名字既是源列、又是前面的别名
+
+`SELECT fee AS amt, amt AS fee FROM ods.x` 里第二个 `amt` 既可能是列 `ods.x.amt`，也可能是紧挨着前面定义的别名。
+Spark 先匹配来源的列，只有没有任何输入有这个名字时才退回同层别名（原文「A local column reference takes
+precedence, over a lateral column alias」，见
+[Databricks 名字解析](https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html)；SPARK-27561）。
+工具按同一规则：Schema（或派生表、CTE 列出的列）能证明某个来源有这一列时，输出读的是这一列（`fee` ← `ods.x.amt`）。
+没有任何来源有这个名字时仍然是同层别名（`SELECT a + 1 AS b, b + 1 AS c`，源表没有 `b`，`c` = `a + 1 + 1`）。
+来源的列未知时（该表没有 Schema、`SELECT *` 的 CTE），照旧按别名读，同时语句带一条 `lateral_alias_ambiguous`
+警告，写明是哪个名字。此前一律按别名读，所以这种形态的输出来源会变化，见 CHANGELOG 的 **Breaking** 条目。
+
 ### `SELECT * EXCEPT (...)`
 
 星号的排除列表**会被应用**：被排除的列不出现在任何输出面（`columns[]` / `outputs[]` / `field_mapping_chains[]` / `end_to_end_lineage[]` / `related_metadata`）。
