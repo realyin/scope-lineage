@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0
 - **New: draft a `domain-profile/1` from the corpus.** `scope-lineage domain-profile evidence
   --lineage --schema --out` counts, per table-name suffix, how statements read and write the
   tables' partitions, and collects the column, key and table comments and table-name words a
