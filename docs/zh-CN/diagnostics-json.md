@@ -247,6 +247,7 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `expression_source_unresolved` | 表达式的物理或生成来源。 |
 | `expression_resolution_incomplete` | 部分来源已知，但表达式解析尚不完整。 |
 | `expression_expansion_bounded` | 表达式展开达到保护上限，且该输出的来源本身也未解析完；可沿 `evidence_summary.unexpanded_refs` 继续追踪。来源已完整时不再是缺口，改为 `expansion_truncated` warning（见 §3.2）。 |
+| `set_operation_semantics_partial` | 一个 `EXCEPT` / `INTERSECT` scope（`scope_id`）：输出列及其取值来自左支，已完整追踪；其余输入删掉或保留哪些行，没有建模成行条件。`evidence_summary` 给出 `set_op`、`value_branches`、`row_membership_branches`、`row_membership_tables`。`root_impact` 为 `true`，`downstream_impact` 两个列表为空：影响的是每一行，而不是某一列的取值。 |
 
 ### 5.2 `gap_bucket`
 

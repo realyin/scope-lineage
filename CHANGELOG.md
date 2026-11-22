@@ -240,6 +240,23 @@
   another packet" (`review_packet_stale`) and its findings were dropped; it is now
   `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
   `summary.flags` gains the `review_malformed` key.
+- **Breaking -- `set_op` reads UNION's de-duplication, and EXCEPT / INTERSECT are modelled.**
+  No format changes number; existing `set_op` values change. sqlglot keeps UNION's DISTINCT in
+  `args["distinct"]`, but the builder read `args["kind"]` (always empty), so every UNION was
+  labelled `UNION_ALL`. A de-duplicating UNION is now `UNION`. A flattened chain is labelled by
+  the operator that produces its output: `A UNION ALL B UNION C` is one `UNION` scope, while in
+  `A UNION B UNION ALL C` the DISTINCT pair keeps its own nested `kind=union` scope labelled
+  `UNION` under the `UNION_ALL` one, since only those two branches are de-duplicated. The label
+  is not used to infer keys. Separately, `EXCEPT` and `INTERSECT` were not recognised at all:
+  the statement came out with zero columns, no edges and no gap. They are now `kind=union`
+  scopes with `set_op` `EXCEPT` / `INTERSECT`; only the first (left) branch supplies column
+  values, and the other branches, which decide which rows survive, are reported by the new
+  fact gap `set_operation_semantics_partial` (`root_impact`, so `analysis_status` is
+  `partial`). `duplicate_table_in_union` is not raised for them: the same table on both sides
+  is the set form of an anti-/semi-join. Who is affected: consumers that compare `set_op` with `UNION_ALL`, and stored
+  lineage of statements with a DISTINCT UNION, EXCEPT or INTERSECT. What to do: accept the four
+  values, read EXCEPT / INTERSECT values from the first branch only, and re-run `parse` (see
+  the READMEs' migration section).
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

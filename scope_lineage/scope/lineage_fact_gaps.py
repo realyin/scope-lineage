@@ -22,6 +22,7 @@ from .expansion_budget import (
     expansion_sources_are_resolved,
 )
 from .sequences import _unique_ordered
+from .set_operations import row_membership_branch_ids, value_branch_ids
 from .source_refs import _source_kind_for_resolution
 
 
@@ -63,6 +64,7 @@ def _populate_lineage_fact_gaps(result: ScopeLineageResult) -> None:
                     if gap:
                         gaps.append(gap)
     gaps.extend(_unexpanded_star_gaps(result))
+    gaps.extend(_set_operation_partial_gaps(result))
     for (index, gap) in enumerate(gaps, start=1):
         gap['gap_id'] = f'lineage_gap:{index:04d}'
     result.diagnostics.lineage_fact_gaps = gaps
@@ -238,6 +240,64 @@ def _unexpanded_star_gaps(result: ScopeLineageResult) -> list[dict[str, object]]
             },
         })
     return gaps
+
+
+def _set_operation_partial_gaps(result: ScopeLineageResult) -> list[dict[str, object]]:
+    """An EXCEPT / INTERSECT whose row-filtering inputs are not modelled as row conditions.
+
+    The output columns and their values come from the left input and are traced in full;
+    what is not modelled is which rows the other inputs remove (EXCEPT) or keep
+    (INTERSECT). Before audit 1.1 the whole statement came out with zero columns and no
+    gap; this names the inputs whose row effect a reader must still take into account.
+    """
+    gaps: list[dict[str, object]] = []
+    for scope_id, scope_data in result.scopes.items():
+        if scope_data.kind != 'union':
+            continue
+        membership = row_membership_branch_ids(scope_data)
+        if not membership:
+            continue
+        gaps.append({
+            'gap_type': 'set_operation_semantics_partial',
+            'gap_bucket': 'unsupported_semantics',
+            'gap_sub_bucket': str(scope_data.set_op).lower(),
+            'scope_id': scope_id,
+            'object_type': 'set_operation',
+            'object_name': scope_id,
+            'missing_reasons': [f'set_operation_row_membership_unmodelled:{scope_data.set_op}'],
+            'needed_fact': 'row-membership effect of the right-hand set-operation inputs',
+            'root_impact': True,
+            'owner_hint': 'consumer_apply_row_membership',
+            'evidence_path': f'lineage.scopes.{scope_id}',
+            'evidence_summary': {
+                'set_op': scope_data.set_op,
+                'value_branches': value_branch_ids(scope_data),
+                'row_membership_branches': membership,
+                'row_membership_tables': _branch_physical_tables(result, membership),
+            },
+            'downstream_impact': {'output_fields': [], 'target_columns': []},
+        })
+    return gaps
+
+
+def _branch_physical_tables(result: ScopeLineageResult, branch_ids: list[str]) -> list[str]:
+    """The physical tables a list of set-operation branches reads, in branch order."""
+    tables: list[str] = []
+    pending = list(branch_ids)
+    seen: set[str] = set()
+    while pending:
+        branch_id = pending.pop(0)
+        if branch_id in seen:
+            continue
+        seen.add(branch_id)
+        branch = result.scopes.get(branch_id)
+        if branch is None:
+            if branch_id in result.source_tables and branch_id not in tables:
+                tables.append(branch_id)
+            continue
+        for dependency in branch.depends_on:
+            pending.append(dependency)
+    return tables
 
 
 def _mark_gaps_from_recovered_syntax(result: ScopeLineageResult) -> None:

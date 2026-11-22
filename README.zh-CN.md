@@ -324,6 +324,12 @@ scope-lineage parse \
 2. `lateral_alias_ambiguous` 的处理同 `ambiguous_unqualified`：给警告里点名的来源补 Schema 后重跑，或人工确认按别名读是对的。
 3. 表语义运行用原来的 `semantic packet` 命令重建材料包；材料包变了的文档成为 `packet_stale`，照常重写（runbook S3、S4）。
 
+`kind=union` scope 上的 `set_op` 取值也会变。不带 `ALL` 的 `UNION` 现在标为 `UNION`（以前一律是 `UNION_ALL`）；
+`EXCEPT` / `INTERSECT` 以前一列都不出，现在产出标为 `EXCEPT` / `INTERSECT` 的 scope，并带一条 `set_operation_semantics_partial` 事实缺口。
+
+4. 把 `set_op == "UNION_ALL"` 当作「这是集合运算」来读的消费者，改为接受 `UNION_ALL`、`UNION`、`EXCEPT`、`INTERSECT` 四个值；
+   `EXCEPT` / `INTERSECT` 只从第一个分支取值。
+
 ### 迁移到 0.11.0
 
 格式版本都不变，目录的改动全是增量：0.10.0 写的目录照样能校验、能构建。进行中的运行要跟着变的是材料包、

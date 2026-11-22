@@ -267,6 +267,7 @@ Example:
 | `expression_source_unresolved` | The expression's physical or generated source. |
 | `expression_resolution_incomplete` | Some sources are known, but the expression resolution is not yet complete. |
 | `expression_expansion_bounded` | An expansion guard was reached AND this output's own sources did not fully resolve; continue through `evidence_summary.unexpanded_refs`. Where the sources are complete it is no longer a gap but an `expansion_truncated` warning (see §3.2). |
+| `set_operation_semantics_partial` | An `EXCEPT` / `INTERSECT` scope (`scope_id`): the output columns and their values come from the left input and are traced in full, but which rows the other inputs remove or keep is not modelled as a row condition. `evidence_summary` carries `set_op`, `value_branches`, `row_membership_branches` and `row_membership_tables`. `root_impact` is `true` with empty `downstream_impact` lists: every row is affected, no single column's value is. |
 
 ### 5.2 `gap_bucket`
 

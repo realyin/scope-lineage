@@ -332,6 +332,14 @@ alias always won, silently. A name the Schema cannot settle keeps the alias read
 3. In a table-semantics run, rebuild packets with the same `semantic packet` command; documents
    whose packet changed become `packet_stale` and are rewritten as usual (runbook S3 and S4).
 
+`set_op` on a `kind=union` scope also changes value. A `UNION` without `ALL` is now labelled
+`UNION` (it was always `UNION_ALL`), and `EXCEPT` / `INTERSECT`, which used to yield no columns,
+now yield scopes labelled `EXCEPT` / `INTERSECT` plus a `set_operation_semantics_partial` fact gap.
+
+4. A consumer that reads `set_op == "UNION_ALL"` as "a set operation" should accept `UNION_ALL`,
+   `UNION`, `EXCEPT` and `INTERSECT`, and take `EXCEPT` / `INTERSECT` values from the first
+   branch only.
+
 ### Migrating to 0.11.0
 
 Every format keeps its number and every catalog change is additive: a catalog written for
