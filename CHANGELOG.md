@@ -539,6 +539,17 @@
   blocker says where the rows come from, only the first branch is on the driving path, and the
   tables of the later branches are `filter_partner` instead of `driving` / `union_branch`.
   `key_confidence` is unchanged (`none`): nothing here proves a key.
+- **A run parameter spliced into a table name keeps the whole name.** `FROM db.src_${region}`
+  tokenizes as the word `src_` followed by a parameter, which sqlglot cannot place: the
+  statement fell back to syntax recovery, the table became `db.src_` and was reported as
+  missing metadata, and a table JOINed after it disappeared from the lineage. Such a name part
+  is now backtick-quoted before parsing (only in name positions: a dotted name, or right after
+  `FROM` / `JOIN` / `TABLE` / `INTO` / `VIEW`; a `${...}` in a value is untouched), so the table
+  id is `db.src_${region}`, it is listed under `unbound_parameter_tables` with
+  `input_incomplete` instead of `missing_tables`, the rest of the statement survives, and the
+  quoting is disclosed as a new `parameter_names_quoted_for_parse` warning. Who is affected:
+  scripts with a parameter inside a table-name part; their `source_tables`, metadata coverage
+  and `analysis_status` change (`syntax_recovered` gives way to `input_incomplete`).
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

@@ -18,6 +18,7 @@ from .session_settings import (
     quoted_regex_column_names_setting,
 )
 from .keyword_identifiers import repair_keyword_identifiers
+from .spliced_parameters import quote_spliced_parameters
 from sqlglot.optimizer.qualify import qualify as sg_qualify
 from sqlglot.optimizer.scope import traverse_scope, walk_in_scope, Scope
 
@@ -209,13 +210,15 @@ def _normalize_directory_insert_sql(sql: str) -> str:
 
     Directory writes get ``STORED AS`` in place of ``USING``; a FROM-first multi-table
     insert is split into one ``INSERT ... SELECT ... FROM`` per target (audit 1.2, see
-    :mod:`.multi_insert`). Every parse path calls this one function, so all of them see
-    the same statements.
+    :mod:`.multi_insert`); a name with a run parameter spliced into it is quoted whole
+    (:mod:`.spliced_parameters`). Every parse path calls this one function, so all of them
+    see the same statements.
     """
     pattern = re.compile(
         r"(INSERT\s+OVERWRITE\s+(?:LOCAL\s+)?DIRECTORY\s+('[^']+'|\"[^\"]+\"))\s+USING\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?=SELECT|WITH)",
         re.IGNORECASE,
     )
+    sql = quote_spliced_parameters(sql)[0]
     return split_multi_table_inserts(pattern.sub(r"\1 STORED AS \3 ", sql))[0]
 
 
