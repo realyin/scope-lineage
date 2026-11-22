@@ -95,7 +95,8 @@ def same_table(left: str, right: str) -> bool:
     """The corpus-wide suffix rule: equal, or a dotted suffix of the other name.
 
     Mirrors ``skills/scope-lineage/scripts/query.py::_same_table``; a packaged module may
-    not import a script. Compares the spellings as given: callers that may hold raw
+    not import a script, nor the stdlib-only script the package, so
+    ``tests/core/test_table_identity.py`` pins the two to one answer. Compares the spellings as given: callers that may hold raw
     spellings normalize first.
     """
     left, right = str(left), str(right)

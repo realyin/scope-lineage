@@ -114,9 +114,9 @@ from .table_cards import (
     build_table_cards,
     considered_table_count,
     render_table_card_markdown,
-    same_table,
     table_card_filename,
 )
+from ..table_identity import same_table
 
 DOC_FORMAT = "ontology-json/2"
 INDEX_DOC_FORMAT = "ontology-index-md/2"
