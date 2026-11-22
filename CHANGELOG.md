@@ -579,6 +579,13 @@
   `stale`). `semantic render --validation` now decides `no_packet` / `packet_stale` by it rather
   than by the message wording; a report without the field (written by an earlier version) is
   still read by the `no packet` prefix. Additive: no other field and no exit code changes.
+- **A STRUCT path of three or more segments traces complete.** `u.info.addr.city` (any depth
+  past two, with or without an alias, in a projection, filter, grouping key or derived table)
+  reported `trace_complete: false` with `alias_not_bound_to_input_source:addr`, although its
+  source `s.users.info` was right; `u.info.addr` was complete. The field-reference scan read
+  the `addr`.`city` inside the path as a column of a source aliased `addr`. The guard added for
+  the alias-named member above covers this shape too; new tests and
+  `examples/sql/struct_access_nested_member.sql` pin it.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

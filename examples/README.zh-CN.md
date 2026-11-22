@@ -34,6 +34,7 @@ examples/
 | `sql/qualify_latest_status.sql` | `QUALIFY ROW_NUMBER() ... = 1` 每个键保留最新一行 |
 | `sql/latest_order_by_struct.sql` | 从 `MAX_BY(NAMED_STRUCT(...), ts)` 结果取成员，保留聚合和排序列 |
 | `sql/pivot_pay_status.sql` | 带隐式分组列和两个聚合的 PIVOT（`<值>_<别名>` 列） |
+| `sql/struct_access_nested_member.sql` | 经表别名读取三段 STRUCT 路径（`c.contact.addr.city`）：来源是该 struct 列，追溯完整 |
 | `catalog-demo/` | 一家虚构信贷公司的本体目录（`catalog-yaml/1`）：每种元素与每种绑定各出现一次；见[目录格式](../docs/zh-CN/ontology-catalog.md) |
 | `catalog-demo-corpus/` | 八个虚构调度任务，读写示例目录里的表（一个目标带 catalog 前缀，一张表只被读），供 `catalog build --lineage/--tables` 与 `semantic packet` 使用 |
 | `catalog-fragments/` | 一个 `catalog-fragment/1` 片段：给示例目录补上放款表的属性、码值集、约束、术语与表现，`catalog merge` 合并后校验无错误；见[起草](../docs/zh-CN/ontology-catalog.md) |
