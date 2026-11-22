@@ -398,6 +398,21 @@ Main keys:
 | `merge_branch_qualifier` | The kind of WHEN clause the enum cannot name; currently only `not_matched_by_source`. Absent on the two branches the enum does name. |
 | `comments[]` | The SQL comments written on this projection, verbatim: the alias node's own first, then the rest of the expression subtree in traversal order. The key is absent when there are none. Free text; it takes no part in identifier resolution — see §18. |
 
+### A projection name that is both a source column and an earlier alias
+
+In `SELECT fee AS amt, amt AS fee FROM ods.x` the second `amt` could mean the column `ods.x.amt` or
+the alias defined just before it. Spark reads the source column first and falls back to the
+lateral column alias only when no input has that name ("A local column reference takes
+precedence, over a lateral column alias",
+[Databricks name resolution](https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html);
+SPARK-27561). The tool follows the same rule: when Schema (or a derived table's / CTE's listed
+columns) proves that a source has the column, the output reads that column (`fee` ← `ods.x.amt`).
+A name no source has is still the lateral alias (`SELECT a + 1 AS b, b + 1 AS c`, with no `b` in the
+source, gives `c` = `a + 1 + 1`). When a source's columns are unknown (no Schema for that table, a
+`SELECT *` CTE), the name is read as the alias as before and the statement carries a
+`lateral_alias_ambiguous` warning naming it. Before this rule the alias always won, so outputs of
+this shape changed their sources; see the CHANGELOG **Breaking** entry.
+
 ### `SELECT * EXCEPT (...)`
 
 The star's exclusion list **is applied**: excluded columns appear on no output surface

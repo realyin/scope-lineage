@@ -313,6 +313,17 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到下一个版本（Unreleased）
+
+格式版本都不变，但部分字段的来源会变。投影里的名字既是源列、又是同一 SELECT 里更早的别名时
+（`SELECT fee AS amt, amt AS fee`），只要 Schema 能证明来源有这一列，现在就按 Spark 的规则读源列；以前一律按别名读，
+而且不报任何提示。Schema 定不下来的名字照旧按别名读，同时加一条 `lateral_alias_ambiguous` 警告。完整说明见
+[CHANGELOG.md](CHANGELOG.md) Unreleased 下的 **Breaking** 条目。
+
+1. 已保存的血缘文档重新跑 `parse`。只有这种形态的输出会变 `sources`、`expression` 和 `end_to_end_lineage`，其余不变。
+2. `lateral_alias_ambiguous` 的处理同 `ambiguous_unqualified`：给警告里点名的来源补 Schema 后重跑，或人工确认按别名读是对的。
+3. 表语义运行用原来的 `semantic packet` 命令重建材料包；材料包变了的文档成为 `packet_stale`，照常重写（runbook S3、S4）。
+
 ### 迁移到 0.11.0
 
 格式版本都不变，目录的改动全是增量：0.10.0 写的目录照样能校验、能构建。进行中的运行要跟着变的是材料包、

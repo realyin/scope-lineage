@@ -40,6 +40,35 @@
 - **The batch `metadata_gaps.json` lists unbound parameter tables, as documented.** A batch
   `parse` wrote the manifest without `unbound_parameter_tables` (only `--metadata-preflight`
   filled it) and wrote none when unbound tables were the only gap. Both are fixed.
+- **Breaking -- a SELECT-list name that is also a source column reads the column, not an
+  earlier alias.** No format changes number; the source of existing outputs changes. In
+  `SELECT fee AS amt, amt AS fee FROM ods.x` sqlglot expanded the second `amt` into the alias,
+  so both outputs came from `fee` with `trace_complete` true and no warning; likewise
+  `SELECT new_code AS status, status AS old_status` gave `old_status <- new_code`. Spark reads
+  the FROM clause's columns before a lateral column alias ("A local column reference takes
+  precedence, over a lateral column alias",
+  https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html;
+  SPARK-27561). The GROUP BY shield of 0.11.2 now covers the SELECT list under the same
+  condition: when Schema, a derived table's or a CTE's listed columns prove a source has the
+  name, the column is kept. A name no source has is still the lateral alias. A name the
+  metadata cannot settle (a table without Schema, a `SELECT *` CTE) keeps the alias reading and
+  carries the new warning `lateral_alias_ambiguous`, reported only where sqlglot actually
+  expanded the alias. Who is affected: any stored lineage, profile or table-semantics packet
+  built from such a projection; `sources`, `expression`, `field_mapping_chains` and
+  `end_to_end_lineage` of those outputs change. What to do: re-run `parse`, rebuild packets in
+  a table-semantics run, and treat `lateral_alias_ambiguous` like `ambiguous_unqualified` (see
+  the READMEs' migration section). The 0.11.1 test that pinned the alias reading now asserts
+  the source column.
+- **Fixed: a WHERE or GROUP BY column no longer comes out as `__lineage_where_column__<name>`.**
+  The shields added in 0.11.1 and 0.11.2 rename a column while sqlglot qualifies the statement
+  and rename it back afterwards, but only the node objects they saved. Expanding a lateral,
+  GROUP BY or HAVING alias copies the aliased expression -- a scalar subquery with a shielded
+  WHERE, say -- and every copy kept the placeholder, which reached `raw_sql`, the column list and
+  the physical sources as if the table had such a column. The restore now scans the whole
+  qualified tree and qualifies each restored column by its own nearest SELECT; a placeholder
+  that still survives fails the test suite and, in production, is stripped after a Python
+  warning (`ShieldPlaceholderLeak`). Both shields also compare alias names case-insensitively,
+  as Spark and sqlglot do, so `SELECT 'ALL' AS BIZ ... WHERE biz = ...` keeps its filter.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the

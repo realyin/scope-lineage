@@ -6,6 +6,7 @@ Entry point: parse_scope_lineage(sql, task_name, schema=None) -> ScopeLineageRes
 from __future__ import annotations
 
 import re
+import warnings
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
@@ -860,7 +861,10 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
     for column in ast.find_all(exp.Column):
         if not column.table:
             column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
-    shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(ast, schema)
+    lateral_candidates: list[tuple[exp.Select, exp.Column]] = []
+    shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(
+        ast, schema, lateral_candidates,
+    )
     outer_refs = _protect_deep_outer_refs(ast, schema)
     try:
         qualified = sg_qualify(
@@ -871,11 +875,14 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
             expand_stars=False,
         )
     except Exception:  # noqa: BLE001 - qualify is an enhancement; the unqualified AST is a valid answer
-        _restore_where_alias_collisions(shielded, qualify_sole_source=False)
+        _restore_shielded_columns(ast, shielded, qualify_sole_source=False)
         _restore_sentinels(ast, outer_refs, strict=False)
+        _check_no_shield_placeholder(ast)
         return ast, False
-    _restore_where_alias_collisions(shielded, qualify_sole_source=True)
+    _restore_shielded_columns(qualified, shielded, qualify_sole_source=True)
+    _record_lateral_alias_ambiguity(qualified, lateral_candidates)
     _restore_sentinels(qualified, outer_refs)
+    _check_no_shield_placeholder(qualified)
     return qualified, True
 
 
@@ -950,6 +957,7 @@ def _restore_sentinels(
 
 
 _WHERE_SHIELD_PREFIX = "__lineage_where_column__"
+_LATERAL_ALIAS_AMBIGUOUS_META = "lineage_lateral_alias_ambiguous"
 
 
 def _shield_where_alias_collisions(ast: exp.Expression) -> list[tuple[exp.Select, exp.Identifier, str]]:
@@ -960,52 +968,117 @@ def _shield_where_alias_collisions(ast: exp.Expression) -> list[tuple[exp.Select
     ``SELECT 'ALL' AS biz ... WHERE biz IN ('A')`` into ``WHERE 'ALL' IN ('A')``; a schema
     does not prevent it once a join or an unlisted column leaves the name unresolved
     (QUALIFY-002). Renaming the column for the duration of ``qualify`` leaves GROUP BY,
-    HAVING and lateral projection aliases, which Spark does resolve, to sqlglot.
+    HAVING and lateral projection aliases, which Spark does resolve, to sqlglot
+    (``_shield_group_by_source_columns`` keeps a source column those would hide).
     """
     shielded = []
     for select in ast.find_all(exp.Select):
         where = select.args.get("where")
-        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
+        aliases = {projection.alias.lower() for projection in select.expressions if isinstance(projection, exp.Alias)}
         if not where or not aliases:
             continue
-        for column in walk_in_scope(where):
-            if isinstance(column, exp.Column) and not column.table and column.name in aliases:
-                identifier = column.this
-                shielded.append((select, identifier, identifier.this))
-                identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+        for column in _bare_columns_named(where, aliases):
+            _shield_column(select, column, shielded)
     return shielded
 
 
 def _shield_group_by_source_columns(
     ast: exp.Expression, schema: dict | None,
+    lateral_candidates: list[tuple[exp.Select, exp.Column]] | None = None,
 ) -> list[tuple[exp.Select, exp.Identifier, str]]:
-    """Hide a GROUP BY name from alias expansion when a source of its SELECT has that column.
+    """Hide a GROUP BY or SELECT-list name from alias expansion when a source of its SELECT
+    has that column.
 
     Spark resolves a grouping key against the input's columns and falls back to a SELECT
     alias only for a name no input has. ``qualify`` without a schema expanded every
     matching name, so ``SELECT UPPER(a) AS k ... GROUP BY k`` grouped by ``UPPER(a)`` even
-    when the source has its own ``k``. A source whose columns are unknown leaves the name
-    to the alias, as before.
+    when the source has its own ``k``. The SELECT list follows the same rule for an alias
+    defined earlier in it: "A local column reference takes precedence, over a lateral
+    column alias" (Databricks name resolution; SPARK-27561), so in
+    ``SELECT fee AS amt, amt AS fee`` the second ``amt`` is the source column (X1).
+
+    A source whose columns are unknown leaves the name to the alias, as before; such a
+    SELECT-list column is added to ``lateral_candidates`` so that, if ``qualify`` does
+    expand it, the reading is reported as ``lateral_alias_ambiguous``.
     """
     ctes = {cte.alias_or_name.lower(): cte.this for cte in ast.find_all(exp.CTE)}
-    shielded = []
+    shielded: list[tuple[exp.Select, exp.Identifier, str]] = []
     for select in ast.find_all(exp.Select):
-        group = select.args.get("group")
-        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
-        if not group or not aliases:
+        aliases = {projection.alias.lower() for projection in select.expressions if isinstance(projection, exp.Alias)}
+        if not aliases:
             continue
-        for column in walk_in_scope(group):
-            if (isinstance(column, exp.Column) and not column.table and column.name in aliases
-                    and _a_source_has_column(select, column.name, schema, ctes)):
-                identifier = column.this
-                shielded.append((select, identifier, identifier.this))
-                identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+        group = select.args.get("group")
+        if group:
+            for column in _bare_columns_named(group, aliases):
+                if _source_column_presence(select, column.name, schema, ctes):
+                    _shield_column(select, column, shielded)
+        _shield_projection_source_columns(select, schema, ctes, shielded, lateral_candidates)
     return shielded
 
 
+def _shield_projection_source_columns(
+    select: exp.Select, schema: dict | None, ctes: dict,
+    shielded: list[tuple[exp.Select, exp.Identifier, str]],
+    lateral_candidates: list[tuple[exp.Select, exp.Column]] | None,
+) -> None:
+    earlier: set[str] = set()
+    for projection in select.expressions:
+        for column in _bare_columns_named(projection, earlier):
+            presence = _source_column_presence(select, column.name, schema, ctes)
+            if presence:
+                _shield_column(select, column, shielded)
+            elif presence is None and lateral_candidates is not None:
+                lateral_candidates.append((select, column))
+        if isinstance(projection, exp.Alias):
+            earlier.add(projection.alias.lower())
+
+
+def _record_lateral_alias_ambiguity(
+    tree: exp.Expression, lateral_candidates: list[tuple[exp.Select, exp.Column]],
+) -> None:
+    """Mark each SELECT whose possibly-source column ``qualify`` replaced by an alias.
+
+    sqlglot does not expand every match (an alias over an aggregate stays out of another
+    aggregate, for one), and an unexpanded column already reads the source, so only a
+    column that left the tree is an alias reading worth reporting.
+    """
+    for select, column in lateral_candidates:
+        if column.root() is tree or select.root() is not tree:
+            continue
+        names = select.meta.setdefault(_LATERAL_ALIAS_AMBIGUOUS_META, [])
+        if column.name not in names:
+            names.append(column.name)
+
+
+def _bare_columns_named(node: exp.Expression, names: set[str]) -> list[exp.Column]:
+    if not names:
+        return []
+    return [
+        column for column in walk_in_scope(node)
+        if isinstance(column, exp.Column) and not column.table and column.name.lower() in names
+    ]
+
+
+def _shield_column(
+    select: exp.Select, column: exp.Column, shielded: list[tuple[exp.Select, exp.Identifier, str]],
+) -> None:
+    identifier = column.this
+    shielded.append((select, identifier, identifier.this))
+    identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+
+
 def _a_source_has_column(select: exp.Select, name: str, schema: dict | None, ctes: dict) -> bool:
+    return _source_column_presence(select, name, schema, ctes) is True
+
+
+def _source_column_presence(
+    select: exp.Select, name: str, schema: dict | None, ctes: dict,
+) -> bool | None:
+    """True when a source of ``select`` has the column, False when every source's columns
+    are known and none has it, None when an unknown source might."""
     from_ = select.args.get("from_")
     items = ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]
+    known = True
     for item in items:
         if isinstance(item, exp.Table) and item.name.lower() in ctes and not item.db:
             columns = ctes[item.name.lower()].named_selects
@@ -1015,28 +1088,100 @@ def _a_source_has_column(select: exp.Select, name: str, schema: dict | None, cte
             columns = item.this.named_selects
         else:
             columns = []
-        if name.lower() in {str(column).lower() for column in columns}:
+        names = {str(column).lower() for column in columns}
+        if name.lower() in names:
             return True
-    return False
+        if not names or "*" in names:
+            known = False
+    for lateral in select.args.get("laterals") or []:
+        alias = lateral.args.get("alias")
+        columns = {column.name.lower() for column in alias.columns} if alias is not None else set()
+        if name.lower() in columns:
+            return True
+        if not columns:
+            known = False
+    return False if known else None
 
 
-def _restore_where_alias_collisions(
-    shielded: list[tuple[exp.Select, exp.Identifier, str]], *, qualify_sole_source: bool,
+class ShieldPlaceholderLeak(UserWarning):
+    """A shield placeholder survived ``_qualify_ast``; the test suite turns this into an error."""
+
+
+def _restore_shielded_columns(
+    tree: exp.Expression,
+    shielded: list[tuple[exp.Select, exp.Identifier, str]],
+    *,
+    qualify_sole_source: bool,
 ) -> None:
-    """Undo the shield and, after a successful qualify, qualify a still-bare column when its
-    SELECT reads one source.
+    """Undo the shields everywhere in ``tree`` and, after a successful qualify, qualify a
+    still-bare restored column when its SELECT reads one source.
+
+    The scan covers the whole tree rather than the identifiers saved before ``qualify``:
+    expanding a lateral, GROUP BY or HAVING alias copies the aliased expression, and a copy
+    carries the placeholder without being one of the saved nodes (1.13-b). A copy may sit
+    in another SELECT than the original, so the sole source is read off the nearest SELECT
+    ancestor of each restored column.
 
     sqlglot leaves the shielded name bare when the sole source is a derived table, because
     the placeholder is not among that table's columns; the original name is, and a SELECT
     with one source has nowhere else to bind it.
     """
-    for select, identifier, name in shielded:
-        identifier.set("this", name)
+    if not shielded:
+        return
+    for identifier in list(tree.find_all(exp.Identifier)):
+        name = identifier.this
+        if not isinstance(name, str) or not name.startswith(_WHERE_SHIELD_PREFIX):
+            continue
+        identifier.set("this", name[len(_WHERE_SHIELD_PREFIX):])
         column = identifier.parent
-        if qualify_sole_source and isinstance(column, exp.Column) and not column.table:
-            source = _sole_source_name(select)
+        if qualify_sole_source and isinstance(column, exp.Column) and column.this is identifier \
+                and not column.table:
+            select = column.find_ancestor(exp.Select)
+            source = _sole_source_name(select) if select is not None else None
             if source:
                 column.set("table", exp.to_identifier(source, quoted=True))
+
+
+def _check_no_shield_placeholder(tree: exp.Expression) -> None:
+    """Fail loudly if a placeholder outlived the restore, then remove it anyway.
+
+    A placeholder that reaches the output is published as a physical column, which is
+    worse than any lineage gap, so production strips it after warning.
+    """
+    for node in tree.walk():
+        for key, value in node.args.items():
+            if isinstance(value, str) and _WHERE_SHIELD_PREFIX in value:
+                warnings.warn(
+                    f"shield placeholder left in the qualified tree: {value!r}",
+                    ShieldPlaceholderLeak,
+                    stacklevel=2,
+                )
+                node.set(key, value.replace(_WHERE_SHIELD_PREFIX, ""))
+
+
+def _warn_lateral_alias_ambiguity(all_scopes: list[Scope], result: ScopeLineageResult) -> None:
+    """Report each SELECT-list name read as a lateral alias that a source might also have.
+
+    The record is made after ``qualify``, so a SELECT copied by alias expansion does not
+    repeat it.
+    """
+    seen = set()
+    for sg_scope in all_scopes:
+        names = sg_scope.expression.meta.get(_LATERAL_ALIAS_AMBIGUOUS_META) if sg_scope.expression else None
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        for name in names or []:
+            if scope_id is None or (scope_id, name) in seen:
+                continue
+            seen.add((scope_id, name))
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="lateral_alias_ambiguous",
+                scope=scope_id,
+                msg=(
+                    f"Column '{name}' in the SELECT list matches an earlier alias, and a source "
+                    "whose columns are unknown may also have it; read as the lateral alias. "
+                    "Spark reads a source column first, so supply that source's schema."
+                ),
+            ))
 
 
 def _sole_source_name(select: exp.Select) -> str | None:
@@ -1535,6 +1680,7 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
     if using_node is not None:
         result.scopes["ROOT"].raw_sql = using_node.sql(dialect=DIALECT)
         result.scopes["ROOT"].raw_sql_available = bool(result.scopes["ROOT"].raw_sql)
+    _warn_lateral_alias_ambiguity(all_scopes, result)
 
     # Step 4: Collect physical tables from each scope's resolved bindings. CTE names
     # are lexical: an inner ``WITH staging`` must not make a physical ``staging`` in a
