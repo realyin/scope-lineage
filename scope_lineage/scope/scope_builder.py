@@ -6,6 +6,7 @@ Entry point: parse_scope_lineage(sql, task_name, schema=None) -> ScopeLineageRes
 from __future__ import annotations
 
 import re
+import warnings
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
@@ -871,11 +872,13 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
             expand_stars=False,
         )
     except Exception:  # noqa: BLE001 - qualify is an enhancement; the unqualified AST is a valid answer
-        _restore_where_alias_collisions(shielded, qualify_sole_source=False)
+        _restore_shielded_columns(ast, shielded, qualify_sole_source=False)
         _restore_sentinels(ast, outer_refs, strict=False)
+        _check_no_shield_placeholder(ast)
         return ast, False
-    _restore_where_alias_collisions(shielded, qualify_sole_source=True)
+    _restore_shielded_columns(qualified, shielded, qualify_sole_source=True)
     _restore_sentinels(qualified, outer_refs)
+    _check_no_shield_placeholder(qualified)
     return qualified, True
 
 
@@ -965,11 +968,11 @@ def _shield_where_alias_collisions(ast: exp.Expression) -> list[tuple[exp.Select
     shielded = []
     for select in ast.find_all(exp.Select):
         where = select.args.get("where")
-        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
+        aliases = {projection.alias.lower() for projection in select.expressions if isinstance(projection, exp.Alias)}
         if not where or not aliases:
             continue
         for column in walk_in_scope(where):
-            if isinstance(column, exp.Column) and not column.table and column.name in aliases:
+            if isinstance(column, exp.Column) and not column.table and column.name.lower() in aliases:
                 identifier = column.this
                 shielded.append((select, identifier, identifier.this))
                 identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
@@ -991,11 +994,11 @@ def _shield_group_by_source_columns(
     shielded = []
     for select in ast.find_all(exp.Select):
         group = select.args.get("group")
-        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
+        aliases = {projection.alias.lower() for projection in select.expressions if isinstance(projection, exp.Alias)}
         if not group or not aliases:
             continue
         for column in walk_in_scope(group):
-            if (isinstance(column, exp.Column) and not column.table and column.name in aliases
+            if (isinstance(column, exp.Column) and not column.table and column.name.lower() in aliases
                     and _a_source_has_column(select, column.name, schema, ctes)):
                 identifier = column.this
                 shielded.append((select, identifier, identifier.this))
@@ -1020,23 +1023,60 @@ def _a_source_has_column(select: exp.Select, name: str, schema: dict | None, cte
     return False
 
 
-def _restore_where_alias_collisions(
-    shielded: list[tuple[exp.Select, exp.Identifier, str]], *, qualify_sole_source: bool,
+class ShieldPlaceholderLeak(UserWarning):
+    """A shield placeholder survived ``_qualify_ast``; the test suite turns this into an error."""
+
+
+def _restore_shielded_columns(
+    tree: exp.Expression,
+    shielded: list[tuple[exp.Select, exp.Identifier, str]],
+    *,
+    qualify_sole_source: bool,
 ) -> None:
-    """Undo the shield and, after a successful qualify, qualify a still-bare column when its
-    SELECT reads one source.
+    """Undo the shields everywhere in ``tree`` and, after a successful qualify, qualify a
+    still-bare restored column when its SELECT reads one source.
+
+    The scan covers the whole tree rather than the identifiers saved before ``qualify``:
+    expanding a lateral, GROUP BY or HAVING alias copies the aliased expression, and a copy
+    carries the placeholder without being one of the saved nodes (1.13-b). A copy may sit
+    in another SELECT than the original, so the sole source is read off the nearest SELECT
+    ancestor of each restored column.
 
     sqlglot leaves the shielded name bare when the sole source is a derived table, because
     the placeholder is not among that table's columns; the original name is, and a SELECT
     with one source has nowhere else to bind it.
     """
-    for select, identifier, name in shielded:
-        identifier.set("this", name)
+    if not shielded:
+        return
+    for identifier in list(tree.find_all(exp.Identifier)):
+        name = identifier.this
+        if not isinstance(name, str) or not name.startswith(_WHERE_SHIELD_PREFIX):
+            continue
+        identifier.set("this", name[len(_WHERE_SHIELD_PREFIX):])
         column = identifier.parent
-        if qualify_sole_source and isinstance(column, exp.Column) and not column.table:
-            source = _sole_source_name(select)
+        if qualify_sole_source and isinstance(column, exp.Column) and column.this is identifier \
+                and not column.table:
+            select = column.find_ancestor(exp.Select)
+            source = _sole_source_name(select) if select is not None else None
             if source:
                 column.set("table", exp.to_identifier(source, quoted=True))
+
+
+def _check_no_shield_placeholder(tree: exp.Expression) -> None:
+    """Fail loudly if a placeholder outlived the restore, then remove it anyway.
+
+    A placeholder that reaches the output is published as a physical column, which is
+    worse than any lineage gap, so production strips it after warning.
+    """
+    for node in tree.walk():
+        for key, value in node.args.items():
+            if isinstance(value, str) and _WHERE_SHIELD_PREFIX in value:
+                warnings.warn(
+                    f"shield placeholder left in the qualified tree: {value!r}",
+                    ShieldPlaceholderLeak,
+                    stacklevel=2,
+                )
+                node.set(key, value.replace(_WHERE_SHIELD_PREFIX, ""))
 
 
 def _sole_source_name(select: exp.Select) -> str | None:

@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- **Fixed: a WHERE or GROUP BY column no longer comes out as `__lineage_where_column__<name>`.**
+  The shields added in 0.11.1 and 0.11.2 rename a column while sqlglot qualifies the statement
+  and rename it back afterwards, but only the node objects they saved. Expanding a lateral,
+  GROUP BY or HAVING alias copies the aliased expression -- a scalar subquery with a shielded
+  WHERE, say -- and every copy kept the placeholder, which reached `raw_sql`, the column list and
+  the physical sources as if the table had such a column. The restore now scans the whole
+  qualified tree and qualifies each restored column by its own nearest SELECT; a placeholder
+  that still survives fails the test suite and, in production, is stripped after a Python
+  warning (`ShieldPlaceholderLeak`). Both shields also compare alias names case-insensitively,
+  as Spark and sqlglot do, so `SELECT 'ALL' AS BIZ ... WHERE biz = ...` keeps its filter.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the

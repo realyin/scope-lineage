@@ -48,6 +48,9 @@ scope_lineage = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A shield placeholder reaching the output is published as a physical column; production
+# warns and strips it, the suite must fail.
+filterwarnings = ["error::scope_lineage.scope.scope_builder.ShieldPlaceholderLeak"]
 
 [tool.ruff]
 # Lint safety net for the ongoing core-module refactor. Intentionally narrow:
