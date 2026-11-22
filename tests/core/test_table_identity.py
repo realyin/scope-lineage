@@ -311,3 +311,28 @@ def test_samples_for_two_catalogs_stay_with_their_own_tables():
     single = ColumnSamples()
     single.add("ods.t", "flag", "A")
     assert single.values(["spark_catalog.ods.t"], "flag") == ["A"]
+
+
+# The skill script `query.py` is stdlib-only (a skill bundle may not import the package), so
+# it keeps its own copy of the suffix rule; this pins the copy to the package's answer.
+_SPELLINGS = ["t", "ods.t", "dwd.t", "cat.ods.t", "cat2.ods.t", "ods.t2", "s", "ods.st", ""]
+
+
+def test_the_skill_query_script_s_suffix_rule_is_the_package_s():
+    import importlib.util
+    from pathlib import Path
+
+    from scope_lineage.table_identity import same_table
+
+    script = Path(__file__).resolve().parents[2] / "skills/scope-lineage/scripts/query.py"
+    spec = importlib.util.spec_from_file_location("skill_query", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    disagree = [
+        (left, right)
+        for left in _SPELLINGS
+        for right in _SPELLINGS
+        if module._same_table(left, right) != same_table(left, right)
+    ]
+    assert disagree == []

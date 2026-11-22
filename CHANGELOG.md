@@ -552,11 +552,23 @@
   stands as a word: 纳税人识别号, 税务登记号 and 测试结果 no longer raise a qualifier warning,
   while 含税金额, 税前收入 and 含测试客户 still do. (3) The concept layer's lending words
   (回款 as an event word; 欠款 as a measure suffix; 已到期 / 未到期 / 已还 / 未还 / 已结清 /
-  未结清 / 首期 as filter words) are gone; generic words stay. Who is affected: a run whose
+  未结清 / 首期 as filter words) are gone; generic words stay. (4) The concept layer
+  (`ontology`) no longer reads table-name suffixes either (`_df` / `_hf` / `_mf` / `_wf` /
+  `_all` as a full snapshot, `_di` / `_hi` / `_mi` / `_wi` as a period increment): it reads
+  the same `table_name_convention`, and without one a member with no columns outside its key
+  is `primary` rather than `snapshot` by its `_di` name, a folded provisional member is never
+  re-roled `snapshot` by its suffix, the `increment_with_event_time` kind vote is never cast,
+  incremental tables no longer block the `all_members_full_snapshot` vote, and a table with
+  no comment is named by its whole short name (`gadget_df`, not `gadget`); a name read off
+  the most representative members' comments can follow the changed roles. Concept ids do not
+  change (they come from key stems and table names). Who is affected: a run whose
   tables follow such a suffix convention (packets change `name_convention`, `full_snapshot` and
-  therefore `packet_digest`, so documents become `packet_stale`), and corpora whose comments
-  used those words. What to do: write a `domain-profile/1` file -- the example
-  `examples/domain-profile/domain-profile.json` carries the old suffix lists -- and pass it to
+  therefore `packet_digest`, so documents become `packet_stale`; concepts change member roles,
+  kind votes and the stem-only names), and corpora whose comments used those words. What to
+  do: write a `domain-profile/1` file -- the example
+  `examples/domain-profile/domain-profile.json` carries the union of the packet's and the
+  concept layer's old suffix lists (list only one layer's old suffixes to keep that layer's
+  reading word for word) -- and pass it to
   `semantic packet`, `semantic validate` and `ontology` with `--domain-profile`; see
   `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
   (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
@@ -613,6 +625,14 @@
   nobody on 30.16.0 / 30.17.0 (the answer is unchanged there); on 30.0.0 (and likely the
   versions between, not measured) those 26 names stop being UDFs and `hex_encode` becomes one,
   as on 30.17.0.
+  word in a package string literal, and on a literal that is a table-name suffix (`df`, `di`,
+  ...) outside the two constants it exempts with their reasons (`table_family`'s
+  `PERIOD_SUFFIXES`, and the comment-tail trim).
+- **A JOIN with no key pair onto a carded table no longer says the table has no key fact.**
+  With `--tables`, a JOIN onto a physical table whose card proves a key, but whose ON clause
+  offers no usable key pair (joined by OR, say), stays `unknown` as before; its `reason` now
+  reads 「该 JOIN 无可证明的连接键，右侧唯一性无从判定」 instead of 「物理表无主键事实」, which
+  the card contradicted. Only the text changes; without a card the reason is unchanged.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

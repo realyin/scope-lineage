@@ -45,7 +45,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
@@ -232,11 +232,11 @@ VALIDITY_SEGMENTS = frozenset(
 )
 _TEMPORAL_TYPES = ("timestamp", "date", "datetime")
 
-#: Table-name suffixes, matched as whole segments (the same discipline `table_family`
-#: uses): a full snapshot, a period increment, and a build step.
-FULL_SNAPSHOT_SUFFIXES = ("df", "hf", "mf", "wf", "all")
-INCREMENT_SUFFIXES = ("di", "hi", "mi", "wi")
-PERIOD_SUFFIXES = FULL_SNAPSHOT_SUFFIXES + INCREMENT_SUFFIXES
+#: A build step's table-name suffix, matched as a whole segment (the same discipline
+#: `table_family` uses). Which suffixes mark a full snapshot or a period increment is a
+#: warehouse's convention, not the package's: it comes from the caller
+#: (``domain-profile/1``'s ``table_name_convention``, see :func:`name_convention`), and
+#: without one no suffix says which copy a table is.
 _STAGE_RE = re.compile(r"\A(?:tmp|bak|mid|step|stage)\d*\Z")
 
 #: Grain bases (``semantic_profile``'s vocabulary) that make a member a summary.
@@ -431,6 +431,38 @@ def concept_words(extra: Mapping[str, Sequence[str]] | None) -> Iterator[None]:
         _WORDS.reset(token)
 
 
+@dataclass(frozen=True)
+class _Convention:
+    """The table-name suffixes one build reads: a full snapshot, a period increment."""
+
+    full: tuple[str, ...] = ()
+    incremental: tuple[str, ...] = ()
+
+    @property
+    def period(self) -> tuple[str, ...]:
+        return self.full + self.incremental
+
+
+#: The convention in force: none by default (WP11, D2), set for one build like the words.
+_CONVENTION: ContextVar[_Convention] = ContextVar("concept_name_convention", default=_Convention())
+
+
+@contextmanager
+def name_convention(convention: Mapping[str, Sequence[str]] | None) -> Iterator[None]:
+    """Read table-name suffixes while the block runs -- ``domain-profile/1``'s
+    ``table_name_convention``: ``full`` marks a full snapshot, ``incremental`` a period
+    increment, each written without its ``_``. ``None`` or an empty mapping reads none."""
+    convention = convention or {}
+    token = _CONVENTION.set(_Convention(
+        full=tuple(str(item).lower() for item in convention.get("full", ())),
+        incremental=tuple(str(item).lower() for item in convention.get("incremental", ())),
+    ))
+    try:
+        yield
+    finally:
+        _CONVENTION.reset(token)
+
+
 #: K2c: the period a junk candidate opens with, as much of it as there is. What is left
 #: after it -- and after the filters and the measure -- is the phrase the comment was
 #: naming all along: 「2月时段合同金额」 was never about 2月, it was about 合同.
@@ -593,13 +625,17 @@ def _table_stem(table: str) -> str:
     ``name_tier: "stem_only"`` says about it.
     """
     parts = [part for part in str(table or "").lower().rpartition(".")[2].split("_") if part]
-    while len(parts) > 1 and parts[-1] in PERIOD_SUFFIXES:
+    while len(parts) > 1 and parts[-1] in _CONVENTION.get().period:
         parts.pop()
     return "_".join(parts)
 
 
 def build_concepts(
-    ontology: Mapping, cards: Mapping, words: Mapping[str, Sequence[str]] | None = None
+    ontology: Mapping,
+    cards: Mapping,
+    words: Mapping[str, Sequence[str]] | None = None,
+    *,
+    convention: Mapping[str, Sequence[str]] | None = None,
 ) -> dict:
     """``{"concepts": [...], "provisional_count": N, ...}`` for one corpus's ontology.
 
@@ -616,10 +652,15 @@ def build_concepts(
     ``words`` is the caller's ``concept_words`` (``domain-profile/1``), added to the
     generic word lists for this build; without them the lists in force are read (the
     generic ones, unless a ``concept_words`` block around the call added some).
+    ``convention`` is the caller's ``table_name_convention`` (``domain-profile/1``), read
+    the same way: given, it is the convention for this build; ``None`` reads the one in
+    force (none, unless a ``name_convention`` block around the call set one).
     """
-    if words is None:
-        return _build_concepts(ontology, cards)
-    with concept_words(words):
+    with ExitStack() as stack:
+        if words is not None:
+            stack.enter_context(concept_words(words))
+        if convention is not None:
+            stack.enter_context(name_convention(convention))
         return _build_concepts(ontology, cards)
 
 
@@ -1185,6 +1226,7 @@ def _role(seed: _Seed, card: Mapping, grain: str | None, text: str = "") -> str:
     table is a report **of**, which is the 机构 either way.
     """
     suffix = _name_suffix(seed.table)
+    convention = _CONVENTION.get()
     outside = [column for column in seed.extra_columns if column not in seed.partitions]
     events = [column for column in outside if _is_event_time(column, seed.types)]
     if _STAGE_RE.match(suffix) or _task_internal(card):
@@ -1193,11 +1235,11 @@ def _role(seed: _Seed, card: Mapping, grain: str | None, text: str = "") -> str:
         return ROLE_DETAIL
     if CONCEPT_SUMMARY in _word_votes(text):
         return ROLE_SUMMARY
-    if not outside and (suffix in FULL_SNAPSHOT_SUFFIXES or suffix not in PERIOD_SUFFIXES):
+    if not outside and (suffix in convention.full or suffix not in convention.period):
         return ROLE_PRIMARY
     if grain in AGGREGATED_BASES:
         return ROLE_SUMMARY
-    if not outside and suffix in INCREMENT_SUFFIXES:
+    if not outside and suffix in convention.incremental:
         return ROLE_SNAPSHOT
     return ROLE_DETAIL if outside else ROLE_PRIMARY
 
@@ -1260,7 +1302,7 @@ def _structural_signals(
                 votes.append(_vote(SIGNAL_KEY_EVENT_COLUMN, CONCEPT_EVENT, seed.table, column))
         for source in [] if dimension else _driving_log_sources(card, index):
             votes.append(_vote(SIGNAL_DRIVING_LOG_SOURCE, CONCEPT_EVENT, seed.table, source))
-        if _name_suffix(seed.table) in INCREMENT_SUFFIXES:
+        if _name_suffix(seed.table) in _CONVENTION.get().incremental:
             for column in _event_times(card, seed):
                 votes.append(
                     _vote(SIGNAL_INCREMENT_EVENT_TIME, CONCEPT_EVENT, seed.table, column)
@@ -1314,7 +1356,7 @@ def _dimension_members(members: Sequence[_Seed], index: Mapping[str, Mapping]) -
     if not any(CONCEPT_ENTITY in vote for vote in words):
         return False
     return all(
-        _name_suffix(seed.table) not in INCREMENT_SUFFIXES
+        _name_suffix(seed.table) not in _CONVENTION.get().incremental
         and not any(
             column not in seed.partitions and _is_event_column(column, seed.types)
             for column in seed.key_columns
@@ -2907,7 +2949,7 @@ def _demoted_role(member: Mapping) -> str:
     suffix = _name_suffix(str(member.get("table")))
     if _STAGE_RE.match(suffix):
         return ROLE_INTERMEDIATE
-    if suffix in PERIOD_SUFFIXES:
+    if suffix in _CONVENTION.get().period:
         return ROLE_SNAPSHOT
     if str(member.get("grain")) in AGGREGATED_BASES:
         return ROLE_SUMMARY

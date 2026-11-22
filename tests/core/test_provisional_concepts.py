@@ -43,6 +43,7 @@ from scope_lineage.render.concepts import (
     TIER_STEM_ONLY,
     apply_concept_overrides,
     build_concepts,
+    name_convention,
     table_concept_id,
 )
 from scope_lineage.render.ontology import (
@@ -52,6 +53,8 @@ from scope_lineage.render.ontology import (
     table_family,
 )
 from scope_lineage.render.ontology_export import render_linkml, render_shacl
+
+from .concept_convention import WAREHOUSE_CONVENTION
 
 
 # ------------------------------------------------------------------ synthetic inputs
@@ -221,11 +224,17 @@ def test_a_table_comment_names_the_provisional_concept_by_the_usual_rules() -> N
 
 
 def test_without_a_comment_the_name_is_the_short_name_with_storage_suffixes_off() -> None:
-    document = _document([_entity("ods.gadget_df")])
+    """The storage suffixes are the caller's convention (WP11 / D2): none by default."""
+    with name_convention(WAREHOUSE_CONVENTION):
+        document = _document([_entity("ods.gadget_df")])
     concept = _index(document)[table_concept_id("ods.gadget_df")]
 
     assert concept["name"] == "gadget"
     assert concept["name_tier"] == TIER_STEM_ONLY
+
+    plain = _index(_document([_entity("ods.gadget_df")]))[table_concept_id("ods.gadget_df")]
+    assert plain["name"] == "gadget_df"
+    assert plain["name_tier"] == TIER_STEM_ONLY
 
 
 def test_the_kind_is_read_by_the_existing_signals_over_its_one_member() -> None:

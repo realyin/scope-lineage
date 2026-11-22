@@ -167,7 +167,9 @@ def add_ontology_parser(subcommands) -> None:
         ontology_cmd,
         "its concept_words are added to the concept layer's generic word votes "
         "(event / entity / summary) and name-ranking lists (measure_suffixes, "
-        "filter_words)",
+        "filter_words), and its table_name_convention is the only source of the "
+        "table-name suffixes the concept layer reads as a full snapshot or a period "
+        "increment (none by default)",
     )
     add_incremental_arguments(ontology_cmd)
 
@@ -321,6 +323,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         glossary,
         chosen_exports,
         profile.concept_words,
+        profile.name_convention,
     ]
     # N1a: the digest is over the documents, not the paths -- but the *order* they
     # apply in is part of the answer, and the list above already carries it.
@@ -346,6 +349,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         artifact_root=root,
         legacy_keys=bool(getattr(args, "legacy_keys", False)),
         concept_words=profile.concept_words,
+        name_convention=profile.name_convention,
     )
     # P7: one card file per entity. Cards merged in from another corpus that this one
     # never touched lent their evidence to the build; they are not tables of this model.

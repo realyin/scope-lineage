@@ -50,6 +50,8 @@ from scope_lineage.render.table_cards import build_table_cards
 from scope_lineage.contract import to_lineage_dict
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
+from .concept_convention import WAREHOUSE_CONVENTION
+
 
 # ------------------------------------------------------------------ synthetic inputs
 
@@ -170,10 +172,9 @@ def _cards(*cards: dict) -> dict:
 
 
 def _concepts(ontology: dict, cards: dict) -> dict:
-    return {
-        str(concept["id"]): concept
-        for concept in build_concepts(ontology, cards)["concepts"]
-    }
+    # The fixtures name tables by the warehouse convention the role rules read.
+    built = build_concepts(ontology, cards, convention=WAREHOUSE_CONVENTION)
+    return {str(concept["id"]): concept for concept in built["concepts"]}
 
 
 def _folded(ontology: dict, cards: dict) -> dict:

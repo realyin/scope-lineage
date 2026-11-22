@@ -24,6 +24,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
+from ..table_identity import same_table
 from .names import bare_table
 from .sql_forms import DIALECT
 
@@ -390,7 +391,9 @@ def _added_columns(lines: list[str], table: str, named: str | None, columns) -> 
         if not match:
             continue
         named_table = bare_table(match.group(1).replace("`", ""))
-        if not (_same_table(named_table, table) or (named and _same_table(named_table, named))):
+        # Both sides are ``bare_table`` spellings (at most ``db.table``), where the shared
+        # dotted-suffix rule is: equal, or a bare name matching the qualified one's table.
+        if not (same_table(named_table, table) or (named and same_table(named_table, named))):
             continue
         body = _parenthesised(" ".join(lines[index:])[match.end():])
         names = [item.split()[0].strip("`").lower() for item in _items(body) if item.split()]
@@ -407,12 +410,6 @@ def _added_columns(lines: list[str], table: str, named: str | None, columns) -> 
 def _named(lines: list[str]) -> str | None:
     named = next((m.group(1) for m in map(_NAMED.match, lines) if m), None)
     return bare_table(named.replace("`", "")) if named else None
-
-
-def _same_table(left: str, right: str) -> bool:
-    if "." in left and "." in right:
-        return left == right
-    return left.rsplit(".", 1)[-1] == right.rsplit(".", 1)[-1]
 
 
 def _parenthesised(text: str) -> str:

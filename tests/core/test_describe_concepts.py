@@ -38,6 +38,7 @@ from scope_lineage.render.semantic_profile import (
 from scope_lineage.render.table_cards import build_table_cards
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
+from .concept_convention import WAREHOUSE_CONVENTION
 from .statement_document import write_statement_documents
 
 
@@ -123,7 +124,11 @@ def _ontology() -> dict:
     documents = [_document(sql, task) for task, sql in CORPUS]
     profiles = [build_semantic_profile(document) for document in documents]
     cards = build_table_cards(profiles, artifact_root="corpus")
-    return build_ontology(documents, profiles, tables=cards, artifact_root="corpus")
+    # The corpus names its increment `_di`; the roles below rest on that convention.
+    return build_ontology(
+        documents, profiles, tables=cards, artifact_root="corpus",
+        name_convention=WAREHOUSE_CONVENTION,
+    )
 
 
 def _profile(sql: str = DAILY_SQL, task_id: str = "task_customer_daily") -> dict:

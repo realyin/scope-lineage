@@ -236,6 +236,19 @@ def test_an_alter_of_another_table_is_not_this_tables() -> None:
     assert "added_columns" not in facts
 
 
+def test_an_alter_naming_the_table_bare_is_this_tables() -> None:
+    """Sentinel for the shared table identity: a bare name is a dotted suffix of demo.t."""
+    facts = header_facts([], HEADER.replace("alter table demo.t", "alter table t"),
+                         "demo.t", ["demo.t"], ["c1"])
+    assert facts["added_columns"] == [{"date": "2025-01-02", "table": "t", "columns": ["c1"]}]
+
+
+def test_an_alter_of_the_same_name_in_another_database_is_not_this_tables() -> None:
+    facts = header_facts([], HEADER.replace("alter table demo.t", "alter table other.t"),
+                         "demo.t", ["demo.t"], ["c1"])
+    assert "added_columns" not in facts
+
+
 def test_an_alter_naming_the_headers_old_table_name_is_this_tables() -> None:
     sql = "-- 库表名 demo.t_old\n" + HEADER.replace("alter table demo.t", "alter table demo.t_old")
     facts = header_facts([], sql, "demo.t", ["demo.t"], ["c1"])

@@ -371,13 +371,16 @@ words as defaults. `semantic packet` reads no suffix unless told to, so an input
 `…_df` is no longer a full snapshot by its name alone and check 9 no longer fails an
 `incremental` document on that ground; check 12 looks only for 增值税 / 税 / 手续费 / 测试,
 matched as words (纳税人识别号 no longer counts as qualified by 税); the concept layer's lending
-words are gone.
+words are gone, and it reads no table-name suffix either: without a convention no member is a
+`snapshot` by its `_di` name, `increment_with_event_time` is never cast, and a comment-less
+table is named `gadget_df` rather than `gadget`.
 
 9. To keep the old readings, write a `domain-profile/1` file (start from
-   `examples/domain-profile/domain-profile.json`, whose `table_name_convention` is the old suffix
-   list) and pass it with `--domain-profile` to `semantic packet`, `semantic validate` and
-   `ontology`. Rebuild a run's packets with it: packets built without it differ in
-   `name_convention`, `full_snapshot` and `packet_digest`. See
+   `examples/domain-profile/domain-profile.json`, whose `table_name_convention` is the union of
+   the packet's and the concept layer's old suffix lists) and pass it with `--domain-profile` to
+   `semantic packet`, `semantic validate` and `ontology`. Rebuild a run's packets with it:
+   packets built without it differ in `name_convention`, `full_snapshot` and `packet_digest`.
+   To keep one layer's old reading word for word, list only that layer's old suffixes. See
    [docs/en/domain-profile.md](docs/en/domain-profile.md).
 
 ### Migrating to 0.11.0
