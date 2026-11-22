@@ -877,12 +877,20 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
             column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
             if isinstance(column.this, exp.Identifier):
                 column.this.meta[_BARE_IDENTIFIER_META] = True
+        elif isinstance(column.this, exp.Identifier):
+            column.this.meta[_AUTHORED_QUALIFIER_META] = column.table.lower()
     lateral_candidates: list[tuple[exp.Select, exp.Column]] = []
     shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(
         ast, schema, lateral_candidates,
     )
     outer_refs = _protect_deep_outer_refs(ast, schema)
     using_joins = _record_using_joins(ast)
+    # ``qualify`` rewrites the tree in place before it can still raise -- a PIVOT alias on
+    # a physical table becomes ``tbl.p.col FROM (SELECT * FROM tbl PIVOT ...) AS p`` and
+    # then fails on ``Unknown column: p`` -- so the fallback is a copy taken beforehand,
+    # not the half-rewritten tree. Every restore below scans for its placeholders, so it
+    # applies to the copy as it would to the original.
+    pristine = ast.copy()
     try:
         qualified = sg_qualify(
             ast,
@@ -892,10 +900,10 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
             expand_stars=False,
         )
     except Exception:  # noqa: BLE001 - qualify is an enhancement; the unqualified AST is a valid answer
-        _restore_shielded_columns(ast, shielded, qualify_sole_source=False)
-        _restore_sentinels(ast, outer_refs, strict=False)
-        _check_no_shield_placeholder(ast)
-        return ast, False
+        _restore_shielded_columns(pristine, shielded, qualify_sole_source=False)
+        _restore_sentinels(pristine, outer_refs, strict=False)
+        _check_no_shield_placeholder(pristine)
+        return pristine, False
     _restore_shielded_columns(qualified, shielded, qualify_sole_source=True)
     _undo_outer_struct_reading(qualified)
     _restore_using_join_keys(using_joins)
@@ -906,6 +914,8 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
 
 
 _BARE_IDENTIFIER_META = "lineage_bare_column_identifier"
+# The qualifier the author wrote before a column's name (``p`` of ``p.dept``).
+_AUTHORED_QUALIFIER_META = "lineage_authored_column_qualifier"
 
 
 def _undo_outer_struct_reading(tree: exp.Expression) -> None:
@@ -918,21 +928,29 @@ def _undo_outer_struct_reading(tree: exp.Expression) -> None:
     ``i.flag``. The author's identifier survives inside the ``Dot``, so the reference is
     put back as the later versions produce it, still marked originally unqualified, and
     the resolver decides between the subquery's sources and the enclosing query's.
+
+    The same reading hits a qualified reference to a PIVOT written on a physical table:
+    ``FROM s.sales PIVOT (...) p`` becomes the table aliased ``sales`` carrying the pivot
+    ``p``, and the author's ``p.dept`` becomes ``sales.p.dept`` (30.0 returns it, later
+    versions raise). The author's qualifier, kept on the field's identifier, names that
+    pivot, so ``p.dept`` is put back as written.
     """
     for dot in list(tree.find_all(exp.Dot)):
         field, base = dot.expression, dot.this
-        if not (
-            isinstance(field, exp.Identifier)
-            and field.meta.get(_BARE_IDENTIFIER_META)
-            and isinstance(base, exp.Column)
-            and base.table
-        ):
+        if not (isinstance(field, exp.Identifier) and isinstance(base, exp.Column) and base.table):
+            continue
+        bare = bool(field.meta.get(_BARE_IDENTIFIER_META))
+        if not bare and field.meta.get(_AUTHORED_QUALIFIER_META) != base.name.lower():
             continue
         select = dot.find_ancestor(exp.Select)
-        if select is None or base.name.lower() not in _select_source_names(select):
+        names = _select_source_names(select) if select is not None else set()
+        if not bare and select is not None:
+            names |= _select_pivot_aliases(select)
+        if base.name.lower() not in names:
             continue
         column = exp.column(field.copy(), table=exp.to_identifier(base.name))
-        column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
+        if bare:
+            column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
         dot.replace(column)
 
 
@@ -1056,6 +1074,19 @@ def _protect_deep_outer_refs(ast: exp.Expression, schema: dict | None) -> dict[s
         protected[token] = column.copy()
         column.replace(exp.Literal.string(token))
     return protected
+
+
+def _select_pivot_aliases(select: exp.Select) -> set[str]:
+    """Aliases of the PIVOT / UNPIVOT clauses written on a SELECT's FROM and JOIN items."""
+    from_ = select.args.get("from_")
+    items = ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]
+    return {
+        str(pivot.alias).lower()
+        for item in items
+        if item is not None
+        for pivot in item.args.get("pivots") or []
+        if pivot.alias
+    }
 
 
 def _select_source_names(select: exp.Select) -> set[str]:

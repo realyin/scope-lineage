@@ -16,7 +16,7 @@ from .parser import (
     _qualified_table,
     _schema_key,
 )
-from .pivot_columns import GROUP as PIVOT_GROUP, NAME as PIVOT_NAME, pivot_columns
+from .pivot_columns import GROUP as PIVOT_GROUP, NAME as PIVOT_NAME, VALUE as PIVOT_VALUE, PivotColumn, pivot_columns
 from .scope_types import (
     AMBIGUOUS_SCOPE_ID,
     CONSTANT_SCOPE_ID,
@@ -51,11 +51,26 @@ def _resolve_column_refs_in_expr(expr: exp.Expression, sg_scope: Scope, result: 
             scope_for_ref = _nested_query_scope(col_ref, expr, sg_scope)
             if scope_for_ref is None:
                 continue
-        src = _resolve_column_ref(col_ref, scope_for_ref, result, schema)
-        if src and _source_ref_binding_key(src) not in seen:
-            seen.add(_source_ref_binding_key(src))
-            sources.append(src)
+        for src in _column_ref_sources(col_ref, scope_for_ref, result, schema):
+            if _source_ref_binding_key(src) not in seen:
+                seen.add(_source_ref_binding_key(src))
+                sources.append(src)
     return sources
+
+
+def _column_ref_sources(
+    col_ref: exp.Column, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None = None,
+) -> list[SourceRef]:
+    """Every SourceRef one column reference stands for.
+
+    Almost always one. A PIVOT / UNPIVOT output column named through the pivot's alias
+    reads several columns -- a pivoted column its aggregate's inputs and the FOR column,
+    an UNPIVOT value column every IN column -- exactly as ``SELECT *`` over it does.
+    """
+    found = _resolve_column_ref(col_ref, sg_scope, result, schema)
+    if isinstance(found, list):
+        return found
+    return [found] if found else []
 
 
 def _nested_query_scope(
@@ -98,8 +113,11 @@ def _child_scopes(sg_scope: Scope) -> list:
     return children
 
 
-def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef | None:
+def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef | list[SourceRef] | None:
     """Resolve a single exp.Column to a SourceRef(scope_id, column_name).
+
+    A PIVOT / UNPIVOT output column read through the pivot's alias answers with every
+    column it reads (a non-empty list); callers go through ``_column_ref_sources``.
 
     Decision tree:
       1. Qualified (col_ref.table set): look up in sg_scope.sources
@@ -187,14 +205,15 @@ def _resolve_pivot_output_column(
     sg_scope: Scope,
     result: ScopeLineageResult,
     schema: dict | None,
-) -> SourceRef | None:
+) -> SourceRef | list[SourceRef] | None:
     """Resolve ``pivot_alias.column`` to what that PIVOT / UNPIVOT column reads.
 
     A PIVOT turns the values of its FOR key into column names, so `p.A` is not a column of
     anything sqlglot registered as a source — the alias belongs to the pivot, and the name
     comes from the IN list (PIVOT-001). A grouping column (audit 1.7) passes the pivoted
-    relation's column through; a pivoted column's value comes from the aggregate, so that
-    is where the lineage points.
+    relation's column through; a pivoted column reads its aggregate's columns and the FOR
+    column, and an UNPIVOT value column every IN column -- the same sources ``SELECT *``
+    over the pivot gives that column (``_pivot_scope_column``).
 
     A non-literal IN list leaves the column set unknowable; returning None keeps the caller
     on its unresolved path rather than binding a name nobody proved exists.
@@ -212,7 +231,32 @@ def _resolve_pivot_output_column(
         # normalizes the reference, so `IN ('A')` and `p.a` are the same column.
         if not names or col_name.lower() not in {name.lower() for name in names}:
             return None
-        return _first_column_ref(pivot.expressions, sg_scope, result, schema)
+        return _column_refs(pivot.expressions, sg_scope, result, schema)
+    return None
+
+
+def _pivot_value_column_of_ref(
+    col_ref: exp.Column,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> PivotColumn | None:
+    """The PIVOT / UNPIVOT value column ``pivot_alias.column`` names, if it names one.
+
+    Such a column has no expression to substitute for the reference -- it is the pivot's
+    own aggregate (or an UNPIVOT's pick among its IN columns) -- so a projection of it is
+    built the way ``SELECT *`` over the pivot builds it.
+    """
+    if col_ref.meta.get(_ORIGINALLY_UNQUALIFIED_META) or not col_ref.table:
+        return None
+    for node in _pivoted_source_nodes(sg_scope):
+        pivot = _pivot_of_source_node(node)
+        if pivot is None or getattr(pivot, "alias", None) != col_ref.table:
+            continue
+        relation = _pivoted_relation(node, sg_scope, result, schema)
+        modelled = pivot_columns(pivot, relation[2] if relation else None) or []
+        column = next((item for item in modelled if item.name == col_ref.name.lower()), None)
+        return column if column is not None and column.kind == PIVOT_VALUE else None
     return None
 
 
@@ -223,7 +267,7 @@ def _modelled_pivot_ref(
     sg_scope: Scope,
     result: ScopeLineageResult,
     schema: dict | None,
-) -> SourceRef | None:
+) -> SourceRef | list[SourceRef] | None:
     column = next((item for item in modelled if item.name == col_name.lower()), None)
     if column is None:
         return None
@@ -235,21 +279,24 @@ def _modelled_pivot_ref(
             return None
         literal = exp.Literal.string(column.constants[0]).sql(dialect=DIALECT)
         return SourceRef(scope=CONSTANT_SCOPE_ID, column=literal)
-    return _first_column_ref(column.reads, sg_scope, result, schema)
+    return _column_refs(column.reads, sg_scope, result, schema)
 
 
-def _first_column_ref(
+def _column_refs(
     nodes: list,
     sg_scope: Scope,
     result: ScopeLineageResult,
     schema: dict | None,
-) -> SourceRef | None:
+) -> list[SourceRef] | None:
+    """The distinct SourceRefs the columns under ``nodes`` resolve to; None for none."""
+    seen: set = set()
+    refs: list[SourceRef] = []
     for node in nodes:
-        for column in node.find_all(exp.Column):
-            resolved = _resolve_column_ref(column, sg_scope, result, schema)
-            if resolved is not None:
-                return resolved
-    return None
+        for ref in _resolve_column_refs_in_expr(node, sg_scope, result, schema):
+            if _source_ref_binding_key(ref) not in seen:
+                seen.add(_source_ref_binding_key(ref))
+                refs.append(ref)
+    return refs or None
 
 
 def _pivoted_relation(

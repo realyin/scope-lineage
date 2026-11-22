@@ -33,6 +33,7 @@ from .column_ref_resolver import (
     _bound_source_ref,
     _pivoted_relation,
     _input_ref_id_for_source_alias,
+    _pivot_value_column_of_ref,
     _resolve_column_refs_in_expr,
 )
 from .sql_comments import subtree_comments
@@ -232,6 +233,9 @@ def _resolve_projection(
     sources = _resolve_column_refs_in_expr(inner, sg_scope, result, schema)
     if not sources:
         sources = _fallback_sources_for_source_free_expr(inner, transform, expression, sg_scope, result)
+    pivoted = _pivot_value_projection(inner, name, name_is_generated, sources, sg_scope, result, schema)
+    if pivoted is not None:
+        return [pivoted]
 
     col = ScopeColumn(
         name=name,
@@ -253,6 +257,41 @@ def _resolve_projection(
         col.agg_function = _extract_agg_function(inner)
 
     return [col]
+
+
+def _pivot_value_projection(
+    inner: exp.Expression,
+    name: str,
+    name_is_generated: bool,
+    sources: List[SourceRef],
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> ScopeColumn | None:
+    """``p.q1`` naming a PIVOT / UNPIVOT value column is that column, as ``SELECT *`` gives it.
+
+    The reference reads the aggregate's inputs and the FOR column (an UNPIVOT's value
+    column: every IN column), and like the starred column it is an aggregate (a pick), not
+    a direct copy of one input. Taken only when the reference resolved to exactly the
+    modelled column's sources, i.e. through the pivot rather than some other binding.
+    """
+    if not isinstance(inner, exp.Column):
+        return None
+    column = _pivot_value_column_of_ref(inner, sg_scope, result, schema)
+    if column is None:
+        return None
+    modelled = _pivot_scope_column(column, None, sg_scope, result, schema)
+    if {_source_ref_binding_key(ref) for ref in modelled.sources} != {
+        _source_ref_binding_key(ref) for ref in sources
+    }:
+        return None
+    return ScopeColumn(
+        name=name,
+        transform=modelled.transform,
+        name_is_generated=name_is_generated,
+        expression=modelled.expression,
+        sources=sources,
+    )
 
 
 def _fallback_sources_for_source_free_expr(

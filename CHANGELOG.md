@@ -667,6 +667,20 @@
   subquery became `MAX(o.i.k)`. The reference is now put back as later sqlglot versions
   leave it (`i.flag`, still marked unqualified) before columns are resolved. Outputs on
   sqlglot 30.16 / 30.17 do not change.
+- **A reference through a PIVOT / UNPIVOT alias is the column `SELECT *` gives.** Two gaps
+  were left in the alias form. With the PIVOT written straight on a table
+  (`FROM s.sales PIVOT (SUM(amt) FOR quarter IN ('Q1', 'Q2')) p`), `p.dept` was published
+  as a physical column `s.sales.p`. sqlglot rewrites the tree as `sales.p.dept` in
+  place: 30.16 / 30.17 then raise, and the fallback used the half-rewritten tree, while
+  30.0 returns the struct reading. Now the fallback is a copy taken before `qualify`, and
+  on 30.0 the author's `p.dept` is put back. Separately, an alias reference resolved to the
+  first column a pivot column reads, so `p.q1` kept `amt` but dropped the FOR column
+  `quarter`, and an UNPIVOT's `u.val` kept only its first IN column. Both now read
+  what `SELECT *` over the same pivot reads. A bare `p.q1` is also the pivot's `AGGREGATE`
+  column (expression `q1`, as under `*`) instead of a `DIRECT` copy of `amt`, so its
+  `physical_source_fields` gain the FOR column. A pivot column inside a larger
+  expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
+  `partially_resolved`, as before.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
