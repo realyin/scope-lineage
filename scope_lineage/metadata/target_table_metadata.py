@@ -98,27 +98,32 @@ def load_target_table_metadata(
     rejected: list[dict] = []
     provenance_by_file: dict[str, dict] = {}
     for file_path in files:
-        text = check_metadata_file(
-            file_path,
-            sanitize_nul=sanitize_nul,
-            provenance=provenance,
-            role=provenance_role,
-        )
         try:
-            document = json.loads(text)
-        except json.JSONDecodeError as exc:
+            item = _read_target_metadata_file(
+                file_path,
+                sanitize_nul=sanitize_nul,
+                provenance=provenance,
+                role=provenance_role,
+            )
+        except MetadataFileError as exc:
             # Skip this file rather than abandoning the directory: 0.1.6 set that rule for source
             # schema after two bad files among 3434 left every table without columns, and the
-            # same argument applies here. A load that produced no table at all still raises,
+            # same argument applies here -- to every reason a file is unusable (empty, not
+            # UTF-8, not JSON, not an object), not only to a JSON decode error. One named file
+            # still raises as it always did. A load that produced no table at all still raises,
             # below (META-ISOLATION-001).
+            if not root.is_dir() and not isinstance(exc, _InvalidJsonError):
+                raise
+            # The first line names the cause; the file is named by ``source_file``, so the
+            # path (which may be absolute) does not travel into the artifact.
+            issue = str(exc).splitlines()[0].replace(str(file_path), Path(file_path).name)
             rejected.append({
                 "table": "",
                 "source_file": Path(file_path).name,
                 "reason": "metadata_rejected",
-                "issues": [f"not valid JSON: line {exc.lineno}, column {exc.colno}: {exc.msg}"],
+                "issues": [issue],
             })
             continue
-        item = _target_table_metadata_from_document(document, file_path)
         key = normalize_table_name(item.table_name or item.full_table_name)
         if not key:
             rejected.append({
@@ -162,6 +167,37 @@ def load_target_table_metadata(
             f"目标表 DDL/Schema 元数据全部无效，未能加载任何表\n  {detail}"
         )
     return result
+
+
+class _InvalidJsonError(MetadataFileError):
+    """A file whose bytes read as text but not as JSON.
+
+    Kept apart because this one cause was always recorded as a rejection, even for a single
+    named file (where the nothing-loaded backstop then raises with every file named).
+    """
+
+
+def _read_target_metadata_file(
+    file_path: Path,
+    *,
+    sanitize_nul: bool,
+    provenance: list[dict] | None,
+    role: str,
+) -> TargetTableMetadata:
+    """One file's metadata, or ``MetadataFileError`` saying why the file is unusable."""
+    text = check_metadata_file(
+        file_path,
+        sanitize_nul=sanitize_nul,
+        provenance=provenance,
+        role=role,
+    )
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise _InvalidJsonError(
+            f"not valid JSON: line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    return _target_table_metadata_from_document(document, file_path)
 
 
 def lookup_target_table_metadata(

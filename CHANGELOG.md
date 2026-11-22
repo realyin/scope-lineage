@@ -17,6 +17,10 @@
   inside a `COMMENT '...'` string is still text.
 - **A metadata file holding only a UTF-8 BOM is reported as empty** (`MetadataFileError`)
   instead of failing with `IndexError`.
+- **One unusable file in a `--target-ddl-metadata` directory costs only that file.** An empty
+  file, a file that is not UTF-8, or a JSON array used to abort the whole directory; like a
+  malformed JSON file, it is now recorded in `metadata_conflicts` (`metadata_rejected`) and the
+  rest loads. A single named file still raises, and so does a directory where nothing loaded.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
