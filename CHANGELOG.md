@@ -480,6 +480,15 @@
   `udf_expression` although the catalog lists `now`. The subtype now consults the catalog; an
   unknown name is still a UDF. `current_timestamp()`, `current_date()` and `unix_timestamp()`
   parse to named nodes and were never affected.
+- **`describe` no longer describes EXCEPT / INTERSECT as a UNION.** The profile read every set
+  operation as a sum of branches: the grain blocker said 「行数为各分支之和」, the stage action
+  「合并 2 个分支」, the shape line 合并型, and every branch's table was `driving`. EXCEPT keeps
+  the first branch's rows no other branch has and INTERSECT those every other branch also has,
+  so the stage action now reads 「差集：取 A 的行，去掉在 B 中出现的行」 / 「交集：取 A 的行，只留在 B
+  中也出现的行」, the shape line 差集型 / 交集型 (the `shape` value stays `union_merge`), the grain
+  blocker says where the rows come from, only the first branch is on the driving path, and the
+  tables of the later branches are `filter_partner` instead of `driving` / `union_branch`.
+  `key_confidence` is unchanged (`none`): nothing here proves a key.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

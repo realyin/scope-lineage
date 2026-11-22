@@ -1683,9 +1683,17 @@ def _input_roles(document: dict) -> dict[str, list[str]]:
         add(table, "merge_source")
     for step in _profile_steps(document):
         _add_step_roles(step, left_inputs, right_inputs, add)
-    for scope in _scopes(document).values():
+    for scope_id, scope in _scopes(document).items():
         alignment = scope.get("union_branch_alignment") or {}
-        for branch in alignment.get("branches") or []:
+        branches = alignment.get("branches") or []
+        # An EXCEPT / INTERSECT branch after the first adds no rows; it only decides
+        # which of the first branch's rows survive, which is what `filter_partner` says.
+        if _row_filtering_set_op(document, str(scope_id)):
+            for branch in branches[1:]:
+                for table in branch.get("source_tables") or []:
+                    add(str(table), "filter_partner")
+            branches = branches[:1]
+        for branch in branches:
             for table in branch.get("source_tables") or []:
                 add(str(table), "union_branch")
     for table in joined:
@@ -1980,15 +1988,18 @@ def _walk_driving(
 def _driving_inputs_of(document: dict, scope_id: str) -> list[str]:
     """The inputs whose rows this scope's rows follow, left to right.
 
-    A UNION answers with every branch, because its row count is their sum. Everything
-    else answers with its FROM item, moved to the right side by a RIGHT JOIN and joined
+    A UNION answers with every branch, because its row count is their sum; an EXCEPT or
+    INTERSECT answers with its first branch, the only one its rows come from (the others
+    only drop rows, and R7 names their tables ``filter_partner``). Everything else answers
+    with its FROM item, moved to the right side by a RIGHT JOIN and joined
     by a FULL one. A scope the contract gave no ``input_edges`` (a UNION's own parent,
     which reads nothing but the union) falls back to the dependency-level rule.
     """
     scope = _scopes(document).get(scope_id) or {}
     branches = (scope.get("union_branch_alignment") or {}).get("branches") or []
     if branches:
-        return [str(branch.get("branch_id")) for branch in branches]
+        ids = [str(branch.get("branch_id")) for branch in branches]
+        return ids[:1] if _row_filtering_set_op(document, scope_id) else ids
     edges = scope.get("input_edges") or []
     driving = [
         str(edge.get("source_id"))
@@ -4109,6 +4120,35 @@ def _root_reads_only_union_scopes(document: dict) -> bool:
     )
 
 
+# The set operations whose rows come from the first branch alone (WP3b labels them).
+_ROW_FILTERING_SET_OPS = ("EXCEPT", "INTERSECT")
+
+
+def _set_op_at(document: dict, scope_id: str) -> str | None:
+    """The set operation a scope performs, or the one it reads when its only input is one.
+
+    ROOT over a set operation carries no ``set_op`` of its own; the scope it reads does.
+    """
+    scopes = _scopes(document)
+    scope = scopes.get(scope_id) or {}
+    own = scope.get("set_op") or (scope.get("union_branch_alignment") or {}).get("set_op")
+    if own:
+        return str(own)
+    inputs = [str(item) for item in scope.get("depends_on") or []]
+    if len(inputs) == 1 and str((scopes.get(inputs[0]) or {}).get("kind")) == "union":
+        found = (scopes.get(inputs[0]) or {}).get("set_op")
+        return str(found) if found else None
+    return None
+
+
+def _row_filtering_set_op(document: dict, scope_id: str) -> bool:
+    """Whether this scope is itself an EXCEPT or INTERSECT over branches."""
+    scope = _scopes(document).get(scope_id) or {}
+    return bool((scope.get("union_branch_alignment") or {}).get("branches")) and str(
+        _set_op_at(document, scope_id)
+    ) in _ROW_FILTERING_SET_OPS
+
+
 def _root_dedup_evidence(document: dict) -> list[str]:
     """ROOT's own DISTINCT, or a ranking window ROOT itself filters to ``= 1``.
 
@@ -4475,6 +4515,11 @@ def _grain_blocker(document: dict, scope_id: str, types: set) -> str | None:
     if "union" in types or (_scopes(document).get(scope_id) or {}).get(
         "union_branch_alignment"
     ):
+        set_op = _set_op_at(document, scope_id)
+        if set_op == "EXCEPT":
+            return f"{scope_id} 含 EXCEPT（行取自首个分支，去掉其余分支中出现的行；非单一上游行数）"
+        if set_op == "INTERSECT":
+            return f"{scope_id} 含 INTERSECT（行取自首个分支，只留其余分支中也出现的行；非单一上游行数）"
         return f"{scope_id} 含 UNION（行数为各分支之和，非单一上游行数）"
     if _has_lateral_view(document, scope_id):
         return f"{scope_id} 含 LATERAL VIEW（行数展开）"
@@ -7135,9 +7180,8 @@ def _union_actions(document: dict, scope_id: str) -> list[dict]:
         or str(branch.get("branch_id"))
         for branch in branches
     ]
-    return [
-        _action("union", semantic_text.describe_union(labels), evidence=scope_id)
-    ]
+    text = semantic_text.describe_set_operation(str(_set_op_at(document, scope_id) or ""), labels)
+    return [_action("union", text, evidence=scope_id)]
 
 
 def _lateral_view_actions(step: dict, scope_id: str) -> list[dict]:
@@ -7822,10 +7866,13 @@ def _driving_inputs(document: dict, scope_id: str) -> list[str]:
     """The inputs whose rows this scope's rows come from, or [] when it cannot be told.
 
     A UNION answers with every branch -- each row arrives through one of them, so all of
-    them are on the path. Everything else answers with its single FROM item, and a scope
-    whose FROM item is ambiguous stops the descent rather than guessing.
+    them are on the path. An EXCEPT or INTERSECT answers with its first branch, the only
+    one its rows arrive through. Everything else answers with its single FROM item, and a
+    scope whose FROM item is ambiguous stops the descent rather than guessing.
     """
     scope = _scopes(document).get(scope_id) or {}
+    if _row_filtering_set_op(document, scope_id):
+        return _driving_inputs_of(document, scope_id)
     if scope.get("union_branch_alignment") or str(scope.get("kind")) in (
         "union",
         "union_branch",
