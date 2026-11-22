@@ -131,6 +131,10 @@ scope-lineage tables --lineage /path/to/corpus --merge /path/to/a/tables.json \
   **同名任务在两份语料里算两个**：那是两棵树的两次扫描，这里不假定它们是同一段代码。
   每条 entry 因此多一个 `corpus`（来源文档的 `corpus.artifact_root`，文档没记就是 `corpus:N`），
   借来的证据永远说得出该去哪棵树里找那个任务。
+- **条目按语句的写法分卡**：一个别名在合并后变成歧义（语料 1 把裸名 `t` 并进 `ods.t`，语料 2 带来
+  `dwd.t`）时，`t` 自成一张卡，只收 `as` 是 `t` 的条目；写或读 `ods.t` 的条目留在 `ods.t` 卡上。
+  合并后的卡上，条目的 `as` 按新主名重写。没有 `as` 字段的旧 `tables.json`（卡有 `aliases`、条目都不带
+  `as`）说不出条目用的是哪种写法，照旧把它的条目列在两张卡上。
 - `columns[]` 取并集：**顺序取第一份声明它们的文档**（那是某个 catalog 的声明顺序），
   只有后面的文档知道的列追加在末尾；`used_in_corpus` 取或，`consumer_usage_counts` 相加，
   `samples` 取并集、按首次出现排序，上限取各文档中最宽的那一份——卡上只有值没有 count，
@@ -178,6 +182,7 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
       "produced_by": [
         {"task": "…", "statement_id": "stmt:001",
          "corpus": "…",                                 // 只有合并过才出现
+         "as": "mart.customer_daily",                   // 语句的写法与 table 不同时才出现
          "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
          "grain": {"basis": "group_by", "keys": ["customer_id"],
@@ -207,6 +212,8 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 }
 ```
 
+- `produced_by[].as` / `consumed_by[].as`（可选）：该语句写或读这张表时用的写法（规范化后），只在它与卡的
+  `table` 不同时出现（上例里写 `mart.customer_daily` 的语句）。`tables --merge` 据此把条目分到对应的卡上。
 - `produced_by[]` 每条来自该任务 semantic profile 的 `task` / `output_shape` / `fields` 块，
   `refresh` 来自任务 JSON 的 `meta`（`schedule_cycle` / `schedule`），没有就是 `null`——
   绝不从分区列或表名猜调度周期。

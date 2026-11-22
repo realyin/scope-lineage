@@ -689,6 +689,13 @@
   `table_identity_ambiguous` (with the `names`) and no lineage evidence, and JOINs touching it
   are not counted for relations. Configure `SCOPE_LINEAGE_CATALOG_PREFIXES` if they are one
   table.
+- **`tables --merge` no longer lists a statement on a bare-name card it never wrote or read.**
+  Once another corpus made a bare `t` ambiguous, the `t` card listed the producer that wrote
+  `ods.t` and the bare-name reader stayed on `ods.t` too. A producer or consumer entry now
+  records the spelling its statement used when that differs from the card's table (`as`), and
+  the merge gives the ambiguous bare-name card only the entries that used the bare name; the
+  qualified card keeps the rest. A `tables.json` written before the field existed is merged as
+  before, with those entries on both cards.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

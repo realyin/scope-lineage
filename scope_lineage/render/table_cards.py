@@ -147,9 +147,15 @@ TABLE_KEY_ORDER = (
     "key_claim",
 )
 
+# DECISIONS 6.1: the spelling a statement used for the table, when it is not the card's
+# ``table``; absent when they are the same. The merge reads it to put each entry on the
+# card of the name it actually wrote or read.
+SPELLING_KEY = "as"
+
 PRODUCER_KEY_ORDER = (
     "task",
     "statement_id",
+    SPELLING_KEY,
     "stmt_kind",
     "partition",
     "grain",
@@ -166,6 +172,7 @@ PRODUCER_KEY_ORDER = (
 CONSUMER_KEY_ORDER = (
     "task",
     "statement_id",
+    SPELLING_KEY,
     "role_in_task",
     "roles",
     "columns",
@@ -455,12 +462,23 @@ def _table_card(
     bare_name_candidates: Sequence[str] = (),
     samples=None,
 ) -> dict:
-    producers = [record for name in spellings for record in produced.get(name, [])]
-    producers.sort(key=lambda record: (record.task, record.statement_id))
-    consumers = [pair for name in spellings for pair in consumed.get(name, [])]
-    consumers.sort(key=lambda pair: (pair[0].task, pair[0].statement_id))
-    produced_by = [_producer_entry(record) for record in producers]
-    consumed_by = [_consumer_entry(record, item) for record, item in consumers]
+    spelled_producers = [
+        (name, record) for name in spellings for record in produced.get(name, [])
+    ]
+    spelled_producers.sort(key=lambda found: (found[1].task, found[1].statement_id))
+    spelled_consumers = [
+        (name, pair) for name in spellings for pair in consumed.get(name, [])
+    ]
+    spelled_consumers.sort(key=lambda found: (found[1][0].task, found[1][0].statement_id))
+    producers = [record for _name, record in spelled_producers]
+    consumers = [pair for _name, pair in spelled_consumers]
+    produced_by = [
+        _producer_entry(record, _spelling(name, primary)) for name, record in spelled_producers
+    ]
+    consumed_by = [
+        _consumer_entry(record, item, _spelling(name, primary))
+        for name, (record, item) in spelled_consumers
+    ]
     declared = _declared_columns(producers, consumers)
     columns = _columns(produced_by, consumers, declared)
     _apply_samples(columns, [primary, *spellings], samples)
@@ -497,7 +515,12 @@ def _with_key_claim(card: dict) -> dict:
     return {key: card[key] for key in TABLE_KEY_ORDER}
 
 
-def _producer_entry(record: _Statement) -> dict:
+def _spelling(name: str, table: str) -> str | None:
+    """The ``as`` of an entry: the statement's spelling, or None when it is the card's."""
+    return None if name == table else name
+
+
+def _producer_entry(record: _Statement, spelling: str | None = None) -> dict:
     statement = record.profile
     task_block = statement.get("task") or {}
     shape = statement.get("output_shape") or {}
@@ -505,6 +528,7 @@ def _producer_entry(record: _Statement) -> dict:
     entry = {
         "task": record.task,
         "statement_id": record.statement_id,
+        SPELLING_KEY: spelling,
         "stmt_kind": task_block.get("stmt_kind"),
         "partition": _partition(task_block.get("partition")),
         "grain": _producer_grain(grain),
@@ -524,7 +548,7 @@ def _producer_entry(record: _Statement) -> dict:
     return {
         key: entry[key]
         for key in PRODUCER_KEY_ORDER
-        if key not in ("batch_write_keys", "validity_window") or entry[key]
+        if key not in ("batch_write_keys", "validity_window", SPELLING_KEY) or entry[key]
     }
 
 
@@ -585,10 +609,11 @@ def refresh_from_task_meta(task_meta: dict | None) -> dict | None:
     return {"cycle": cycle, "cron": cron, "source": REFRESH_SOURCE_TASK_META}
 
 
-def _consumer_entry(record: _Statement, item: dict) -> dict:
+def _consumer_entry(record: _Statement, item: dict, spelling: str | None = None) -> dict:
     entry = {
         "task": record.task,
         "statement_id": record.statement_id,
+        SPELLING_KEY: spelling,
         "role_in_task": item.get("role_in_task"),
         "roles": [str(role) for role in item.get("roles") or []],
         "columns": [
@@ -598,7 +623,7 @@ def _consumer_entry(record: _Statement, item: dict) -> dict:
         ],
         "read_by_scopes": [str(scope) for scope in item.get("read_by_scopes") or []],
     }
-    return {key: entry[key] for key in CONSUMER_KEY_ORDER}
+    return {key: entry[key] for key in CONSUMER_KEY_ORDER if key != SPELLING_KEY or entry[key]}
 
 
 # ---------------------------------------------------------------------------- columns
@@ -1136,8 +1161,8 @@ def _merged_card(
     cards = [pair for pair in members if group & set(_card_spellings(pair[1]))]
     if not cards:
         return _finding_only_card(primary, spellings, bare_name_candidates)
-    produced_by = _merged_entries(cards, "produced_by")
-    consumed_by = _merged_entries(cards, "consumed_by")
+    produced_by = _merged_entries(cards, "produced_by", primary, group)
+    consumed_by = _merged_entries(cards, "consumed_by", primary, group)
     columns = _merged_columns(cards)
     comment = _first_fact(cards, "comment")
     card = {
@@ -1207,16 +1232,27 @@ def _first_coverage(cards: Sequence[tuple[str, Mapping]], key: str):
     )
 
 
-def _merged_entries(cards: Sequence[tuple[str, Mapping]], key: str) -> list[dict]:
+def _merged_entries(
+    cards: Sequence[tuple[str, Mapping]],
+    key: str,
+    primary: str | None = None,
+    group: Iterable[str] | None = None,
+) -> list[dict]:
     """``produced_by`` / ``consumed_by`` of every document, one entry per statement.
 
     The identity of an entry is ``(task, statement_id, corpus)``: one task read twice in
     one corpus is one reader, and the same task name in two corpora is two -- they are
     two walks of two trees, and nothing here may assume they are the same code.
+
+    DECISIONS 6.1: given the merged card's ``primary`` and ``group`` of spellings, an
+    entry joins only when the spelling its statement used is in the group, and its ``as``
+    is re-stated against the new primary. A card from a ``tables.json`` written before
+    ``as`` existed (aliases, but no entry carrying one) cannot say which spelling an
+    entry used, so all of its entries join, as they always did.
     """
     entries: dict[tuple[str, str, str], dict] = {}
     for label, card in cards:
-        for entry in card.get(key) or []:
+        for entry in _entries_in_group(card, key, primary, group):
             stamped = _stamped(entry, label)
             entries.setdefault(
                 (
@@ -1227,6 +1263,43 @@ def _merged_entries(cards: Sequence[tuple[str, Mapping]], key: str) -> list[dict
                 stamped,
             )
     return [entries[identity] for identity in sorted(entries)]
+
+
+def _entries_in_group(
+    card: Mapping, key: str, primary: str | None, group: Iterable[str] | None
+) -> list[Mapping]:
+    """The card's ``key`` entries that belong on the merged card ``primary``."""
+    entries = list(card.get(key) or [])
+    if primary is None or group is None or _written_before_spellings(card):
+        return entries
+    members = set(group)
+    table = _identity.canonical_table_name(card.get("table"))
+    kept = []
+    for entry in entries:
+        spelling = _identity.canonical_table_name(entry.get(SPELLING_KEY) or table)
+        if spelling in members:
+            kept.append(_respelled(entry, _spelling(spelling, primary)))
+    return kept
+
+
+def _written_before_spellings(card: Mapping) -> bool:
+    """A card with aliases whose entries never say a spelling: written before ``as``."""
+    if not card.get("aliases"):
+        return False
+    return not any(
+        entry.get(SPELLING_KEY)
+        for key in ("produced_by", "consumed_by")
+        for entry in card.get(key) or []
+    )
+
+
+def _respelled(entry: Mapping, spelling: str | None) -> dict:
+    """The entry with its ``as`` stated against the card it now sits on."""
+    entry = {name: value for name, value in entry.items() if name != SPELLING_KEY}
+    if spelling is None:
+        return entry
+    anchor = "corpus" if "corpus" in entry else "statement_id"
+    return _insert_after(entry, anchor, SPELLING_KEY, spelling)
 
 
 def _stamped(entry: Mapping, label: str) -> dict:
