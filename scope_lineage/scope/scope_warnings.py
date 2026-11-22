@@ -87,6 +87,10 @@ def _detect_magic_numbers(result: ScopeLineageResult) -> None:
             for lit in tree.find_all(exp.Literal):
                 if not lit.is_number:
                     continue
+                # `DECIMAL(18, 2)`'s literals are the type's precision and scale, not a
+                # value the expression computes with (WP4 1.13-l).
+                if lit.find_ancestor(exp.DataType, exp.DataTypeParam) is not None:
+                    continue
                 try:
                     val = float(lit.this)
                 except (ValueError, TypeError):

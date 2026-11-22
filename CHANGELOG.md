@@ -117,6 +117,9 @@
   `expanded_expression` dropped the call around it or kept a local alias. All of these now go
   through the shared splitter. `display_expression` no longer drops a struct field named like the
   table alias (`u.profile.u.name` displays as `` `profile`.`u`.`name` ``).
+- **`magic_number` no longer warns about a type's precision.** `CAST(x AS DECIMAL(18, 2))` was
+  warned about the literal `18`; a literal inside a type's parameters is now skipped, and a value
+  literal in the same expression is still warned about.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
