@@ -1086,10 +1086,10 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 
 | Option | What it gives |
 | --- | --- |
-| `--concept` (id, id without its prefix, name, synonym or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites) |
+| `--concept` (id, id without its prefix, name, synonym or term; or a metric's id, id without `metric:`, name or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites); a term no concept matches is tried as a metric, and the metric's concept is packed with that metric first, named in `via_metric` (`{id, name}`) |
 | `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh, time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions, the downstream tasks and tables that read it, one line per column |
 | `--column` (`db.table.column`) | the catalog binding (what it points at, definition, unit, code values, derivation, time role, lineage expression); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column |
-| `--columns` (`col[,col...]`) | the same as `--column` for columns of the one `--table`, named without the table and separated by commas; needs exactly one `--table` |
+| `--columns` (`col[,col...]`) | the same as `--column` for columns of the `--table` values, named without the table and separated by commas; needs a `--table`. With one `--table` every name is that table's. With several, a bare name goes to every requested table that has the column (the catalog binds it on the table, or the table's semantics document describes it; case is ignored), `table.col` pins the requested table of that name and `db.table.col` is taken as written; a name already asked is not asked again |
 | `--brief` | a short `--table` pack: every catalog fact, what it is, what one row is, how to read it, scope, good for, not for, things to watch, open questions and the text of the cited rules stay; columns are listed by name grouped by category (entries keep `column` and `category`), cited rules lose their SQL, downstream readers are named by the table they write (by their task when they write none); a column whose table is in the same pack points to the table's notes instead of repeating them |
 | `--focus` | with `--column`/`--columns`: each table's watch items, open questions and cited rules narrowed to its requested columns; `semantics.focus` (`columns`, `left_out` counts) says what was left out |
 
@@ -1191,8 +1191,11 @@ not record which (read the 「取数」 line).
 
 `--json` prints `catalog-context/1`: `{"doc_format", "query", "concepts", "tables", "columns", "missing"}`, plus `links` with two or more tables;
 names that were not found are listed in `missing`; `query` also carries `"brief": true` and `"focus": true`
-when those options were given, and `query.columns` lists `--columns` as `db.table.column`. Exit codes: `0` at
-least one was found, `1` none was, `2` no option was given, `--columns` without exactly one `--table`,
+when those options were given, and `query.columns` lists `--columns` as `db.table.column` after `--column`.
+A `--columns` name no requested table has is listed once in `missing` with the tables tried
+(`{"kind": "column", "term", "tables"}`); a metric whose `on` is no concept of the catalog, as
+`{"kind": "concept", "term", "metric": {id, name}}`. Exit codes: `0` at
+least one was found, `1` none was, `2` no option was given, `--columns` without a `--table`,
 `--focus` without a column, or the file or the `--semantics` directory cannot be read.
 
 ## SQL check: `catalog check-sql`

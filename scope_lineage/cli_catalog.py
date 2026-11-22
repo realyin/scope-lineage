@@ -169,8 +169,10 @@ def _add_context_parser(actions) -> None:
     context_cmd.add_argument(
         "--columns", action="append", default=[], metavar="COL[,COL...]",
         help=(
-            "Columns of the one --table, comma-separated, each answered in full like --column "
-            "in the same pack (repeatable; needs exactly one --table)"
+            "Columns of the --table values, comma-separated, each answered in full like "
+            "--column in the same pack: a bare name goes to every requested table that has "
+            "the column (bound in the catalog or in its semantics document), table.col pins "
+            "one (repeatable; needs a --table)"
         ),
     )
     context_cmd.add_argument(
@@ -191,7 +193,10 @@ def _add_context_parser(actions) -> None:
     )
     context_cmd.add_argument(
         "--concept", action="append", default=[], metavar="CONCEPT",
-        help="A concept by id, name, synonym or term: tables, constraints, metrics (repeatable)",
+        help=(
+            "A concept by id, name, synonym or term, or a metric by id or name (packs the "
+            "metric's concept, that metric first): tables, constraints, metrics (repeatable)"
+        ),
     )
     context_cmd.add_argument(
         "--json", action="store_true",
@@ -387,22 +392,17 @@ def _run_context(args: argparse.Namespace) -> int:
     if not (args.table or args.column or args.columns or args.concept):
         print("catalog context: name at least one --table, --column or --concept", file=sys.stderr)
         return 2
-    columns = list(args.column)
-    if args.columns:
-        if len(args.table) != 1:
-            print(
-                "catalog context: --columns names columns of one table; give exactly one "
-                "--table, or use --column db.table.column",
-                file=sys.stderr,
-            )
-            return 2
-        columns += [
-            f"{args.table[0]}.{name.strip()}"
-            for value in args.columns
-            for name in value.split(",")
-            if name.strip()
-        ]
-    if args.focus and not columns:
+    if args.columns and not args.table:
+        print(
+            "catalog context: --columns names columns of the --table values; give at least "
+            "one --table, or use --column db.table.column",
+            file=sys.stderr,
+        )
+        return 2
+    table_columns = [
+        name.strip() for value in args.columns for name in value.split(",") if name.strip()
+    ]
+    if args.focus and not (args.column or table_columns):
         print("catalog context: --focus needs the columns to focus on (--column or --columns)",
               file=sys.stderr)
         return 2
@@ -413,8 +413,8 @@ def _run_context(args: argparse.Namespace) -> int:
     if isinstance(semantics, int):
         return semantics
     pack = context_pack(
-        document, semantics, tables=args.table, columns=columns, concepts=args.concept,
-        brief=args.brief, focus=args.focus,
+        document, semantics, tables=args.table, columns=args.column, concepts=args.concept,
+        table_columns=table_columns, brief=args.brief, focus=args.focus,
     )
     if args.json:
         print(json.dumps(pack, ensure_ascii=False, indent=2))

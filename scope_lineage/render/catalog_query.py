@@ -112,6 +112,14 @@ def find_concepts(view: CatalogView, term: str) -> list[tuple[dict, str]]:
     return found or [(c, "term") for c in _by_term(view, term, view.concepts)]
 
 
+def find_metrics(view: CatalogView, term: str) -> list[tuple[dict, str]]:
+    """The metrics a term names: by id, then name, then a term that refers to one."""
+    levels = (("id", lambda m: [m["id"]]), ("name", lambda m: [m.get("name") or ""]))
+    found = _first_level(view.metrics, term, levels)
+    by_id = {m["id"]: m for m in view.metrics}
+    return found or [(m, "term") for m in _by_term(view, term, by_id)]
+
+
 def _concept_matches(view: CatalogView, term: str) -> list[dict]:
     return [_concept_answer(view, c, matched_by) for c, matched_by in find_concepts(view, term)]
 

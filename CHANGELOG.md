@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+- **`catalog context --columns` works with several `--table` values.** A bare name goes to
+  every requested table that has the column -- bound in the catalog, or described by the
+  table's semantics document, ignoring case -- so a join key spelled the same on both sides
+  comes from both; `table.col` pins the requested table of that name and `db.table.col` is
+  taken as written. A name no requested table has is listed once in `missing` with the tables
+  tried (`tables`), and a term already asked is not asked again. One `--table` behaves as
+  before; `--columns` without a `--table` still exits 2.
+- **`catalog context --concept` takes a metric.** A term no concept matches is tried as a
+  metric (`metric:<id>`, the id without `metric:`, its name or a term): the pack gives the
+  metric's concept with that metric first and says which metric led there (`via_metric`, and
+  「由指标 … 找到」 / 「（所问）」 in the text). A metric whose `on` is no concept of the catalog
+  is listed in `missing` with the metric. `doc_format` stays `catalog-context/1`; both
+  additions are optional fields. The `catalog-answers` walk uses both.
+
 ## 0.15.0
 - **New: draft a `domain-profile/1` from the corpus.** `scope-lineage domain-profile evidence
   --lineage --schema --out` counts, per table-name suffix, how statements read and write the
