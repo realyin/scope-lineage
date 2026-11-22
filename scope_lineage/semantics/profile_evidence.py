@@ -57,8 +57,10 @@ SUFFIX_RULES = {
     "lean_full_max_window_writes": 0,
     "lean_full_max_unconditioned_reads": 0.1,
 }
-#: How many entries of each material part ``evidence.md`` lists.
-MARKDOWN_LIMIT = 400
+#: How many entries of each material part ``evidence.md`` lists. Qualifier material is the
+#: larger part (every used column's comment), and a model reads it whole far more cheaply
+#: than it recovers a qualifier it never saw, so its limit is the higher one.
+MARKDOWN_LIMITS = {"qualifier": 1200, "concept": 400}
 _SHAPES_PER_READ = 3
 _EXAMPLES = 3
 _KEY_USAGES = frozenset({"group_by", "join_key"})
@@ -450,14 +452,20 @@ def _parts(evidence: dict) -> dict[str, list[tuple[str, dict]]]:
     }
 
 
-def _kept(entries: list[tuple[str, dict]]) -> set[int]:
-    """The positions ``evidence.md`` keeps of one part: the most frequent, at most the limit."""
-    order = sorted(range(len(entries)), key=lambda i: (-entries[i][1].get("count", 0), i))
-    return set(order[:MARKDOWN_LIMIT])
+def _kept(part: str, entries: list[tuple[str, dict]]) -> set[int]:
+    """The positions ``evidence.md`` keeps of one part, at most its limit: numeric columns'
+    comments first (qualifiers are mostly written on measure columns), then the most frequent."""
+    order = sorted(
+        range(len(entries)),
+        key=lambda i: (not entries[i][1].get("numeric"), -entries[i][1].get("count", 0), i),
+    )
+    return set(order[:MARKDOWN_LIMITS[part]])
 
 
 def truncated_count(evidence: dict) -> int:
-    return sum(max(0, len(entries) - MARKDOWN_LIMIT) for entries in _parts(evidence).values())
+    return sum(
+        max(0, len(entries) - MARKDOWN_LIMITS[part]) for part, entries in _parts(evidence).items()
+    )
 
 
 def evidence_summary(evidence: dict) -> str:
@@ -487,7 +495,7 @@ def _suggestion_text(entry: dict) -> str:
 
 def render_evidence_markdown(evidence: dict) -> str:
     """``evidence.md``: the same evidence for a model to read, the material parts cut at
-    :data:`MARKDOWN_LIMIT` entries each with the number left out."""
+    :data:`MARKDOWN_LIMITS` entries each with the number left out."""
     lines = ["# 领域配置证据", ""]
     for note in evidence.get("notes") or []:
         lines += [f"> **注意**：{note}", ""]
@@ -570,7 +578,7 @@ def _material_lines(evidence: dict) -> list[str]:
     lines: list[str] = []
     for part, entries in _parts(evidence).items():
         title, names = _PART_TITLES[part]
-        kept = _kept(entries)
+        kept = _kept(part, entries)
         lines += [title, ""]
         for name, heading in names.items():
             rows = [e for i, (owner, e) in enumerate(entries) if owner == name and i in kept]

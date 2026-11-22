@@ -178,8 +178,9 @@ and of the corpus tables, each de-duplicated, listed by count with one source, n
 the table comments, the comments of the writing statements' key columns (GROUP BY, JOIN keys), and the table-name words (the
 runs of letters and digits in the full name, cut as the concept layer's vote cuts them). A comment comes from `--schema` (and
 the fallbacks and patches) first and from what the parse carried into the lineage otherwise; `from` says which. `builtin`
-lists the qualifiers and concept words the package already has. `evidence.md` lists at most 400 entries of each of the two
-material parts and says how many more are in evidence.json.
+lists the qualifiers and concept words the package already has. `evidence.md` lists at most 1200 entries of qualifier material
+(numeric columns' comments first, then by frequency) and at most 400 of concept material (by
+frequency), and says how many more are in evidence.json.
 
 ### Draft and reasons
 

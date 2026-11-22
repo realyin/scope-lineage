@@ -254,22 +254,48 @@ def test_concept_material(corpora):
         "event", "entity", "summary", "measure_suffixes", "filter_words"}
 
 
-def test_the_markdown_truncates_and_says_by_how_much():
-    evidence = {
+def _material_evidence(columns: list[dict], key_comments: int = 0) -> dict:
+    return {
         "doc_format": pe.EVIDENCE_FORMAT, "inputs": {}, "suffix_rules": pe.SUFFIX_RULES,
         "coverage": {"tables": 1, "found": 1}, "suffixes": [], "write_only_suffixes": [],
-        "qualifier_material": {
-            "columns": [{"comment": f"c{i}", "count": 1, "numeric": False,
-                         "source": f"d.t.c{i}", "from": "schema"} for i in range(450)],
-            "tables": [],
+        "qualifier_material": {"columns": columns, "tables": []},
+        "concept_material": {
+            "table_tokens": [], "table_comments": [],
+            "key_comments": [{"comment": f"k{i}", "count": 1, "source": f"d.t{i}.k", "from": "schema"}
+                             for i in range(key_comments)],
         },
-        "concept_material": {"table_tokens": [], "table_comments": [], "key_comments": []},
         "builtin": {"qualifier_terms": [], "concept_words": {}}, "notes": [],
     }
+
+
+def _column(i: int, *, numeric: bool, count: int = 1) -> dict:
+    return {"comment": f"c{i}", "count": count, "numeric": numeric,
+            "source": f"d.t.c{i}", "from": "schema"}
+
+
+def test_the_markdown_truncates_and_says_by_how_much():
+    # Qualifier material keeps up to 1200 entries; concept material up to 400.
+    evidence = _material_evidence([_column(i, numeric=False) for i in range(1250)], key_comments=450)
     text = pe.render_evidence_markdown(evidence)
     assert "另有 50 条未列出，见 evidence.json" in text
-    assert "c399" in text or "c0" in text
-    assert pe.truncated_count(evidence) == 50
+    assert pe.truncated_count(evidence) == 100
+
+
+def test_qualifier_material_up_to_the_limit_is_not_truncated():
+    evidence = _material_evidence([_column(i, numeric=False) for i in range(1200)])
+    text = pe.render_evidence_markdown(evidence)
+    assert "未列出" not in text
+    assert pe.truncated_count(evidence) == 0
+
+
+def test_numeric_columns_are_kept_before_more_frequent_others():
+    # Qualifiers are mostly written on measure columns: a rare numeric column's comment
+    # survives truncation ahead of frequent non-numeric ones.
+    columns = [_column(i, numeric=False, count=5) for i in range(1200)]
+    columns.append(_column(9999, numeric=True, count=1))
+    text = pe.render_evidence_markdown(_material_evidence(columns))
+    assert "c9999" in text
+    assert "另有 1 条未列出" in text
 
 
 def test_small_suffixes_without_partition_reads_fold_into_one_line(corpora, tmp_path):
