@@ -461,6 +461,29 @@
   `--template <out>/glossary.md` wrote the form's JSON over `<out>/glossary.json` (and
   `<out>/glossary.json` the form over `glossary.md`). Such a path is now a usage error, exit 2,
   before anything is written.
+- **`validate` checks more references and the task document's own rows.**
+  `validate_cross_references` now also checks, in each statement document, every scope's
+  `depends_on` and each join's `left_scope` / `right_scope` (a scope or graph node; a MERGE's
+  target is accepted as a join side), `input_edges[].source_id` when `source_type` is `scope`,
+  and `outputs[].source_logic_blocks` (must be ids of the same scope's `logic_blocks`); in a
+  task document, every `source_state` in `value_sources`, `row_membership_sources`,
+  `value_condition_sources` and `window_context_sources` must be a `table_state_graph` node.
+  `validate_contract_invariants` now checks a task document's `end_to_end_lineage` rows too: a
+  row with `trace_complete: true` must not name `UNKNOWN` or `AMBIGUOUS` as a table in its
+  value, row-membership or value-condition sources. Each rule had zero violations over the
+  example corpus, the golden files and a full private corpus before it was added. A document
+  an older version wrote with one of these shapes now fails `validate`; parse it again.
+- **Two more ways a row condition published a placeholder table are fixed.** An INSERT whose
+  WHERE / JOIN / HAVING read a bare column two joined tables both have put
+  `{"table": "AMBIGUOUS"}` into `row_membership_sources`. Like any condition field that reaches
+  no physical column, it now gets no name and is a `row_condition_source_unresolved` gap
+  (`scope_id: "AMBIGUOUS"`). In a DELETE / UPDATE / MERGE condition, a qualifier is now
+  resolved through the query it sits in, each enclosing query, then the written table (its
+  alias, else its name): a correlated `t.id` against `DELETE FROM mart.t t` used to be
+  published as table `t` and is now `mart.t`. A qualifier none of them declares is `UNKNOWN`
+  with the `row_condition_source_unresolved` gap and an incomplete row, the same as an
+  unqualified column no table can be proven to own; it used to be published as a table of
+  that name.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

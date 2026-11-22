@@ -42,8 +42,45 @@ def validate_contract_invariants(document: dict) -> list[str]:
                 f"statement_lineage[{statement_id!r}]: {error}"
                 for error in _validate_statement_invariants(nested)
             )
+        errors.extend(_validate_task_row_invariants(document))
         return errors
     return _validate_statement_invariants(document)
+
+
+# The task-level row fields that name the physical fields a row was traced to.
+_TASK_ROW_SOURCE_FIELDS = (
+    "value_sources",
+    "row_membership_sources",
+    "value_condition_sources",
+)
+_PLACEHOLDER_TABLES = ("UNKNOWN", "AMBIGUOUS")
+
+
+def _validate_task_row_invariants(document: dict) -> list[str]:
+    """A complete task row names no placeholder table (C2.4-1).
+
+    ``UNKNOWN`` and ``AMBIGUOUS`` say a source could not be attributed to one table. A row
+    may carry one, but only while it says its trace is incomplete; beside
+    ``trace_complete: true`` it publishes an unproven attribution as a traced fact. The
+    embedded statement documents were checked and the task document's own rows were not,
+    which is how a DELETE condition shipped ``{"table": "UNKNOWN"}`` as complete.
+    """
+    errors: list[str] = []
+    for row in document.get("end_to_end_lineage") or []:
+        if not isinstance(row, dict) or row.get("trace_complete") is not True:
+            continue
+        label = f"end_to_end_lineage[{row.get('table')!r}.{row.get('column')!r}]"
+        for field in _TASK_ROW_SOURCE_FIELDS:
+            for source in row.get(field) or []:
+                if not isinstance(source, dict):
+                    continue
+                table = source.get("table")
+                if table in _PLACEHOLDER_TABLES:
+                    errors.append(
+                        f"{label}: {field} names {table!r} as a table but "
+                        "trace_complete is true"
+                    )
+    return errors
 
 
 def _validate_statement_invariants(document: dict) -> list[str]:

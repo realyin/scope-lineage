@@ -15,7 +15,12 @@ from .sqlglot_walk import render_sql_or_none
 from .composition import dedupe_sources
 from .end_to_end import _scope_column_roots
 from .parser import unbound_table_parameters
-from .scope_types import CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID, ScopeLineageResult
+from .scope_types import (
+    AMBIGUOUS_SCOPE_ID,
+    CONSTANT_SCOPE_ID,
+    SYSTEM_SCOPE_ID,
+    ScopeLineageResult,
+)
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
 from .multi_insert import MultiTableInsert, split_multi_table_inserts
@@ -1210,7 +1215,8 @@ def _apply_delete(
     predicate = where.this if isinstance(where, exp.Where) else None
     unresolved: list[str] = []
     membership_sources = _expression_field_sources(
-        predicate, target_table=table, states=states, unresolved=unresolved,
+        predicate, target_table=table, target_alias=tree.this.alias,
+        states=states, unresolved=unresolved,
     )
     if unresolved:
         gaps.append(_row_condition_gap(statement["statement_id"], table, unresolved))
@@ -1412,7 +1418,8 @@ def _apply_update(
     predicate = where.this if isinstance(where, exp.Where) else None
     condition_unresolved: list[str] = []
     condition_sources = _expression_field_sources(
-        predicate, target_table=table, states=states, unresolved=condition_unresolved,
+        predicate, target_table=table, target_alias=tree.this.alias,
+        states=states, unresolved=condition_unresolved,
     )
     unresolved = list(condition_unresolved)
     column_missing_reasons = {
@@ -1440,6 +1447,7 @@ def _apply_update(
         expression_sources = _expression_field_sources(
             assignment.expression,
             target_table=table,
+            target_alias=tree.this.alias,
             states=states,
             unresolved=value_unresolved,
         )
@@ -1904,6 +1912,13 @@ def _row_condition_fields(
     """
     if not relation or not column or column == "*":
         return []
+    if relation in _PLACEHOLDER_RELATIONS:
+        # Core could not bind the column to one relation (two joined tables both have
+        # it, or none is known to). A placeholder is no field this read was traced to:
+        # like any other condition field that reaches no physical column, it gets no
+        # name and is a gap. Published as a table, it sat beside trace_complete: true.
+        gaps.append(_condition_field_gap(statement_id, relation, column, condition))
+        return []
     if relation not in result.scopes:
         # A relation the script itself wrote is stamped like a value source: which state
         # was read, and whether it lives only in the session -- so the fold can resolve a
@@ -1914,25 +1929,37 @@ def _row_condition_fields(
         # A literal or a system value decides nothing about which source rows exist.
         return []
     if incomplete_reasons or not fields:
-        gap = {
-            "gap_type": "row_condition_source_unresolved",
-            "statement_id": statement_id,
-            "scope_id": relation,
-            "column": column,
-            "root_impact": True,
-            "needed_fact": "physical field behind a query condition",
-        }
-        if condition is not None:
-            condition_scope_id, block = condition
-            gap.update({
-                "condition_scope_id": condition_scope_id,
-                "logic_block_id": block.logic_block_id,
-                "logic_type": block.logic_type,
-                "expression": block.raw_expression,
-            })
-        gaps.append(gap)
+        gaps.append(_condition_field_gap(statement_id, relation, column, condition))
         return []
     return [{"table": field["table"], "column": field["column"]} for field in fields]
+
+
+_PLACEHOLDER_RELATIONS = frozenset({"UNKNOWN", AMBIGUOUS_SCOPE_ID})
+
+
+def _condition_field_gap(
+    statement_id: str,
+    relation: str,
+    column: str,
+    condition: tuple[str, Any] | None,
+) -> dict:
+    gap = {
+        "gap_type": "row_condition_source_unresolved",
+        "statement_id": statement_id,
+        "scope_id": relation,
+        "column": column,
+        "root_impact": True,
+        "needed_fact": "physical field behind a query condition",
+    }
+    if condition is not None:
+        condition_scope_id, block = condition
+        gap.update({
+            "condition_scope_id": condition_scope_id,
+            "logic_block_id": block.logic_block_id,
+            "logic_type": block.logic_type,
+            "expression": block.raw_expression,
+        })
+    return gap
 
 
 def _only_literal_or_system(generated: list[dict]) -> bool:
@@ -2021,6 +2048,7 @@ def _expression_field_sources(
     expression: exp.Expression | None,
     *,
     target_table: str,
+    target_alias: str | None = None,
     states: "_StateBuilder | None" = None,
     unresolved: list[str] | None = None,
 ) -> list[dict]:
@@ -2034,36 +2062,80 @@ def _expression_field_sources(
     of them has it and every other is known not to. Otherwise it is published as
     ``UNKNOWN`` and its name added to ``unresolved``, so the caller can report the gap
     and mark the row incomplete rather than pass the placeholder off as traced (WP3q).
+    A qualifier no enclosing query and not the written table (``target_alias``, else its
+    name) declares is the same case.
     """
     if expression is None:
         return []
+    target_names = _target_qualifiers(target_table, target_alias)
     sources: list[dict] = []
     for column in expression.find_all(exp.Column):
         select = column.find_ancestor(exp.Select)
-        if select is None:
-            table = column.table if column.table else target_table
+        if column.table:
+            table = _qualified_column_table(column, select, target_table, target_names)
+        elif select is None:
+            table = target_table
         else:
-            direct_tables = [
-                item
-                for item in select.find_all(exp.Table)
-                if item.find_ancestor(exp.Select) is select
-            ]
-            # Kept local: rebinding ``aliases`` here would leak this nested query's
-            # alias map onto every later top-level column in the same expression.
-            local_aliases = {
-                (item.alias_or_name or "").lower(): _table_name(item)
-                for item in direct_tables
-            }
-            if column.table:
-                table = local_aliases.get(column.table.lower(), column.table)
-            elif len(direct_tables) == 1:
+            direct_tables = _direct_tables(select)
+            if len(direct_tables) == 1:
                 table = _table_name(direct_tables[0])
             else:
                 table = _sole_table_with_column(direct_tables, column.name, states)
-                if table == "UNKNOWN" and unresolved is not None and column.name not in unresolved:
-                    unresolved.append(column.name)
+        if table == "UNKNOWN" and unresolved is not None and column.name not in unresolved:
+            unresolved.append(column.name)
         sources.append({"table": table, "column": column.name})
     return _dedupe_dicts(sources)
+
+
+def _direct_tables(select: exp.Select) -> list[exp.Table]:
+    return [
+        item
+        for item in select.find_all(exp.Table)
+        if item.find_ancestor(exp.Select) is select
+    ]
+
+
+def _target_qualifiers(target_table: str, target_alias: str | None) -> set[str]:
+    """The names a predicate can qualify the written table by.
+
+    With an alias, only the alias; without one, the table's own name, bare or qualified.
+    """
+    if target_alias:
+        return {target_alias.lower()}
+    return {target_table.lower(), target_table.rsplit(".", 1)[-1].lower()}
+
+
+def _qualified_column_table(
+    column: exp.Column,
+    select: exp.Select | None,
+    target_table: str,
+    target_names: set[str],
+) -> str:
+    """The table a qualified predicate column names, or ``UNKNOWN``.
+
+    The qualifier is looked up the way Spark resolves it: the query the column sits in,
+    then each enclosing query (a correlated reference), then the written table. A
+    qualifier none of them declares used to be published as the table name itself -- a
+    correlated ``t.id`` against ``DELETE FROM mart.t t`` became table ``t``, and a
+    qualifier naming nothing became a table of that name.
+    """
+    qualifier = column.table.lower()
+    full = ".".join(part for part in (column.db, column.table) if part).lower()
+    scope = select
+    while scope is not None:
+        # Each query's alias map stays local to that query: an alias declared in one
+        # nested query never names a table for a column outside it.
+        for item in _direct_tables(scope):
+            name = _table_name(item)
+            if column.db:
+                if not item.alias and name.lower() == full:
+                    return name
+            elif (item.alias_or_name or "").lower() == qualifier:
+                return name
+        scope = scope.find_ancestor(exp.Select)
+    if qualifier in target_names or full in target_names:
+        return target_table
+    return "UNKNOWN"
 
 
 def _sole_table_with_column(
@@ -2172,7 +2244,11 @@ def _merge_condition_sources(
                 # A column inside a nested query belongs to that query's own sources,
                 # not to either MERGE alias.
                 sources.extend(_expression_field_sources(
-                    column, target_table=target_table, states=states, unresolved=unresolved,
+                    column,
+                    target_table=target_table,
+                    target_alias=target.alias if isinstance(target, exp.Table) else None,
+                    states=states,
+                    unresolved=unresolved,
                 ))
                 continue
             qualifier = column.table.lower()
