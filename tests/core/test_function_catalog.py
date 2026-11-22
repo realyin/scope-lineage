@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 
 import pytest
+import sqlglot
 from sqlglot.dialects.spark import Spark
 
 from scope_lineage.contract import to_lineage_dict
@@ -25,6 +26,7 @@ from scope_lineage.scope.expression_text import (
     _SQL_KEYWORDS_BEFORE_PAREN,
     _function_names,
 )
+from scope_lineage._function_names_snapshot import SQLGLOT_VERSION as REGISTRY_SNAPSHOT_VERSION
 from scope_lineage.function_catalog import _KNOWN_SCALAR_FUNCTIONS
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
@@ -65,8 +67,17 @@ def _udf_expressions(document: dict) -> list[str]:
 # ------------------------------------------------------- the sqlglot Spark registry
 
 
+@pytest.mark.skipif(
+    sqlglot.__version__ != REGISTRY_SNAPSHOT_VERSION,
+    reason="the registry snapshot is taken from the pinned sqlglot; other versions only report",
+)
 def test_every_spark_dialect_function_name_is_in_the_catalog() -> None:
-    """sqlglot's Spark grammar is the reference list; the catalog must not fall behind."""
+    """sqlglot's Spark grammar is the reference list; the catalog must not fall behind.
+
+    Checked on the sqlglot the snapshot was taken from (``constraints-dev.txt``): bumping
+    the pin without regenerating the snapshot fails here. Other supported versions differ
+    by design and are reported by ``test_function_catalog_snapshot``.
+    """
     registered = {
         name.lower()
         for name in Spark.Parser.FUNCTIONS

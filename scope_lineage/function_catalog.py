@@ -8,6 +8,8 @@ from sqlglot.dialects.hive import Hive
 from sqlglot.dialects.spark import Spark
 from sqlglot.dialects.spark2 import Spark2
 
+from ._function_names_snapshot import REGISTRY_FUNCTION_NAMES
+
 _AGGREGATE_FUNCTIONS = {
     "avg",
     "collect_list",
@@ -78,17 +80,15 @@ _CURATED_BUILTIN_FUNCTIONS = frozenset({
 })
 
 
-def _spark_builtin_function_names() -> frozenset[str]:
-    """Every function name sqlglot's Spark/Hive grammars can place.
+def registry_function_names() -> frozenset[str]:
+    """Every function name the *installed* sqlglot's Spark/Hive grammars can place.
 
-    ``expression_features.has_udf`` answers "is this name opaque to us". The honest
-    reference list is the grammar that parses the SQL, not a hand-written sample of it:
-    the sample stopped at 40-odd names, so ``HOUR`` / ``LAG`` / ``RANK`` / ``EXPLODE``
-    were all reported as UDFs (an ordinary task could carry dozens of such marks with not
-    one UDF among them). The dialect registries answer for the names Spark spells specially, and the
-    ``exp.Func`` classes for the ones every dialect shares.
+    Not read by the catalog: the registries differ between supported sqlglot versions,
+    so the catalog answers from :data:`._function_names_snapshot.REGISTRY_FUNCTION_NAMES`
+    instead. This is the source that snapshot is regenerated from, and the test that
+    reports what a newer sqlglot registers beyond it.
     """
-    names: set[str] = set(_CURATED_BUILTIN_FUNCTIONS)
+    names: set[str] = set()
     for dialect in (Spark, Spark2, Hive):
         names.update(name.lower() for name in dialect.Parser.FUNCTIONS)
     for candidate in vars(exp).values():
@@ -96,6 +96,23 @@ def _spark_builtin_function_names() -> frozenset[str]:
             if candidate is not exp.Func:
                 names.update(name.lower() for name in candidate.sql_names())
     return frozenset(name for name in names if _FUNCTION_NAME_PATTERN.match(name))
+
+
+def _spark_builtin_function_names() -> frozenset[str]:
+    """Every function name sqlglot's Spark/Hive grammars can place, as of the snapshot.
+
+    ``expression_features.has_udf`` answers "is this name opaque to us". The honest
+    reference list is the grammar that parses the SQL, not a hand-written sample of it:
+    the sample stopped at 40-odd names, so ``HOUR`` / ``LAG`` / ``RANK`` / ``EXPLODE``
+    were all reported as UDFs (an ordinary task could carry dozens of such marks with not
+    one UDF among them). The dialect registries answer for the names Spark spells specially, and the
+    ``exp.Func`` classes for the ones every dialect shares.
+
+    The registries are frozen (:mod:`._function_names_snapshot`) rather than read from the
+    installed sqlglot: 30.0.0 registers 26 fewer of these names than 30.17.0 and 30.16.0
+    dropped one, so the same SQL got a different ``has_udf`` on each CI leg.
+    """
+    return frozenset(_CURATED_BUILTIN_FUNCTIONS | REGISTRY_FUNCTION_NAMES)
 
 
 _KNOWN_SCALAR_FUNCTIONS = frozenset({

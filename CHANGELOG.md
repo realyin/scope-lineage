@@ -556,6 +556,16 @@
   code 1, the code that means "a task failed". `parse` now prints the error's message on
   stderr (first line: cause and file) and exits 2, like a bad `--metadata-patch`. Who is
   affected: scripts that matched on exit code 1 or on the Traceback text for this case.
+- **`has_udf` no longer depends on the installed sqlglot version.** The function catalog folded
+  in the names the installed sqlglot's Spark / Spark2 / Hive registries held, and those differ
+  across the supported range: 30.0.0 lacks 26 names 30.17.0 has (`try_divide`, `negative`,
+  `rint`, `nanvl`, `shuffle`, `regexp_substr` ...), and 30.16.0 dropped `hex_encode`. So
+  `try_divide(a, b)` was a UDF on 30.0.0 and not on 30.17.0. The registry names are now a
+  snapshot taken from sqlglot 30.17.0 (`scope_lineage/_function_names_snapshot.py`); a test
+  reports what a newer sqlglot registers beyond it without changing output. Who is affected:
+  nobody on 30.16.0 / 30.17.0 (the answer is unchanged there); on 30.0.0 (and likely the
+  versions between, not measured) those 26 names stop being UDFs and `hex_encode` becomes one,
+  as on 30.17.0.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
