@@ -207,7 +207,8 @@ def _provisional(ontology: dict, cards: dict) -> list[str]:
         ("order_cd", "order"),
         ("item_num", "item"),
         ("party_key", "party"),
-        ("id_cust", "cust"),
+        # 4.4-1: a leading id / no is part of the name, not a key marker.
+        ("id_cust", "id_cust"),
         # Whole segments only, and never the last one left.
         ("channel_name", "channel_name"),
         ("id", "id"),

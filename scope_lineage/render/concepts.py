@@ -149,6 +149,11 @@ TABLE_ID_DIGEST = 6
 
 #: Whole name segments that say "this column is a key", not what the key is *of*.
 KEY_AFFIXES = ("no", "id", "code", "cd", "num", "key")
+#: 4.4-1: the affixes that are a key marker only at the *end* of a name. At the front they
+#: are part of what is named: ``id_card_no`` is an identity-card number, and taking the
+#: ``id`` off as well folded it into one concept with a bank card's ``card_no``.
+TRAILING_ONLY_AFFIXES = frozenset({"no", "id"})
+LEADING_AFFIXES = tuple(a for a in KEY_AFFIXES if a not in TRAILING_ONLY_AFFIXES)
 
 #: Stems that identify a row without naming a thing. A table keyed only by one of these
 #: is not a concept, it is a table with a surrogate key.
@@ -434,9 +439,10 @@ class _Seed:
 def key_stem(column, synonyms: Mapping[str, str] | None = None) -> str:
     """The business word one key column reduces to -- ``cust_no`` and ``cust_id`` → ``cust``.
 
-    Mechanical and lossy on purpose: lowercase, then drop whole leading and trailing
-    segments that only say "this is a key" (``_no`` / ``_id`` / ``_code`` / ``_cd`` /
-    ``_num`` / ``_key``), never the last segment left. ``synonyms`` is the corpus's own
+    Mechanical and lossy on purpose: lowercase, then drop whole trailing segments that
+    only say "this is a key" (``_no`` / ``_id`` / ``_code`` / ``_cd`` / ``_num`` /
+    ``_key``) and the leading ones of those except ``id`` / ``no`` (4.4-1: ``id_card_no``
+    is ``id_card``, not ``card``), never the last segment left. ``synonyms`` is the corpus's own
     O5 evidence folded to one spelling per synonym group, so ``customer_id`` reaches
     ``cust`` only because some task proved the two columns hold the same value -- never
     because the two words look alike.
@@ -446,7 +452,7 @@ def key_stem(column, synonyms: Mapping[str, str] | None = None) -> str:
     parts = [part for part in name.split("_") if part]
     while len(parts) > 1 and parts[-1] in KEY_AFFIXES:
         parts.pop()
-    while len(parts) > 1 and parts[0] in KEY_AFFIXES:
+    while len(parts) > 1 and parts[0] in LEADING_AFFIXES:
         parts.pop(0)
     return "_".join(parts)
 
@@ -462,6 +468,11 @@ def is_generic_stem(stem: str, comments: Iterable = ()) -> bool:
     The fragments are looked for *after* 编号/编码/代码 are taken off, because every
     comment on a key column ends in one of those and a shared suffix is not a shared
     subject: 渠道编码 / 省份编码 / 状态编码 agree on nothing that matters.
+
+    Only comments containing Chinese take part (4.4-2): a comment in English has no
+    two-character fragment at all, so letting it in emptied every intersection and one
+    ``Customer ID`` retired ``customer``. With no Chinese comment the rule has nothing
+    to read and does not apply.
     """
     if str(stem) in GENERIC_STEMS:
         return True
@@ -469,6 +480,9 @@ def is_generic_stem(stem: str, comments: Iterable = ()) -> bool:
     if len(texts) < 3:
         return False
     subjects = [key_comment_name(text) or text for text in texts]
+    subjects = [text for text in subjects if _CJK_RE.search(text)]
+    if not subjects:
+        return False
     shared = set.intersection(*[_cjk_bigrams(text) for text in subjects])
     return not shared
 
@@ -1534,7 +1548,7 @@ def key_column_name(column) -> str:
     parts = [part for part in text.split("_") if part]
     while len(parts) > 1 and parts[-1].lower() in KEY_AFFIXES:
         parts.pop()
-    while len(parts) > 1 and parts[0].lower() in KEY_AFFIXES:
+    while len(parts) > 1 and parts[0].lower() in LEADING_AFFIXES:
         parts.pop(0)
     return " ".join(
         word for part in parts for word in _CAMEL_RE.sub(" ", part).lower().split()

@@ -274,6 +274,19 @@
   is not a scope of the statement; in a task document a temporary view or cached relation an
   earlier statement defined is a session relation and is in neither list (it stays in
   `direct_inputs`), and `business_summary` follows.
+- **Key-fold candidates: a leading `id_` / `no_` stays in the key stem.** `key_stem` took `id`
+  / `no` off the front of a key as well as the back, so `id_card_no` reduced to `card` and an
+  identity-card table folded into one concept with a bank card's `card_no`. Only a trailing
+  `id` / `no` is a key marker now (the other affixes are still taken off both ends), and the
+  role names read from column names follow. Concept ids change where a key column starts with
+  `id_` or `no_` (`concept:card` → `concept:id_card` in that example). **Migration:** an entry in
+  `concepts.overrides.json` that names such a concept by its old id is reported as unknown on
+  the next run; rename it to the id `ontology.json` now publishes (the `identity.stem` of the
+  concept holding those tables).
+- **Key-fold candidates: one English comment no longer retires a key stem.** The generic-stem
+  evidence rule intersected the Chinese two-character fragments of three or more different
+  comments, and an English comment has none, so `客户编号` / `客户号` / `Customer ID` retired
+  `customer`. Only comments containing Chinese take part; with none, the rule does not apply.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
