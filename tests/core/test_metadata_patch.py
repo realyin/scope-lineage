@@ -639,3 +639,131 @@ def test_describe_reports_a_malformed_patch_section_with_exit_2(
     assert main(["describe", "--lineage", str(task), "--metadata-patch", str(patch)]) == 2
 
     assert "columns" in capsys.readouterr().err
+
+
+# ------------------------------------------------- a refused entry is reported, not dropped
+
+
+#: Two entries the loader cannot accept: a column key with only two parts (it cannot name a
+#: table), and a table fact holding an address, which the privacy rule refuses whatever key
+#: carries it. Both used to vanish without a word -- counted nowhere, listed nowhere.
+REFUSED_PATCH = {
+    "doc_format": "metadata-patch/1",
+    "tables": {"ods.app_order": {"table_desc": "订单表 负责人 someone@example.invalid"}},
+    "columns": {
+        "app_order.pay_amount": {"comment": "两段写法的金额"},
+        "ods.app_order.order_id": {"comment": "订单号（已确认）"},
+    },
+}
+
+
+def test_a_refused_patch_entry_is_reported_by_key_and_reason(
+    tmp_path: Path, capsys
+) -> None:
+    patch = _write(tmp_path / "patch.json", REFUSED_PATCH)
+
+    task = _parse(tmp_path, "out", "--metadata-patch", str(patch))
+    report = capsys.readouterr().out
+
+    line = next(text for text in report.splitlines() if text.startswith("Metadata patch:"))
+    assert "rejected=2" in line
+    assert "app_order.pay_amount (column key needs db.table.column)" in line
+    assert "ods.app_order.table_desc (contains @, refused by privacy rule)" in line
+    # the refused text itself is never echoed: it is the address the rule protects
+    assert "someone@example.invalid" not in report
+    assert "两段写法的金额" not in report
+    # the accepted entry beside them still lands
+    metadata = _statement(task)["related_metadata"]
+    assert _column(metadata, "input_tables", "ods.app_order", "order_id")["comment"] == (
+        "订单号（已确认）"
+    )
+
+
+def test_a_patch_whose_entries_are_all_refused_still_reports_them(
+    tmp_path: Path, capsys
+) -> None:
+    patch = _write(
+        tmp_path / "patch.json",
+        {"columns": {"app_order.pay_amount": {"comment": "两段写法的金额"}}},
+    )
+
+    _parse(tmp_path, "out", "--metadata-patch", str(patch))
+
+    assert "rejected=1" in capsys.readouterr().out
+
+
+def test_describe_reports_refused_patch_entries_too(tmp_path: Path, capsys) -> None:
+    patch = _write(tmp_path / "patch.json", REFUSED_PATCH)
+    task = _parse(tmp_path, "out")
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "describe",
+                "--lineage",
+                str(task / "lineage.json"),
+                "--metadata-patch",
+                str(patch),
+            ]
+        )
+        == 0
+    )
+
+    out = capsys.readouterr().out
+    assert "patch_rejected=2" in out
+    assert "someone@example.invalid" not in out
+
+
+def test_a_clean_patch_reports_no_rejected_entries(tmp_path: Path, capsys) -> None:
+    patch = _write(tmp_path / "patch.json", PATCH)
+
+    _parse(tmp_path, "out", "--metadata-patch", str(patch))
+
+    line = next(
+        text
+        for text in capsys.readouterr().out.splitlines()
+        if text.startswith("Metadata patch:")
+    )
+    assert "rejected" not in line
+
+
+def test_a_refused_schema_table_fact_reaches_the_findings_by_key_only(
+    tmp_path: Path,
+) -> None:
+    """D7 end to end: the loader's warning is published, and only the key travels."""
+    schema = dict(SCHEMA)
+    schema["ods.app_order"] = dict(
+        SCHEMA["ods.app_order"], table_desc="订单表 负责人 someone@example.invalid"
+    )
+    schema_path = _write(tmp_path / "schema_at.json", schema)
+    assert (
+        main(
+            [
+                "parse",
+                "--sql-file",
+                str(_sql(tmp_path)),
+                "--schema",
+                str(schema_path),
+                "--out",
+                str(tmp_path / "out"),
+            ]
+        )
+        == 0
+    )
+    task = tmp_path / "out" / "orders"
+    assert main(["describe", "--lineage", str(task / "lineage.json")]) == 0
+
+    diagnostics = (task / "diagnostics.json").read_text(encoding="utf-8")
+    assert '"privacy_refused"' in diagnostics
+    findings = [
+        item
+        for item in _profile(task)["statements"][0]["confidence"]["findings"]
+        if item["kind"] == "metadata_conflicts"
+    ]
+    assert [item["text"] for item in findings] == [
+        "ods.app_order：表级元数据 table_desc 的值含 @，按隐私规则未采用"
+    ]
+    assert findings[0]["severity"] == "warn"
+    for name in ("lineage.json", "diagnostics.json", "semantic.json", "semantic.md"):
+        assert "someone@example.invalid" not in (task / name).read_text(encoding="utf-8")

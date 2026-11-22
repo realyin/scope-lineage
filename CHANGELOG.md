@@ -111,6 +111,15 @@
   still masked. Two narrow shapes are deliberately let through: 8 digits or fewer in total, and
   a number part that reads as a real date (`+86 20231215`). An 18-digit ID number must now have a
   birth year from 1900 to the current year, so `110101000101011234` is left as written.
+- **`--metadata-patch`: a refused entry is reported, not dropped.** A column key with only two
+  parts (`a.amt`) and a table fact containing `@` vanished without a word: counted nowhere, not
+  in `unmatched`. The run now prints `rejected=N (key (reason), …)` (`patch_rejected=N` under
+  `describe`), by key and reason only, never the refused text.
+- **A table fact refused for holding `@` leaves a warning.** The privacy rule is unchanged
+  (any `@`-bearing value is still refused), but `metadata_coverage.metadata_conflicts` now
+  records `{"reason": "privacy_refused", "issues": ["<key> contains @, refused by privacy rule"]}`
+  and `semantic.json` lists it under `findings[]` as a `metadata_conflicts` warning naming the
+  keys, never the value.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

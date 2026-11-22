@@ -256,7 +256,9 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 `is_partitioned`），随契约的 `related_metadata.*.table_metadata` 输出，并支撑 semantic 的
 输入表注释与表卡的"这张表是什么"。键名中立：`table_alias`/`table_comment`/`comment` 都可以给
 出中文表名，`buzi_domain`/`domain` 都可以给出业务域。含 `@` 的值（邮箱，例如 `tbl_pic`）在加载
-时被丢弃，时间戳与质量率不进表级事实。完整键表见
+时被丢弃；表级事实的候选键因此被丢弃时，`diagnostics.json.metadata_coverage.metadata_conflicts`
+记一条 `reason: "privacy_refused"`，`issues[]` 只写键名（`table_desc contains @, refused by
+privacy rule`），不写原值。时间戳与质量率不进表级事实。完整键表见
 [`lineage.json` §12.2](lineage-json.md#122-related_metadata)。
 
 `--schema` 还兼容聚合式轻量 JSON。它没有显式字段序号或 DDL，`columns[]` 数组顺序就是字段
@@ -397,6 +399,7 @@ DDL 与 Schema 的字段集合必须一致。存在同一表的多份元数据�
 - **注释同样遮蔽**：补丁里的列注释与 `table_name_cn` / `table_desc` 在读入时就过一遍与 schema 注释相同的遮蔽（`<email>` / `<phone>` / `<id>`），`parse --no-redact-comments` 一并关掉；
 - **表名匹配**与 schema 一致：大小写不敏感，`catalog.db.table` 与 `db.table` 是同一张表；
 - **没命中的键只报告不报错**：运行结束打印 `unmatched=N` 并列出键，拼错的键不会被静默吞掉；
+- **读不进来的条目同样报告**：不足三段的列键（`a.amt`）、含 `@` 的表级事实（被隐私规则拒绝）打印为 `rejected=N (键 (原因)、…)`（`describe` 写作 `patch_rejected=N`），只写键和原因，不回显原文；
 - 文件不存在、不是合法 JSON、顶层不是对象、或 `doc_format` 是别的值时退出码为 2。
 
 `describe --metadata-patch` 接收同一份文件，对已经写好的 `lineage.json` 在内存里做同样的覆盖
