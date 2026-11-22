@@ -29,9 +29,11 @@ from typing import Callable
 
 # `(?s:...)` scopes DOTALL to the spans that may cross a line, so a pattern embedding this
 # keeps its own meaning of `.`.
-SQL_LITERAL_OR_COMMENT = r"(?s:'(?:''|\\.|[^'\\])*'|/\*.*?\*/)|--[^\n\r]*"
+_LITERAL = r"(?s:'(?:''|\\.|[^'\\])*')"
+_COMMENT = r"(?s:/\*.*?\*/)|--[^\n\r]*"
+SQL_LITERAL_OR_COMMENT = rf"{_LITERAL}|{_COMMENT}"
 
-_SPAN = re.compile(rf"(?P<literal>(?s:'(?:''|\\.|[^'\\])*'))|(?P<comment>(?s:/\*.*?\*/)|--[^\n\r]*)")
+_SPAN = re.compile(rf"(?P<literal>{_LITERAL})|(?P<comment>{_COMMENT})")
 
 # Patterns are built from identifier names, so their number grows with a statement's
 # columns; compiled objects are kept here for the same reason expression_refs keeps its own.
