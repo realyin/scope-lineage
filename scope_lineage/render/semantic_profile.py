@@ -1134,10 +1134,14 @@ def _memoised_index(owner, part: str, build) -> dict:
 
 
 def _column_details_by_name(metadata_item: dict) -> dict[str, dict]:
-    """``column_details`` keyed by name, first occurrence winning as the scan did."""
+    """``column_details`` keyed by lower-cased name, first occurrence winning as the scan did.
+
+    4.5-b: ``parse`` already lower-cases metadata names; a hand-written or older document
+    may not, and Hive column names ignore case.
+    """
     index: dict[str, dict] = {}
     for detail in metadata_item.get("column_details") or []:
-        index.setdefault(str(detail.get("name")), detail)
+        index.setdefault(str(detail.get("name")).lower(), detail)
     return index
 
 
@@ -1147,7 +1151,7 @@ def _column_detail(metadata_item: dict, column: str) -> dict:
     index = _memoised_index(
         metadata_item, "column_details", lambda: _column_details_by_name(metadata_item)
     )
-    return index.get(str(column)) or {}
+    return index.get(str(column).lower()) or {}
 
 
 def _input_column_comment(document: dict, table: str, column: str) -> str | None:
