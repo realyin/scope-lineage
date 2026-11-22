@@ -101,7 +101,7 @@ include:
 | `star_modifier_not_applied` | The star carries `EXCEPT`, but the star itself could not be expanded (no Schema), so the exclusion could not be applied. | Supply source-table Schema; the placeholder column stands for "all columns", including the ones that should have been excluded. |
 | `unresolved_alias` | An expression qualifier is not bound to an input. | Check the SQL alias, custom syntax, or parser support. |
 | `duplicate_alias` | An alias is reused within one scope, so field sources may be ambiguous. | Fix the SQL, or disambiguate using field/Schema evidence. |
-| `column_not_found` | The field is in none of the known sources. | Check the field name and Schema completeness. |
+| `column_not_found` | The field is in none of the known sources (for a subquery in an expression, neither its own nor, as Spark resolves an outer reference, an enclosing query's). | Check the field name and Schema completeness. |
 | `ambiguous_unqualified` | An unqualified field matches several inputs. | Add a qualifier in the SQL; a source must not be chosen arbitrarily. |
 | `lateral_alias_ambiguous` | A SELECT-list name matches an earlier alias in the same SELECT and was read as that alias, but a source whose columns are unknown may also have the column; Spark would read the source column first. `msg` names the column. | Supply Schema for that source (or qualify the column in the SQL); with the column proven, the output reads the source column. |
 | `merge_delete_ignored` | `WHEN ... THEN DELETE` is a row-level operation and produces no `ROOT` output field; `msg` states whether it came from the `MATCHED` or the `NOT MATCHED BY SOURCE` branch. | No action needed; do not count that branch as missing in field-level coverage. |

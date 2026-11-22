@@ -608,6 +608,11 @@ def _resolve_unqualified(col_name: str, sg_scope: Scope, result: ScopeLineageRes
             return _bound_source_ref(alias, source, col_name, sg_scope, result)
         return SourceRef(scope=candidate_id, column=col_name)
 
+    if selected and not viable:
+        outer_ref = _resolve_unqualified_in_outer_query(col_name, sg_scope, result, schema)
+        if outer_ref is not None:
+            return outer_ref
+
     # Preserve the existing last-resort scope fallback for scopes whose output cannot
     # be materialized at this build point. Dangling-ref validation decides later whether
     # the field really exists (LINEAGE-001).
@@ -626,6 +631,44 @@ def _resolve_unqualified(col_name: str, sg_scope: Scope, result: ScopeLineageRes
             return _bound_source_ref(alias, source, col_name, sg_scope, result)
     result.diagnostics.warnings.append(DiagnosticWarning(type='column_not_found', scope=getattr(sg_scope, _SCOPE_ID_ATTR, 'UNKNOWN'), msg=f"Column '{col_name}' not found in any source"))
     return SourceRef(scope='UNKNOWN', column=col_name)
+
+
+def _resolve_unqualified_in_outer_query(
+    col_name: str,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    """Resolve a bare column a subquery's own sources are known not to have, Spark's way.
+
+    Spark looks a column up in the subquery first and, finding nothing, in each enclosing
+    query in turn (an outer reference). Searching only the subquery made such a column
+    ``UNKNOWN`` whenever metadata proved the subquery's tables lack it. Only a subquery in
+    an expression (``EXISTS``, ``IN``, a scalar subquery) is correlated; a derived table in
+    FROM cannot see the query around it. A level is decided only when exactly one of its
+    sources is known to have the column and none could; anything less is left to the
+    caller's ``column_not_found``.
+    """
+    scope = sg_scope
+    while scope.is_subquery and scope.parent is not None:
+        scope = scope.parent
+        selected = [
+            (alias, source)
+            for alias, source in _selected_sources(scope).items()
+            if isinstance(source, (Scope, exp.Table))
+        ]
+        states = [
+            (alias, source, _source_column_state(alias, source, col_name, result, schema))
+            for alias, source in selected
+        ]
+        open_states = [item for item in states if item[2] != "absent"]
+        if not open_states:
+            continue
+        if len(open_states) == 1 and open_states[0][2] == "present":
+            alias, source, _state = open_states[0]
+            return _bound_source_ref(alias, source, col_name, scope, result)
+        return None
+    return None
 
 
 def _resolve_duplicate_alias_ref(table_alias: str, col_name: str, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef | None:

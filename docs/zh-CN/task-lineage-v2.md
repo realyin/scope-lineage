@@ -591,17 +591,20 @@ USING 列不对应任何名字，也不是缺口。该缺口
 root_impact=true，因此会令 analysis_status=partial 并使 strict 门禁返回非零。
 
 DELETE、UPDATE 或 MERGE 的条件里，子查询读多张表时，未限定的列先按 schema 判断归属：恰好一张表
-有这一列、其余表都已知没有时，就记到那张表上。判断不了（几张表都有，或有表缺元数据）时，来源仍写成
-`{"table": "UNKNOWN", ...}`，同时记录 row_condition_source_unresolved，字段为 statement_id、
-target_table、column（只有一列时）、columns、root_impact=true 和 needed_fact；受影响的行
-`trace_complete` 为 false，missing_reasons 里有 row_condition_source_unresolved。受影响的范围：
-DELETE 与 MERGE 条件影响目标表全部列；UPDATE 的条件只影响被赋值的列；之后的追加写（INSERT INTO、
-MERGE）沿用这些行成员来源时，也沿用这条原因。
+有这一列、其余表都已知没有时，就记到那张表上。子查询的表（一张或几张）都已知没有这一列时，按 Spark 解析
+外层引用的顺序往外找：逐层找外层查询，最后是被写的表（FROM 里的子查询不是关联子查询，不往外找）。没有
+元数据时，单表子查询仍按原来的做法把列记到那张表上。判断不了（几张表都有，或有表缺元数据）时，这个字段不补位
+名字——row_membership_sources、value_condition_sources 里都不写 `{"table": "UNKNOWN", ...}`——同时记录
+row_condition_source_unresolved，字段为 statement_id、target_table、column（只有一列时）、columns、
+root_impact=true 和 needed_fact。这和 INSERT 条件是同一条规则：`trace_complete` 仍然只回答值是否追到，
+条件是否闭合看这个缺口（`conditions_closed`，见「什么时候一个字段可以当作完整事实使用」）。UPDATE 的赋值
+不同，那里是值：赋值表达式读到判断不了归属的列时，这一列保留 `{"table": "UNKNOWN", ...}` 值来源，
+`trace_complete` 为 false，missing_reasons 里有 row_condition_source_unresolved，并记录同一个缺口。
 
 这类条件里带限定符的列，按 Spark 的解析顺序找限定符：先是列所在的查询，再逐层往外找外层查询（关联引用），
 最后是被写的表（有别名时认别名，没有别名时认表名）。`DELETE FROM mart.t t` 里关联子查询的 `t.id`
-记到 `mart.t` 上。哪一层都没声明的限定符，按「判断不了归属的未限定列」处理：写 `UNKNOWN`，记缺口，
-受影响的行追溯不完整。
+记到 `mart.t` 上。哪一层都没声明的限定符，按「判断不了归属的未限定列」处理：在条件里不补位名字，在
+UPDATE 的赋值里写 `UNKNOWN`，两种情况都记缺口。
 
 diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、schema 来源数以及元数据冲突。
 --schema-fallback 只补 --schema 中缺失的表；同表定义不一致时保留权威来源并报告冲突。

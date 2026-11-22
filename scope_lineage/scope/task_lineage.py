@@ -1105,13 +1105,6 @@ def _apply_projection_write(
     )
     if merge_unresolved:
         gaps.append(_row_condition_gap(statement_id, result.target_table, merge_unresolved))
-    # An earlier statement's unnamed row-condition source is still among the memberships
-    # an appending write keeps, so the reason stays with them.
-    row_condition_unresolved = bool(merge_unresolved) or (
-        effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
-        and previous is not None
-        and _ROW_CONDITION_UNRESOLVED in previous.missing_reasons
-    )
     if effect in {"APPEND", "REPLACE_PARTITION"} and previous is not None:
         value_sources = _merge_value_sources(
             _prior_values_for_written_columns(previous, written_values),
@@ -1135,11 +1128,6 @@ def _apply_projection_write(
         bool(value_sources)
         or (previous.columns_known if previous is not None else False)
     ) and not any(column_missing_reasons.values())
-    if row_condition_unresolved:
-        # After columns_known: an unnamed condition source leaves the column set known.
-        state_missing_reasons = list(dict.fromkeys([
-            *state_missing_reasons, _ROW_CONDITION_UNRESOLVED,
-        ]))
     row_membership_sources = (
         list(previous.row_membership_sources)
         if effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
@@ -1226,10 +1214,10 @@ def _apply_delete(
     where = tree.args.get("where")
     predicate = where.this if isinstance(where, exp.Where) else None
     unresolved: list[str] = []
-    membership_sources = _expression_field_sources(
+    membership_sources = _named_sources(_expression_field_sources(
         predicate, target_table=table, target_alias=tree.this.alias,
         states=states, unresolved=unresolved,
-    )
+    ))
     if unresolved:
         gaps.append(_row_condition_gap(statement["statement_id"], table, unresolved))
     deletes_all_rows = predicate is None
@@ -1254,11 +1242,7 @@ def _apply_delete(
         row_membership_sources=all_membership,
         value_condition_sources=previous.value_condition_sources,
         columns_known=previous.columns_known,
-        missing_reasons=(
-            list(dict.fromkeys([*previous.missing_reasons, _ROW_CONDITION_UNRESOLVED]))
-            if unresolved
-            else previous.missing_reasons
-        ),
+        missing_reasons=previous.missing_reasons,
         column_missing_reasons=previous.column_missing_reasons,
     )
     statement.update({
@@ -1429,10 +1413,10 @@ def _apply_update(
     where = tree.args.get("where")
     predicate = where.this if isinstance(where, exp.Where) else None
     condition_unresolved: list[str] = []
-    condition_sources = _expression_field_sources(
+    condition_sources = _named_sources(_expression_field_sources(
         predicate, target_table=table, target_alias=tree.this.alias,
         states=states, unresolved=condition_unresolved,
-    )
+    ))
     unresolved = list(condition_unresolved)
     column_missing_reasons = {
         column: list(reasons)
@@ -1463,9 +1447,10 @@ def _apply_update(
             states=states,
             unresolved=value_unresolved,
         )
-        if condition_unresolved or value_unresolved:
-            # The condition decides which rows take this value; either way this column's
-            # trace has a source nobody could name.
+        if value_unresolved:
+            # The assigned value has a source nobody could name. An unnamed condition
+            # source is only the gap: trace_complete answers whether the values were
+            # traced, the same as for an INSERT condition.
             column_missing_reasons[column] = list(dict.fromkeys([
                 *column_missing_reasons.get(column, []), _ROW_CONDITION_UNRESOLVED,
             ]))
@@ -2073,9 +2058,11 @@ def _expression_field_sources(
     A bare column in a query over several tables is bound by the schema when exactly one
     of them has it and every other is known not to. Otherwise it is published as
     ``UNKNOWN`` and its name added to ``unresolved``, so the caller can report the gap
-    and mark the row incomplete rather than pass the placeholder off as traced (WP3q).
-    A qualifier no enclosing query and not the written table (``target_alias``, else its
-    name) declares is the same case.
+    rather than pass the placeholder off as traced (WP3q). A qualifier no enclosing query
+    and not the written table (``target_alias``, else its name) declares is the same
+    case. A condition caller drops the placeholder with ``_named_sources`` (a condition
+    field that reaches no physical column gets no name); an UPDATE assignment keeps it
+    beside an incomplete row, because there it is a value.
     """
     if expression is None:
         return []
@@ -2085,18 +2072,22 @@ def _expression_field_sources(
         select = column.find_ancestor(exp.Select)
         if column.table:
             table = _qualified_column_table(column, select, target_table, target_names)
-        elif select is None:
-            table = target_table
         else:
-            direct_tables = _direct_tables(select)
-            if len(direct_tables) == 1:
-                table = _table_name(direct_tables[0])
-            else:
-                table = _sole_table_with_column(direct_tables, column.name, states)
+            table = _unqualified_column_table(column.name, select, target_table, states)
         if table == "UNKNOWN" and unresolved is not None and column.name not in unresolved:
             unresolved.append(column.name)
         sources.append({"table": table, "column": column.name})
     return _dedupe_dicts(sources)
+
+
+def _named_sources(sources: list[dict]) -> list[dict]:
+    """Condition sources without the ``UNKNOWN`` placeholder.
+
+    Like an INSERT's row condition (``_row_condition_fields``): a condition field no table
+    can be proven to own is the ``row_condition_source_unresolved`` gap, not a field.
+    ``trace_complete`` keeps answering only whether the values were traced.
+    """
+    return [source for source in sources if source["table"] != "UNKNOWN"]
 
 
 def _direct_tables(select: exp.Select) -> list[exp.Table]:
@@ -2148,6 +2139,48 @@ def _qualified_column_table(
     if qualifier in target_names or full in target_names:
         return target_table
     return "UNKNOWN"
+
+
+def _unqualified_column_table(
+    column: str,
+    select: exp.Select | None,
+    target_table: str,
+    states: "_StateBuilder | None",
+) -> str:
+    """The table a bare predicate column belongs to, looked up the way Spark does.
+
+    The query the column sits in first: its one table, or the one of its tables the schema
+    proves to own it. When every table there is known not to have it, the enclosing query
+    (an outer reference), and finally the written table unless it too is known not to
+    have it (then ``UNKNOWN``: no table owns it). Outside every query the column is the
+    written table's, as it always was. A query in FROM is not correlated, so the search
+    stops at it. Without metadata saying otherwise, a one-table query keeps the column, as
+    it always did.
+    """
+    scope = select
+    while scope is not None:
+        tables = _direct_tables(scope)
+        known = [_known_table_columns(_table_name(table), states) for table in tables]
+        if any(columns is None or column.lower() in columns for columns in known):
+            if len(tables) == 1:
+                return _table_name(tables[0])
+            return _sole_table_with_column(tables, column, states)
+        if _is_derived_table(scope):
+            return "UNKNOWN"
+        scope = scope.find_ancestor(exp.Select)
+    if select is None:
+        return target_table
+    columns = _known_table_columns(target_table, states)
+    if columns is None or column.lower() in columns:
+        return target_table
+    return "UNKNOWN"
+
+
+def _is_derived_table(select: exp.Select) -> bool:
+    subquery = select.parent
+    return isinstance(subquery, exp.Subquery) and isinstance(
+        subquery.parent, (exp.From, exp.Join)
+    )
 
 
 def _sole_table_with_column(
@@ -2255,13 +2288,13 @@ def _merge_condition_sources(
             if column.find_ancestor(exp.Select) is not None:
                 # A column inside a nested query belongs to that query's own sources,
                 # not to either MERGE alias.
-                sources.extend(_expression_field_sources(
+                sources.extend(_named_sources(_expression_field_sources(
                     column,
                     target_table=target_table,
                     target_alias=target.alias if isinstance(target, exp.Table) else None,
                     states=states,
                     unresolved=unresolved,
-                ))
+                )))
                 continue
             qualifier = column.table.lower()
             if not qualifier or qualifier == target_alias:

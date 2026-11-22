@@ -406,10 +406,11 @@
 - **A DELETE / UPDATE / MERGE condition column no table can be proven to own is a gap.** An
   unqualified column in a condition subquery over several tables was written as
   `{"table": "UNKNOWN"}` beside `trace_complete: true`. The schema now settles it when exactly
-  one of the tables has the column; otherwise the task document records the new
-  `row_condition_source_unresolved` fact gap (`root_impact: true`) and the affected rows carry
-  `trace_complete: false` with that missing reason -- every column for a DELETE or MERGE
-  condition, the assigned columns for an UPDATE, and the rows a later append keeps it for.
+  one of the tables has the column; otherwise the field gets no name and the task document
+  records the new `row_condition_source_unresolved` fact gap (`root_impact: true`), the same as
+  an INSERT condition: `trace_complete` keeps answering only whether the values were traced. An
+  UPDATE assignment whose value reads such a column is a value, so that column keeps the
+  `UNKNOWN` value source and gets `trace_complete: false` with that missing reason.
 - **`scope_profile` tells tables from session relations one way.** `direct_source_tables`
   required a dot in the name and `physical_source_tables` did not, so a bare table read
   directly was summarized as "上游可追溯至" (traced back to). Both lists now count any name that
@@ -480,10 +481,10 @@
   (`scope_id: "AMBIGUOUS"`). In a DELETE / UPDATE / MERGE condition, a qualifier is now
   resolved through the query it sits in, each enclosing query, then the written table (its
   alias, else its name): a correlated `t.id` against `DELETE FROM mart.t t` used to be
-  published as table `t` and is now `mart.t`. A qualifier none of them declares is `UNKNOWN`
-  with the `row_condition_source_unresolved` gap and an incomplete row, the same as an
-  unqualified column no table can be proven to own; it used to be published as a table of
-  that name.
+  published as table `t` and is now `mart.t`. A qualifier none of them declares is treated
+  like an unqualified column no table can be proven to own (no name in a condition, `UNKNOWN`
+  in an UPDATE value, the `row_condition_source_unresolved` gap either way); it used to be
+  published as a table of that name.
 - **Breaking -- one table identity in every layer; a catalog is dropped only when configured.**
   No format changes number; table names in existing outputs change. Four rules used to
   disagree: metadata lookup cut any three-part name to its last two segments, table cards
@@ -633,6 +634,39 @@
   offers no usable key pair (joined by OR, say), stays `unknown` as before; its `reason` now
   reads 「该 JOIN 无可证明的连接键，右侧唯一性无从判定」 instead of 「物理表无主键事实」, which
   the card contradicted. Only the text changes; without a card the reason is unchanged.
+- **An output's `expression_resolution` no longer settles a column the column layer left
+  ambiguous.** In `WITH c AS (...) SELECT CONCAT('p', v) FROM c JOIN s.b b ...` with no
+  metadata for `s.b`, the bare `v` is `AMBIGUOUS` between `cte:c` and `s.b` and the
+  end-to-end row is `trace_complete: false`, but sqlglot had already rewritten the text to
+  `c.v` and the internal-scope expansion read that text as a binding: the output said
+  `expression_resolution.status: resolved` with the CTE's physical field, an expanded
+  expression through it, and `consumer_readiness: ready`. Such a reference is no longer
+  expanded; the resolution is `unresolved` (or `partially_resolved` beside other resolved
+  references) with the reason `ambiguous_unqualified`, readiness is `blocked`, and the
+  field mapping chain's `chain_status` is `unresolved` instead of `partially_resolved`.
+  Like any other ambiguous output, it is now an `expression_source_unresolved` gap, so a
+  task that has one is `analysis_status: partial` (it was `complete`). Metadata that rules the joined table out still resolves it, as does a qualified `c.v`.
+- **A bare column a correlated subquery's tables lack resolves to the enclosing query.** In
+  `... FROM s.o o WHERE EXISTS (SELECT 1 FROM s.i i WHERE i.k = o.id AND flag = 1)` with
+  metadata saying `s.i` has no `flag` and `s.o` does, Spark resolves `flag` as an outer
+  reference to `s.o.flag`; the resolver searched only the subquery's own sources, so the
+  column was `UNKNOWN` (`column_not_found`) and the INSERT's condition a
+  `row_condition_source_unresolved` gap. It now looks in each enclosing query when every
+  source of a subquery in an expression is known not to have the column, and binds when
+  exactly one source there is known to have it (a query in FROM does not look outward). The
+  DELETE / UPDATE / MERGE predicate path had the sharper form of the same blind spot: a bare
+  column in a one-table subquery was given to that table without asking the schema, so the
+  example's `flag` against `DELETE FROM m.t` was published as `s.i.flag`, a field metadata
+  says does not exist; it is now the enclosing query's table or the written table, and
+  `UNKNOWN` with the gap when none of them has it. Without metadata both paths keep the
+  subquery's table, as before.
+- **sqlglot 30.0: a bare column of a correlated subquery is no longer an outer struct field.**
+  `qualify` in sqlglot 30.0 rewrote a bare `flag` in a subquery that references the outer
+  `o` as `o.i.flag` (a struct field of a column `i` of the outer table), so a field that
+  does not exist (`s.o.i`) was published as a source; `MAX(k)` in a correlated scalar
+  subquery became `MAX(o.i.k)`. The reference is now put back as later sqlglot versions
+  leave it (`i.flag`, still marked unqualified) before columns are resolved. Outputs on
+  sqlglot 30.16 / 30.17 do not change.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

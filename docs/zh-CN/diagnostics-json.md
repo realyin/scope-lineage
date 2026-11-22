@@ -97,7 +97,7 @@ scope_lineage/schemas/diagnostics.schema.json
 | `star_modifier_not_applied` | 星号带了 `EXCEPT`，但该星号本身没能展开（缺 Schema），排除因此无从施加。 | 补源表 Schema；占位列代表「全部列」，其中仍含本应被排除的列。 |
 | `unresolved_alias` | 表达式 qualifier 没有绑定到输入。 | 检查 SQL alias、自定义语法或解析支持。 |
 | `duplicate_alias` | 同一 scope 重复使用 alias，字段来源可能歧义。 | 修正 SQL，或结合字段/Schema 证据消歧。 |
-| `column_not_found` | 字段不在任何已知来源中。 | 检查字段名和 Schema 完整性。 |
+| `column_not_found` | 字段不在任何已知来源中（表达式里的子查询：既不在它自己的来源里，也不在按 Spark 外层引用规则逐层找到的外层查询来源里）。 | 检查字段名和 Schema 完整性。 |
 | `ambiguous_unqualified` | 未限定字段匹配多个输入。 | 给 SQL 字段增加 qualifier；不得任选来源。 |
 | `lateral_alias_ambiguous` | 投影里的名字和同一 SELECT 里更早的别名同名，按别名读了；但有个来源的列未知，可能也有这一列，而 Spark 会先读源列。`msg` 写明列名。 | 给该来源补 Schema（或在 SQL 里给列加限定）；证明有这一列后，输出读源列。 |
 | `merge_delete_ignored` | `WHEN ... THEN DELETE` 是行级操作，不产出 `ROOT` 输出字段；`msg` 指明它来自 `MATCHED` 还是 `NOT MATCHED BY SOURCE` 分支。 | 无需处理；字段级覆盖率不要把该分支算作缺失。 |
