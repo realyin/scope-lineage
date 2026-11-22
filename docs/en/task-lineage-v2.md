@@ -663,6 +663,17 @@ nor the USING alias. A USING column computed only from literals or system values
 and is no gap. This gap has root_impact=true, so it sets analysis_status=partial and makes the
 strict gate return non-zero.
 
+In a DELETE, UPDATE or MERGE condition, an unqualified column in a subquery over several tables
+is first assigned by schema: when exactly one table has the column and every other is known not
+to, it is recorded on that table. When that cannot be decided (several tables have it, or one
+lacks metadata), the source is still written as `{"table": "UNKNOWN", ...}`, and
+row_condition_source_unresolved is recorded, with the fields statement_id, target_table, column
+(when there is one), columns, root_impact=true, and needed_fact; the affected rows have
+`trace_complete` false and row_condition_source_unresolved among their missing_reasons. Which rows
+are affected: a DELETE or MERGE condition affects every column of the target; an UPDATE condition
+only the assigned columns; a later appending write (INSERT INTO, MERGE) that keeps those
+row-membership sources keeps the reason too.
+
 diagnostics.json.metadata_coverage records referenced tables, covered tables, missing tables, the
 number of schema sources, and metadata conflicts.
 --schema-fallback only fills in tables missing from --schema; when definitions of the same table
