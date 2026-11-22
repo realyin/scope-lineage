@@ -37,6 +37,9 @@
   read as the directory whenever a folder of that name existed, so `semantic status` silently
   dropped a table and `semantic validate` read a packet folder as the documents directory. A
   `db.table`-shaped word is now never a path; the missing directory is a usage error (exit 2).
+- **The batch `metadata_gaps.json` lists unbound parameter tables, as documented.** A batch
+  `parse` wrote the manifest without `unbound_parameter_tables` (only `--metadata-preflight`
+  filled it) and wrote none when unbound tables were the only gap. Both are fixed.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
