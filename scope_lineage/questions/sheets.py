@@ -49,10 +49,13 @@ def parse_answers(text: str) -> Answers:
             parsed.answers[current] = "\n".join(lines).strip()
 
     for line in text.splitlines():
-        marker = _FENCE.match(line)
-        if marker:
-            fence = None if fence and marker.group(1).startswith(fence) else (fence or marker.group(1))
-        heading = None if fence or marker else _HEADING.match(line)
+        if fence is not None:
+            if _closes(line, fence):
+                fence = None
+            lines.append(line)
+            continue
+        fence = _opening_fence(line)
+        heading = None if fence else _HEADING.match(line)
         if heading is None:
             lines.append(line)
             continue
@@ -62,6 +65,34 @@ def parse_answers(text: str) -> Answers:
             parsed.duplicates.append(current)
     close()
     return parsed
+
+
+def _opening_fence(line: str) -> str | None:
+    """The fence a line opens, or None -- CommonMark's rule for the info string.
+
+    A backtick fence's info string may not hold a backtick, so ```` ```dt``` 是分区列 ````
+    is inline code, not the start of a block.
+    """
+    marker = _FENCE.match(line)
+    if marker is None:
+        return None
+    fence = marker.group(1)
+    if fence[0] == "`" and "`" in line[marker.end():]:
+        return None
+    return fence
+
+
+def _closes(line: str, fence: str) -> bool:
+    """CommonMark's closing fence: the opener's character, at least as many, nothing else."""
+    marker = _FENCE.match(line)
+    if marker is None:
+        return False
+    found = marker.group(1)
+    return (
+        found[0] == fence[0]
+        and len(found) >= len(fence)
+        and not line[marker.end():].strip()
+    )
 
 
 def render_answer_sheet(document: dict, questions: list[dict], *, pages: str | None) -> str:

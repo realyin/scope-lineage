@@ -26,6 +26,11 @@
   `false` or `0` exited 0 with no output, `7` exited 7 and `300` exited 44. Every
   `questions` subcommand now reports `top level is <type>, not an object` and exits 2 (a
   top-level list or null, which used to exit 1 with a doc_format message, exits 2 too).
+- **`questions grading-sheet` reads code fences the CommonMark way.** A line like
+  ```` ```dt``` 是分区列 ```` opened a fence, and a ```` ```bash ```` line inside a block closed
+  it, so every later answer heading was swallowed into the first answer ("no answer for ...").
+  A backtick fence's info string may not hold a backtick, and a closing fence is the opener's
+  character, at least as long, with nothing else on the line.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
