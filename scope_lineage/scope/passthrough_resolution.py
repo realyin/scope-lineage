@@ -5,6 +5,7 @@ module imports and calls these; see its wrapper for the public entry point.
 """
 from __future__ import annotations
 import re
+from functools import lru_cache
 from .scope_types import (
     AMBIGUOUS_SCOPE_ID,
     CONSTANT_SCOPE_ID,
@@ -17,7 +18,7 @@ from .scope_types import (
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
 from .expression_expansion import _physical_fields_referenced_in_expression, _replace_struct_field_access_from_upstream
-from .expression_refs import _cached_pattern
+from .expression_refs import PARSE_CACHE_SIZE, _cached_pattern
 from .expression_text import _qualifier_present, _replace_qualified_ref_with_expression, _replace_unqualified_ref_with_expression, _unexpanded_bound_aliases_in_expression
 from .source_refs import _dedupe_generated_source_dicts, _generated_sources_from_refs, _is_internal_scope_id, _qualified_physical_field_sql, _source_kind_for_resolution
 from .expansion_budget import ExpansionBudget
@@ -168,37 +169,25 @@ def _expression_has_internal_source_alias(expression: str | None, sources: list[
 # The same question scope_facts asks, asked here about a scope's sources instead of its
 # refs. Profiling put it at roughly a quarter of the run on a large statement — the answer depends only
 # on the expression and the source columns, so it is remembered (PERF-002).
-_STRUCT_ACCESS_CACHE: dict[tuple[str, tuple[str, ...]], bool] = {}
-
-
+# Only the internal sources' column names enter the answer, so they are the key.
 def _expression_has_struct_member_access(
     expression: str | None,
     sources: list[SourceRef],
 ) -> bool:
-    expression = str(expression or "")
-    key = (
-        expression,
+    return _struct_access_cached(
+        str(expression or ""),
         tuple(
-            source.column or ""
+            source.column
             for source in sources
             if _is_internal_scope_id(source.scope) and source.column
         ),
     )
-    cached = _STRUCT_ACCESS_CACHE.get(key)
-    if cached is None:
-        cached = _expression_has_struct_member_access_uncached(expression, sources)
-        _STRUCT_ACCESS_CACHE[key] = cached
-    return cached
 
 
-def _expression_has_struct_member_access_uncached(
-    expression: str,
-    sources: list[SourceRef],
-) -> bool:
-    for source in sources:
-        if not _is_internal_scope_id(source.scope) or not source.column:
-            continue
-        field = re.escape(source.column)
+@lru_cache(maxsize=PARSE_CACHE_SIZE)
+def _struct_access_cached(expression: str, internal_columns: tuple[str, ...]) -> bool:
+    for column in internal_columns:
+        field = re.escape(column)
         if _cached_pattern(rf"`[^`]+`\.`{field}`\.`[^`]+`").search(expression):
             return True
         if _cached_pattern(

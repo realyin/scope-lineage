@@ -37,7 +37,7 @@ from .expansion_budget import (
 from .sqlglot_walk import _pivot_of_source_node, _source_item_from_ast_node
 from ._constants import DIALECT, PARSE_OPTS, _SCOPE_ID_ATTR
 from .expression_expansion import _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _replace_struct_field_access_from_upstream, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs
-from .expression_refs import _cached_pattern, _qualified_field_refs
+from .expression_refs import PARSE_CACHE_SIZE, _cached_pattern, _qualified_field_refs
 from .expression_text import _function_names, _replace_qualified_ref_with_expression, _replace_unqualified_ref_with_expression, _unexpanded_bound_aliases_in_expression
 from ..function_catalog import _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SPARK_AGGREGATE_FUNCTIONS
 from .sequences import _extend_unique, _unique_ordered
@@ -2308,24 +2308,17 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
 
 # Asked once per reference per pass over the same expressions, and in a profiled run those
 # repeated calls cost a fifth of the total. Depends only on its arguments (PERF-002).
-_STRUCT_MEMBER_ACCESS_CACHE: dict[tuple[str, tuple[tuple[str, str], ...]], bool] = {}
-
-
 def _has_qualified_struct_member_access(
     expression: str,
     qualified_refs: list[tuple[str, str]],
 ) -> bool:
-    key = (expression, tuple(qualified_refs))
-    cached = _STRUCT_MEMBER_ACCESS_CACHE.get(key)
-    if cached is None:
-        cached = _has_qualified_struct_member_access_uncached(expression, qualified_refs)
-        _STRUCT_MEMBER_ACCESS_CACHE[key] = cached
-    return cached
+    return _struct_member_access_cached(expression, tuple(qualified_refs))
 
 
-def _has_qualified_struct_member_access_uncached(
+@lru_cache(maxsize=PARSE_CACHE_SIZE)
+def _struct_member_access_cached(
     expression: str,
-    qualified_refs: list[tuple[str, str]],
+    qualified_refs: tuple[tuple[str, str], ...],
 ) -> bool:
     for qualifier, field in qualified_refs:
         escaped_qualifier = re.escape(qualifier)

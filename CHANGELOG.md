@@ -470,6 +470,11 @@
   `s.users.name` that does not exist. The `u`.`name` inside a path is no longer read as a
   reference to `u`. The physical-field rewrite also no longer rewrites references inside a string
   literal (`'see a.x'` stays as written in `expanded_expression`).
+- **The parser's memo caches are bounded.** Five module-level caches (compiled patterns,
+  field-reference extraction, two STRUCT-access probes, literal-skipping patterns) were plain
+  dicts, so a process parsing many statements kept every key it had seen. Each is now an LRU of
+  4096 entries, an order of magnitude above what the largest statements measured need; output
+  and single-parse time are unchanged.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
