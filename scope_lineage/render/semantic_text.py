@@ -1773,6 +1773,35 @@ def describe_having(expression: str | None) -> str:
     return f"分组后只保留 {text} 的组" if text else "分组后按条件过滤"
 
 
+_MERGE_WHEN_CLAUSE_TEXT = {
+    "matched": "匹配到目标行",
+    "not_matched": "来源行在目标中没有匹配",
+    "not_matched_by_source": "目标行在来源中没有匹配",
+}
+_MERGE_WHEN_ACTION_TEXT = {
+    "delete": "删除该目标行",
+    "update": "更新该目标行",
+    "insert": "插入该来源行",
+}
+MERGE_WHEN_SCOPE_NOTE = "只决定走哪个 WHEN 分支，不过滤整条语句的行"
+
+
+def describe_merge_when(
+    clause: str | None, action: str | None, expression: str | None
+) -> str:
+    """A MERGE WHEN condition as the branch it selects (decision 2.2).
+
+    ``WHEN MATCHED AND s.op = 'D' THEN DELETE`` deletes the rows the condition holds for;
+    read as a WHERE it said the opposite ("只保留 op = 'D' 的记录"). The qualifiers stay:
+    in a MERGE they are what tells the target's column from the source's.
+    """
+    text = str(expression or "").replace("`", "").strip()
+    when = _MERGE_WHEN_CLAUSE_TEXT.get(str(clause), "该 WHEN 子句成立")
+    then = _MERGE_WHEN_ACTION_TEXT.get(str(action), "执行该分支的动作")
+    condition = f"{when}且 {text} 时" if text else f"{when}时"
+    return f"{condition}，{then}（{MERGE_WHEN_SCOPE_NOTE}）"
+
+
 def join_null_semantics(join_type: str | None) -> str | None:
     """WI-1f: what a JOIN of this type does to the rows it cannot match, or None.
 

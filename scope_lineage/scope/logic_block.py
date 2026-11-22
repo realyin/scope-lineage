@@ -1134,8 +1134,21 @@ def _populate_merge_root_logic_blocks(result: ScopeLineageResult) -> None:
     root = result.scopes["ROOT"]
     if root.logic_blocks:
         return
-    for index, scope_filter in enumerate(root.filters, start=1):
-        root.logic_blocks.append(_merge_filter_block(scope_filter, index))
+    # ``root.filters`` holds one entry per WHEN that has a condition, in written order;
+    # ``merge_spec.whens`` lists every WHEN. Pairing the conditioned ones in order gives
+    # each block its clause's ``index`` (decision 2.2): a WHEN without a condition has no
+    # block, so the block number alone does not name the clause.
+    when_indexes = [
+        when.get("index")
+        for when in (result.merge_spec or {}).get("whens") or []
+        if when.get("condition") is not None
+    ]
+    if len(when_indexes) != len(root.filters):
+        when_indexes = [None] * len(root.filters)
+    for index, (scope_filter, when_index) in enumerate(
+        zip(root.filters, when_indexes), start=1
+    ):
+        root.logic_blocks.append(_merge_filter_block(scope_filter, index, when_index))
 
 
 def _merge_conjuncts(
@@ -1162,12 +1175,16 @@ def _merge_conjuncts(
 _PARTITION_FIELD_NAMES = frozenset({"dt", "ds", "pt", "bizdate", "biz_date"})
 
 
-def _merge_filter_block(scope_filter, index: int) -> ScopeLogicBlock:
+def _merge_filter_block(
+    scope_filter, index: int, when_index: int | None = None
+) -> ScopeLogicBlock:
     logic_block_id = _logic_block_id("ROOT", "filter", index)
     expression = scope_filter.expression
     field_names = {ref.column.lower() for ref in scope_filter.columns}
     detail = {
         "predicate_type": "merge_when",
+        # The WHEN clause this condition belongs to: `merge_spec.whens[].index`.
+        **({"merge_when_index": when_index} if when_index is not None else {}),
         "expression": expression,
         "fields": [_source_ref_to_dict(ref) for ref in scope_filter.columns],
         "conjuncts": [

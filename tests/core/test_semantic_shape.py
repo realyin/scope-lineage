@@ -1017,6 +1017,11 @@ def test_every_action_type_the_builder_emits_has_a_declared_rank() -> None:
             "JOIN ods.dim d ON d.id = ods.e.id",
             None,
         ),
+        (
+            "MERGE INTO mart.t t USING ods.src s ON t.id = s.id "
+            "WHEN MATCHED AND s.op = 'D' THEN DELETE",
+            {"ods.src": ["id", "op"], "mart.t": ["id"]},
+        ),
     ):
         profile = build_semantic_profile(_document(sql, schema=schema))
         emitted |= {

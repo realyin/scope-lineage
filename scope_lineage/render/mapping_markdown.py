@@ -939,6 +939,21 @@ def _joins_by_profile_scope(
     return attached, leftovers
 
 
+def _merge_when_expressions(document: dict, scope_id: str) -> set[str]:
+    """The conditions of a scope's MERGE WHEN blocks (decision 2.2).
+
+    The scope profile lists them among the scope's filters; they select a WHEN branch
+    and filter no row, so the stage lists them under their own label.
+    """
+    blocks = ((document.get("scopes") or {}).get(scope_id) or {}).get("logic_blocks") or []
+    return {
+        str(block.get("raw_expression"))
+        for block in blocks
+        if block.get("logic_type") == "filter"
+        and (block.get("filter_predicate_detail") or {}).get("predicate_type") == "merge_when"
+    }
+
+
 def _render_logic(document: dict) -> list[str]:
     lines = [""]
     profile = document.get("scope_profile") or {}
@@ -978,17 +993,23 @@ def _render_logic(document: dict) -> list[str]:
             physical = "、".join(physical_tables) or "—"
             lines.append(f"- 输入：{inputs}；物理上游：{physical}")
         logic = step.get("logic") or {}
+        whens = _merge_when_expressions(document, str(step.get("scope_id")))
+        filters = [cond for cond in logic.get("filters") or [] if cond not in whens]
+        branch_conditions = [cond for cond in logic.get("filters") or [] if cond in whens]
         stats = (
             f"- 逻辑：join {len(logic.get('joins') or [])}、"
-            f"filter {len(logic.get('filters') or [])}、"
-            f"聚合 {len(logic.get('aggregations') or [])}、"
+            f"filter {len(filters)}、"
+            + (f"MERGE 分支条件 {len(branch_conditions)}、" if branch_conditions else "")
+            + f"聚合 {len(logic.get('aggregations') or [])}、"
             f"窗口 {len(logic.get('window_functions') or [])}、"
             f"union 分支 {logic.get('union_branches') or 0}、"
             f"distinct {'是' if logic.get('distinct') else '否'}"
         )
         lines.append(stats)
-        for cond in logic.get("filters") or []:
+        for cond in filters:
             lines.append(f"  - 过滤：{_expr_span(cond)}")
+        for cond in branch_conditions:
+            lines.append(f"  - MERGE 分支条件：{_expr_span(cond)}")
         for scope_id, block in attached_joins.get(step.get("scope_id"), []):
             lines.extend(_render_join_detail(scope_id, block))
     if leftover_joins:

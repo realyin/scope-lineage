@@ -681,6 +681,21 @@
   `physical_source_fields` gain the FOR column. A pivot column inside a larger
   expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
   `partially_resolved`, as before.
+- **A MERGE WHEN condition is a branch condition, not a row filter.** The WHEN blocks on a
+  MERGE ROOT (`predicate_type: "merge_when"`, above) were read by the derived views as a
+  WHERE: `describe` wrote `WHEN MATCHED AND s.op = 'D' THEN DELETE` as 「只保留 op = 'D'
+  的记录」, the opposite of what it does, and published it as a `kind: filter` rule. The
+  block also carries `merge_when_index` (the clause's `merge_spec.whens[].index`; a WHEN
+  with no condition gets no block, so the block number alone did not name the clause).
+  The derived views read it as a branch condition: `describe` publishes a rule of kind
+  `merge_when` with the clause and its action (`merge_when_index`, `clause`, `action`;
+  one rule per WHEN, not per conjunct), its stage action has type `merge_when` and reads
+  「匹配到目标行且 s.op = 'D' 时，删除该目标行（…）」, the structural summary counts it as
+  「MERGE 分支条件 N 处」 instead of 「过滤 N 处」, `render`'s stage list labels it
+  「MERGE 分支条件」, and a material packet lists it as a `merge_when` rule with that
+  sentence rather than as a `filter`. Readers of row filters (equality pins, first-row
+  filters, not-null constraints, metric-path filters, the packet's business-date filter)
+  skip it. Not Breaking: the WHEN blocks are new since 0.13.0.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

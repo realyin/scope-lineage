@@ -246,6 +246,7 @@ _ACTION_LABELS = {
     "filter": "过滤",
     "aggregate": "聚合",
     "having": "HAVING 过滤",
+    "merge_when": "MERGE 分支条件",
     "window": "窗口",
     "distinct": "去重",
     "union": "合并",
@@ -257,6 +258,7 @@ _ACTION_LABELS = {
 _RULE_KIND_LABELS = {
     "filter": "过滤",
     "having": "HAVING",
+    "merge_when": "MERGE 分支条件",
     "join_condition": "连接条件",
     "case_branch": "CASE 分支",
 }

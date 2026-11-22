@@ -210,6 +210,9 @@ _ACTION_KEY_ORDER = (
 ACTION_TYPE_ORDER = (
     "join",
     "filter",
+    # Decision 2.2: a MERGE WHEN condition picks the branch a matched / unmatched row
+    # takes; it is listed apart from `filter` because it removes no row from the write.
+    "merge_when",
     "aggregate",
     "having",
     "window",
@@ -281,6 +284,11 @@ _DIRECTORY_TARGET_PREFIX = "directory:"
 # WHERE and HAVING are separate logic types in the contract; both carry a
 # `filter_predicate_detail`, and `predicate_type` inside it says which one it is.
 _PREDICATE_LOGIC_TYPES = ("filter", "having")
+# Decision 2.2: a MERGE's WHEN condition is a `filter` block too, with this
+# `predicate_type`. It selects a WHEN branch and filters no row of the statement, so
+# every reader below that means "the rows a WHERE keeps" skips it (`_is_row_predicate`,
+# `_blocks_of_type`) and the rule / action builders give it a kind of its own.
+PREDICATE_TYPE_MERGE_WHEN = "merge_when"
 
 _TEMPORAL_TYPE_PREFIXES = ("timestamp", "date", "datetime")
 
@@ -1072,11 +1080,27 @@ def _scope_blocks(document: dict, scope_id: str) -> list[dict]:
 
 
 def _blocks_of_type(document: dict, scope_id: str, logic_type: str) -> list[dict]:
+    """A scope's blocks of one logic type. ``filter`` means a row filter: a MERGE WHEN
+    condition (decision 2.2) is not one and is left out -- every caller asking for
+    ``filter`` reads the rows a WHERE keeps or the values it pins."""
     return [
         block
         for block in _scope_blocks(document, scope_id)
         if str(block.get("logic_type")) == logic_type
+        and not (logic_type == "filter" and _is_merge_when(block))
     ]
+
+
+def _is_merge_when(block: Mapping) -> bool:
+    detail = block.get("filter_predicate_detail") or {}
+    return detail.get("predicate_type") == PREDICATE_TYPE_MERGE_WHEN
+
+
+def _is_row_predicate(block: Mapping) -> bool:
+    """A WHERE / HAVING / QUALIFY block: one that removes rows (or groups)."""
+    return str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES and not _is_merge_when(
+        block
+    )
 
 
 def _block_ids(blocks: Iterable[dict]) -> list[str]:
@@ -1326,8 +1350,14 @@ def _structural_summary(document: dict, output_shape: Mapping) -> str:
     if derived:
         parts.append(f"关联 {len(derived)} 个上游（{_derived_role_counts(steps, derived)}）")
     logic = root.get("logic") or {}
-    if logic.get("filters"):
-        parts.append(f"过滤 {len(logic['filters'])} 处")
+    # Decision 2.2: the scope profile lists a MERGE's WHEN conditions among ROOT's
+    # filters; they select a branch and filter no row, so they are counted apart.
+    whens = sum(1 for block in _scope_blocks(document, _ROOT) if _is_merge_when(block))
+    row_filters = len(logic.get("filters") or []) - whens
+    if row_filters > 0:
+        parts.append(f"过滤 {row_filters} 处")
+    if whens:
+        parts.append(f"MERGE 分支条件 {whens} 处")
     if logic.get("case_when"):
         parts.append(f"CASE WHEN 派生 {len(logic['case_when'])} 个字段")
     if logic.get("distinct"):
@@ -1589,7 +1619,8 @@ def _column_usages(document: dict) -> dict[tuple[str, str], list[str]]:
     for _, block in _logic_blocks(document):
         logic_type = str(block.get("logic_type"))
         if logic_type in _PREDICATE_LOGIC_TYPES:
-            _record_filter_usages(block, record)
+            if not _is_merge_when(block):
+                _record_filter_usages(block, record)
         elif logic_type == "join":
             _record_join_usages(block, record)
         elif logic_type == "group_by":
@@ -2061,7 +2092,9 @@ def _build_rules(document: dict) -> list[dict]:
     rules: list[dict] = []
     for scope_id, block in _logic_blocks(document):
         logic_type = str(block.get("logic_type"))
-        if logic_type in _PREDICATE_LOGIC_TYPES:
+        if logic_type in _PREDICATE_LOGIC_TYPES and _is_merge_when(block):
+            rules.append(_merge_when_rule(document, scope_id, block))
+        elif logic_type in _PREDICATE_LOGIC_TYPES:
             rules.extend(_filter_rules(document, scope_id, block))
         elif logic_type == "join":
             rules.append(_join_rule(document, scope_id, block))
@@ -2077,6 +2110,11 @@ _RULE_KEY_ORDER = (
     "kind",
     "scope_id",
     "expression",
+    # Decision 2.2: only on a `merge_when` rule -- the clause's `merge_spec.whens[]`
+    # index, its kind and its action.
+    "merge_when_index",
+    "clause",
+    "action",
     "is_partition_filter",
     "join_type",
     "null_semantics",
@@ -2145,6 +2183,52 @@ def _filter_rules(document: dict, scope_id: str, block: dict) -> list[dict]:
             }
         )
     return rules
+
+
+def _merge_when(document: dict, block: Mapping) -> dict:
+    """The ``merge_spec.whens[]`` entry a WHEN-condition block belongs to, or ``{}``."""
+    index = (block.get("filter_predicate_detail") or {}).get("merge_when_index")
+    if index is None:
+        return {}
+    return next(
+        (
+            dict(when)
+            for when in (document.get("merge_spec") or {}).get("whens") or []
+            if when.get("index") == index
+        ),
+        {},
+    )
+
+
+def _merge_when_rule(document: dict, scope_id: str, block: dict) -> dict:
+    """One MERGE WHEN condition (decision 2.2): the branch it selects, whole.
+
+    Not split into conjuncts like a WHERE: ``WHEN MATCHED AND a AND b THEN DELETE``
+    deletes where both hold, and two rules each saying "a -> delete" would not.
+    """
+    detail = block.get("filter_predicate_detail") or {}
+    when = _merge_when(document, block)
+    conjuncts = detail.get("conjuncts") or []
+    pairs = [
+        pair
+        for conjunct in conjuncts
+        for pair in _physical_fields(conjunct.get("expression_resolution"))
+    ]
+    return {
+        "kind": PREDICATE_TYPE_MERGE_WHEN,
+        "scope_id": scope_id,
+        "expression": _without_comments(
+            detail.get("expression") or block.get("raw_expression")
+        ),
+        "merge_when_index": detail.get("merge_when_index"),
+        "clause": when.get("clause"),
+        "action": when.get("action"),
+        "fields": _rule_fields(document, _dedupe(pairs)),
+        "scope_fields": _scope_fields(document, detail.get("fields")),
+        **_rule_comments(block.get("comments")),
+        "evidence": str(block.get("logic_block_id")),
+        "tag": TAG_SQL_FACT,
+    }
 
 
 def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
@@ -4491,7 +4575,7 @@ def _scope_first_row_grain(
             (
                 str(block.get("logic_block_id"))
                 for block in _scope_blocks(document, scope_id)
-                if str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES
+                if _is_row_predicate(block)
                 and _predicate_block_keeps_first_row(block, output)
             ),
             None,
@@ -6462,9 +6546,7 @@ def _chain_first_row_filter(
         if not output:
             continue
         for block in _scope_blocks(document, chain[index]):
-            if str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES and (
-                _predicate_block_keeps_first_row(block, output)
-            ):
+            if _is_row_predicate(block) and _predicate_block_keeps_first_row(block, output):
                 return str(block.get("logic_block_id"))
     return None
 
@@ -6597,9 +6679,7 @@ def _keeps_first_row_consumer(
         if _entry_keeps_first_row(entry, output):
             return str(entry.get("logic_block_id"))
     for block in _scope_blocks(document, scope_id):
-        if str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES and (
-            _predicate_block_keeps_first_row(block, output)
-        ):
+        if _is_row_predicate(block) and _predicate_block_keeps_first_row(block, output):
             return str(block.get("logic_block_id"))
     candidates = join_blocks if join_blocks is not None else _all_join_blocks(document)
     for block_id, detail in candidates:
@@ -6997,7 +7077,9 @@ def _stage_actions(document: dict, scope_id: str, step: dict) -> list[dict]:
     actions: list[dict] = []
     for block in blocks:
         logic_type = str(block.get("logic_type"))
-        if logic_type in _PREDICATE_LOGIC_TYPES:
+        if logic_type in _PREDICATE_LOGIC_TYPES and _is_merge_when(block):
+            actions.append(_merge_when_action(document, block))
+        elif logic_type in _PREDICATE_LOGIC_TYPES:
             actions.extend(_filter_actions(document, block))
         elif logic_type == "join":
             actions.append(_join_action(document, block))
@@ -7085,6 +7167,21 @@ def _filter_actions(document: dict, block: dict) -> list[dict]:
             )
         )
     return actions
+
+
+def _merge_when_action(document: dict, block: dict) -> dict:
+    """A MERGE WHEN condition as the branch it selects, never as rows kept (2.2)."""
+    rule = _merge_when_rule(document, "ROOT", block)
+    return _action(
+        PREDICATE_TYPE_MERGE_WHEN,
+        semantic_text.describe_merge_when(
+            rule.get("clause"), rule.get("action"), rule.get("expression")
+        ),
+        expression=rule.get("expression"),
+        fields=rule.get("fields") or [],
+        sql_comments=block.get("comments"),
+        evidence=str(block.get("logic_block_id")),
+    )
 
 
 def _join_action(document: dict, block: dict) -> dict:
@@ -8965,7 +9062,7 @@ def _nondeterministic_findings(
         evidence.append(str(field.get("mapping_chain_id") or ""))
         affected.append(field)
     for rule in rules:
-        if str(rule.get("kind")) not in _PREDICATE_LOGIC_TYPES:
+        if str(rule.get("kind")) not in (*_PREDICATE_LOGIC_TYPES, PREDICATE_TYPE_MERGE_WHEN):
             continue
         if not semantic_text.nondeterministic_functions(rule.get("expression")):
             continue
