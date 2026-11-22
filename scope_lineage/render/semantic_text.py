@@ -667,6 +667,9 @@ def equals_one_predicate(expression: str | None, column: str) -> bool:
     rather than by matching text: ``WHERE `r`.`rn` = 1`` and ``1 = rn`` are the same
     fact, and ``rn = 10`` is not. A leading WHERE/HAVING keyword is stripped because
     ``filter_after_window`` entries quote the clause, not the bare predicate.
+
+    Only a top-level AND conjunct counts (audit WP2b): ``rn = 1 OR vip``, ``NOT (rn =
+    1)`` and ``CASE WHEN rn = 1 ...`` all keep more than one row per partition.
     """
     if not expression or not column:
         return False
@@ -678,7 +681,8 @@ def equals_one_predicate(expression: str | None, column: str) -> bool:
     node = parse_expression(text)
     if node is None:
         return False
-    for candidate in [node, *node.find_all(exp.EQ)]:
+    for candidate in _and_conjuncts(node):
+        candidate = _unwrap(candidate)
         if not isinstance(candidate, exp.EQ):
             continue
         sides = (candidate.this, candidate.expression)

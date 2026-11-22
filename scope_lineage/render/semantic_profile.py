@@ -4094,12 +4094,19 @@ def _root_dedup_evidence(document: dict) -> list[str]:
     A ``row_number() = 1`` inside a JOIN's ON clause deduplicates the *right side* of
     that join, not ROOT's output, so it is deliberately not read here -- it is read by
     the fan-out rule instead.
+
+    Audit WP2h: the same holds for ``FROM orders o JOIN ranked r ... WHERE r.rn = 1``.
+    The window counts only when it sits on ROOT's driving path -- ROOT's FROM item, its
+    FROM item, and so on down -- whether or not a level also carries a JOIN.
     """
     distinct = _blocks_of_type(document, _ROOT, "distinct")
     if distinct:
         return _block_ids(distinct)
+    driving = _from_item_path(document)
     evidence: list[str] = []
     for scope_id, block_id, spec in _ranking_window_specifications(document):
+        if scope_id not in driving:
+            continue
         output = str(spec.get("output_field") or "")
         for entry in spec.get("filter_after_window") or []:
             if entry.get("scope_id") == _ROOT and _entry_keeps_first_row(entry, output):
@@ -4110,6 +4117,34 @@ def _root_dedup_evidence(document: dict) -> list[str]:
             if _predicate_block_keeps_first_row(block, output):
                 evidence.extend([block_id, str(block.get("logic_block_id"))])
     return _dedupe(evidence)
+
+
+def _from_item_path(document: dict) -> set[str]:
+    """ROOT and every scope reached by following each level's FROM item (WP2h).
+
+    Unlike :func:`_single_input_chain`, a level that also JOINs is descended: a JOIN
+    there is the fan-out rule's business, and the FROM item still drives the rows. When
+    :func:`_scope_from_item` cannot decide (a WHERE ``IN (SELECT ...)`` is an input
+    too), the scope's single ``position: from`` input edge names the FROM item.
+    """
+    path = [_ROOT]
+    current: str | None = _ROOT
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        found, _reason = _scope_from_item(document, str(current))
+        current = found or _from_edge(document, str(current))
+        if current is None or current in path:
+            break
+        path.append(current)
+    return set(path)
+
+
+def _from_edge(document: dict, scope_id: str) -> str | None:
+    edges = [
+        str(edge.get("source_id"))
+        for edge in (_scopes(document).get(scope_id) or {}).get("input_edges") or []
+        if edge.get("position") == "from" and edge.get("source_id")
+    ]
+    return edges[0] if len(edges) == 1 else None
 
 
 def _ranking_window_specifications(
@@ -5893,10 +5928,74 @@ def _ranking_key_claim(
         ]
         if not _comparable(_logical_key_names(keys)) <= _comparable(join_columns):
             continue
-        consumer = _keeps_first_row_consumer(document, scope_id, spec, [join_block])
+        scoped_spec, scoped_join = _filters_read_through_join_right(spec, join_block)
+        consumer = _keeps_first_row_consumer(document, scope_id, scoped_spec, [scoped_join])
         if consumer:
             return _ranking_claim(scope_id, spec, consumer)
     return _lower_ranking_claim(document, scope_id, join_columns, functions)
+
+
+def _filters_read_through_join_right(
+    spec: dict, join_block: tuple[str, dict]
+) -> tuple[dict, tuple[str, dict]]:
+    """``spec`` and ``join_block`` keeping only the ``= 1`` filters read through this JOIN's right.
+
+    Audit WP2a: a ``filter_after_window`` entry or an ON-clause ``condition_filters``
+    entry proves *this* join's right side unique only when its window column is read
+    through that right input. A sibling CTE filtering the same window, or ``WHERE
+    r.rn = 1`` next to a second alias ``r2`` of the same CTE, filters other rows. The
+    input is matched by ``input_ref_id`` (taken from ``join_key_pairs[].right``); a
+    field without one falls back to ``scope`` plus ``qualifier``. The window scope's own
+    WHERE is not narrowed: it sits inside the right side.
+    """
+    block_id, detail = join_block
+    output = str(spec.get("output_field") or "")
+    references, identities = _join_right_identity(detail)
+
+    def reads_right(entry: Mapping) -> bool:
+        for field in entry.get("fields") or []:
+            if str(field.get("column")) != output:
+                continue
+            reference = field.get("input_ref_id")
+            if reference and references:
+                if reference in references:
+                    return True
+                continue
+            identity = (str(field.get("scope")), str(field.get("qualifier") or "").lower())
+            if identity in identities:
+                return True
+        return False
+
+    scoped_spec = {
+        **spec,
+        "filter_after_window": [
+            entry for entry in spec.get("filter_after_window") or [] if reads_right(entry)
+        ],
+    }
+    scoped_detail = {
+        **detail,
+        "condition_filters": [
+            entry for entry in detail.get("condition_filters") or [] if reads_right(entry)
+        ],
+    }
+    return scoped_spec, (block_id, scoped_detail)
+
+
+def _join_right_identity(detail: Mapping) -> tuple[set[str], set[tuple[str, str]]]:
+    """This JOIN's right input as ``input_ref_id`` values and ``(scope, qualifier)`` pairs."""
+    references: set[str] = set()
+    identities: set[tuple[str, str]] = set()
+    for pair in detail.get("join_key_pairs") or []:
+        right = pair.get("right") or {}
+        if right.get("input_ref_id"):
+            references.add(str(right["input_ref_id"]))
+        if right.get("scope"):
+            identities.add((str(right["scope"]), str(right.get("qualifier") or "").lower()))
+    if detail.get("right_input"):
+        identities.add(
+            (str(detail["right_input"]), str(detail.get("right_alias") or "").lower())
+        )
+    return references, identities
 
 
 def _ranking_claim(scope_id: str, spec: dict, consumer: str) -> claims.Claim:
