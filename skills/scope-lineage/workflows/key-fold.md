@@ -31,6 +31,15 @@ a recomputation — the bytes are identical without them. Add `--export linkml,s
 the user wants the candidate in an RDF toolchain: it writes `ontology.linkml.yaml` and
 `ontology.shacl.ttl` beside the JSON, each element still carrying its tier.
 
+**The caller's naming convention and words.** `ontology` reads a `domain-profile/1` file
+(`--domain-profile`, or the `SCOPE_LINEAGE_DOMAIN_PROFILE` environment variable when the
+flag is not given -- the same variable `semantic packet` and `semantic validate` read, and
+the one the runbook's `env.sh` exports). Its `table_name_convention` decides which suffixes
+(`_di`, `_df`, ...) mark copies of one table: member roles, the increment vote, and the
+table families (`families[]`, the open-item groups). Without it only `_tmp` / `_bak` /
+`_new` / `_old` and numbered steps fold, so `x_di` and `x_df` are two families. Use the same
+profile on every run over one corpus; see `docs/en/domain-profile.md`.
+
 **Read in this order.** `ontology.md` first (its first line says it is key-fold candidates,
 not the business ontology), and it reads concept-first: 「本体总览」 says
 how many concepts of each kind the key fold proposes, how many are still 临时概念, and

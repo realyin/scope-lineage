@@ -17,6 +17,10 @@ file carries all of it, and each command that reads part of it takes the same fl
 
 Every section is optional, an empty profile changes nothing, and an unknown key is an
 error rather than a silently ignored typo.
+
+When a command is not given ``--domain-profile`` it reads the file named by the
+``SCOPE_LINEAGE_DOMAIN_PROFILE`` environment variable (``DOMAIN_PROFILE_ENV``), so a run
+that calls several commands sets it once; the flag wins when both are given.
 """
 
 from __future__ import annotations
@@ -27,6 +31,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DOC_FORMAT = "domain-profile/1"
+#: The environment variable that names the profile when ``--domain-profile`` is not given.
+DOMAIN_PROFILE_ENV = "SCOPE_LINEAGE_DOMAIN_PROFILE"
+FLAG = "--domain-profile"
 
 CONVENTION_KINDS = ("full", "incremental")
 CONCEPT_WORD_KINDS = ("event", "entity", "summary", "measure_suffixes", "filter_words")
@@ -46,15 +53,16 @@ class DomainProfile:
     concept_words: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
-def load_domain_profile(path: str | Path) -> DomainProfile:
+def load_domain_profile(path: str | Path, source: str = FLAG) -> DomainProfile:
+    """Read one profile file; ``source`` (the flag or ``DOMAIN_PROFILE_ENV``) heads every error."""
     try:
         document = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
-        raise DomainProfileError(f"--domain-profile {path}: not a readable JSON file ({error})") from None
+        raise DomainProfileError(f"{source} {path}: not a readable JSON file ({error})") from None
     try:
         return parse_domain_profile(document)
     except DomainProfileError as error:
-        raise DomainProfileError(f"--domain-profile {path}: {error}") from None
+        raise DomainProfileError(f"{source} {path}: {error}") from None
 
 
 def parse_domain_profile(document) -> DomainProfile:

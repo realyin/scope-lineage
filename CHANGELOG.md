@@ -696,6 +696,17 @@
   name tables, relations and concepts, never a family. The architecture test's exemption for
   this list is gone. What to do: pass the same `--domain-profile` to `ontology` as to the
   other commands.
+- **`SCOPE_LINEAGE_DOMAIN_PROFILE` names the domain profile once for a whole run.** Every
+  command that takes `--domain-profile` (`semantic packet`, `semantic validate`, `ontology`)
+  reads the file this environment variable names when the flag is not given (a non-empty
+  value only); the flag wins when both are given. A command that reads a profile says on
+  stderr which file and from where (`domain profile: <file> (from …)`); a file named by the
+  variable that cannot be read exits 2 with the variable named. The runbook's
+  `init_run.py --domain-profile <file>` writes `DOMAIN_PROFILE` into `env.sh`, and
+  `runlib.sh` exports it as the variable (and unsets a leftover one when the run has no
+  profile), so the runbook's calls, the subagent templates' included, carry no flag of
+  their own; an architecture test keeps every such call on that path. Additive: without the
+  variable nothing changes.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

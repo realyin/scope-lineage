@@ -8,6 +8,9 @@ lineage skill (``scope-lineage``, whose ``query.py`` S1 runs) is the one beside 
 ``--lineage-skill`` names another; the tool checkout is the repository when there is one,
 otherwise empty (the installed ``scope-lineage`` is used). An existing
 ``env.sh`` is never overwritten: edit its right-hand sides, or pass ``--force``.
+``--domain-profile`` names the run's ``domain-profile/1`` file; ``env.sh`` keeps it as
+``DOMAIN_PROFILE`` and ``runlib.sh`` exports it as ``SCOPE_LINEAGE_DOMAIN_PROFILE``, which
+``semantic packet``, ``semantic validate`` and ``ontology`` read when no flag is given.
 
 It also starts the run's ledger, ``ledger.md``, from ``references/templates/ledger.md`` (the
 block inside its fence, without the example row); an existing ledger is left as it is.
@@ -49,6 +52,8 @@ def main() -> int:
     parser.add_argument("--patch", default="", help="owner 审过的 metadata-patch.json")
     parser.add_argument("--overrides", default="", help="owner 审过的 glossary.overrides.json")
     parser.add_argument("--questions", default="", help="回归题集（question-set/1）")
+    parser.add_argument("--domain-profile", default="",
+                        help="领域配置 domain-profile/1（业务词和表名后缀约定）；整次运行只用这一份")
     parser.add_argument("--review-passes", type=int, choices=(1, 2), default=1,
                         help="审读遍数；审读和写作只能用同一种模型时写 2（每张表首审后再补审一遍，见 S6）")
     parser.add_argument("--lineage-skill", default=None,
@@ -65,6 +70,9 @@ def main() -> int:
     if not os.path.isfile(os.path.join(lineage, "scripts", "query.py")):
         print(f"找不到 scope-lineage skill：{lineage} 下没有 scripts/query.py。两个 skill 要装在一起；"
               "分开放时用 --lineage-skill 写它的绝对路径", file=sys.stderr)
+        return 1
+    if args.domain_profile and not os.path.isfile(args.domain_profile):
+        print(f"--domain-profile 指的文件不存在：{args.domain_profile}", file=sys.stderr)
         return 1
     target = os.path.join(run, "env.sh")
     if os.path.exists(target) and not args.force:
@@ -86,6 +94,8 @@ def main() -> int:
         ("RUN", run, "运行目录"),
         ("SCRATCH", scratch, "临时目录"),
         ("Q", absolute(args.questions), "回归题集；没有就是空的"),
+        ("DOMAIN_PROFILE", absolute(args.domain_profile),
+         "领域配置 domain-profile/1；没有就是空的。runlib.sh 把它导出成 SCOPE_LINEAGE_DOMAIN_PROFILE，中途换了要重建材料包"),
         ("REVIEW_PASSES", str(args.review_passes), "审读遍数：1；审读和写作只能用同一种模型时写 2（S6 补审）"),
     ]
     lines = ["# ===== scope-lineage 运行环境（init_run.py 生成）：要改只改等号右边，全部写绝对路径，一律用正斜杠 ====="]
