@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0
 - **Re-parsing after `describe` no longer fails; it deletes the old `semantic.*`.** `describe`
   writes `semantic.json` / `semantic.md` next to `lineage.json` by default, but the task writer
   did not know those names and refused to replace the directory (`input_failed=1`). They are now

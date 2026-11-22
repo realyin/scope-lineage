@@ -316,9 +316,9 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
-### Migrating to the next release (Unreleased)
+### Migrating to 0.14.0
 
-This release corrects a number of lineage facts (see Unreleased in the CHANGELOG). Re-run
+This release corrects a number of lineage facts (see 0.14.0 in the CHANGELOG). Re-run
 `parse` for every stored `lineage.json` and rebuild what was derived from it (`describe`, `tables`,
 `glossary`, `ontology`, packets, catalog evidence); the items below list only what needs more than a
 re-run.
@@ -327,7 +327,7 @@ No format changes number, but some field sources change. A SELECT-list name that
 source column and an earlier alias in the same SELECT (`SELECT fee AS amt, amt AS fee`) now
 reads the source column, as Spark does, wherever Schema proves the source has it; before, the
 alias always won, silently. A name the Schema cannot settle keeps the alias reading and adds a
-`lateral_alias_ambiguous` warning. Full entry: the **Breaking** item under Unreleased in
+`lateral_alias_ambiguous` warning. Full entry: the **Breaking** item under 0.14.0 in
 [CHANGELOG.md](CHANGELOG.md).
 
 1. Re-run `parse` for stored lineage documents. Expect changed `sources`, `expression` and
