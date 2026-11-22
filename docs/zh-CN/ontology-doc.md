@@ -129,8 +129,11 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
   那份事实而不是重算；借来的文件会抄进本次运行自己的 `.cache/`，下次即本地命中，借出的那份
   目录可以删掉。可重复，按给出的顺序、在本地缓存之后依次尝试；它本身即蕴含 `--incremental`，
   `--no-cache` 仍然优先。语料路径**不进**选项摘要：同一个任务在哪个目录下解析，都该算出同一份事实。
-- 事实文件按任务名存放，两份语料完全可能各有一个同名而内容不同的任务。能不能借用由文件里记着的
-  指纹与选项摘要说了算，不由文件名说了算——同名不同内容的任务照样重算。
+- 事实文件先按任务名（它在 `--lineage` 下的路径）找，找不到再按 `lineage.json` 的 sha256 找：
+  每份缓存在 `.cache/by-content/index.json` 里按内容列出自己的文件，所以子集语料里叫 `task_a`、
+  超集语料里叫 `domain_a/task_a` 的同一个任务照样能借，单文件运行留下的事实也能借。两份语料完全
+  可能各有一个同名而内容不同的任务；能不能借用由文件里记着的指纹与选项摘要说了算，不由怎么找到的
+  说了算——同名不同内容的任务照样重算。
 - 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
   `glossary.json` / `tables.json`、以及工具版本，任何一项对不上，索引就当没有。
   由别的子命令写下的索引或缓存（`command`、`doc_format` 对不上）同样当没有。
@@ -138,6 +141,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
   给了 `--cache-from` 时第一项写成 `reused=N (borrowed=B)`，B 是从别处借来的那几个。
 - 不给 `--incremental` 就是原来的全量跑，既不读也不写索引与缓存；`--no-cache` 先把这两样
   删掉再全量跑。
+- **本命令以前发布过、这次不再发布的页面会被删掉**，加不加 `--incremental` 都一样：比如已经没有
+  任何任务碰到的表的卡片、评审里被合并掉的概念页。只会删 `--out` 下 `tables/*.md`、`concepts/*.md` 这种文件，而且只删本命令自己的记录里
+  有的——索引里的 `written` 清单，或者上一轮写在页面旁边的 `ontology.json`。你自己放进去的文件、别的命令写进
+  同一个 `--out` 的文件都不动。`--format json` 的运行不碰 markdown。
 
 ## 置信五级
 

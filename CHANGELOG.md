@@ -261,6 +261,20 @@
   - A chain of views whose conditions all read the previous view folded in time exponential
     in its length (N=13 took seconds); answers are now cached per column and state, and the
     walk is linear.
+- **`--cache-from` borrows across layouts.** A fact file was found only by the task's path
+  under `--lineage`, so a superset corpus borrowed nothing from a subset run (`task_a` vs
+  `domain_a/task_a`), nor from a single-file run, whose fact file was also a hidden
+  `.-<digest>.json`. Each cache now lists its fact files by `lineage.json` digest in
+  `.cache/by-content/index.json`, and a borrow falls back to that list; every candidate is
+  still judged on its own fingerprints and options digest. The single-file fact file has a
+  visible name. `payload_version` is 3, so existing caches are recomputed once.
+- **`tables` and `ontology` remove the pages they no longer publish.** A card for a table
+  no task touches any more, or a concept page merged away, stayed in `tables/` /
+  `concepts/` and kept answering -- with or without `--incremental`. A run that publishes
+  markdown now deletes the `tables/*.md` (and, for `ontology`, `concepts/*.md`) that this
+  command's own record of its last run names and this run did not write: the index's
+  `written` list, or the `tables.json` / `ontology.json` the last run wrote. Files you put
+  there, and cards another command wrote into a shared `--out`, are left alone.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

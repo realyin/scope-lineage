@@ -19,7 +19,9 @@ from pathlib import Path
 from .corpus_cache import (
     add_incremental_arguments,
     open_cache,
+    previous_written,
     project_profile,
+    prune_unwritten,
     union_fields,
 )
 from .render.glossary import PROFILE_FIELDS_READ as GLOSSARY_FIELDS_READ
@@ -311,6 +313,8 @@ def run_ontology(args: argparse.Namespace) -> int:
     ]
     # N1a: the digest is over the documents, not the paths -- but the *order* they
     # apply in is part of the answer, and the list above already carries it.
+    # Read before ``--no-cache`` drops the index and before this run rewrites ontology.json.
+    previous = _previously_written(out_dir)
     cache = open_cache(args, out_dir, found[1], "ontology", options, fields=CACHED_FIELDS)
     try:
         collected = _collect(loaded.documents, cache, needs_glossary=glossary is None)
@@ -337,7 +341,10 @@ def run_ontology(args: argparse.Namespace) -> int:
     chosen = formats(args.format)
     _write_ontology(out_dir, ontology, cards, chosen, _batches_link(args, out_dir))
     _write_exports(out_dir, ontology, chosen_exports)
-    cache.commit(_written(ontology, cards, chosen, chosen_exports))
+    written = _written(ontology, cards, chosen, chosen_exports)
+    if "md" in chosen:
+        prune_unwritten(out_dir, previous, written, (CONCEPTS_DIR, "tables"))
+    cache.commit(written)
     # N4: the queue is cut before anything is printed, because the summary names it.
     batches = _write_review_batches(args, ontology)
     _report(
@@ -559,6 +566,30 @@ def _written(
             for card in cards.get("tables") or []
         ),
     ]
+
+
+def _previously_written(out: Path) -> set[str]:
+    """The pages an earlier ``ontology`` run published under ``out``, by its own record.
+
+    The incremental index's ``written``, and the ``ontology.json`` that run wrote: its
+    concepts name the concept pages and its table entities the cards. A card ``tables``
+    wrote into the same ``--out`` is in neither, so it is never this command's to remove.
+    """
+    previous = previous_written(out, "ontology")
+    try:
+        document = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return previous
+    if not isinstance(document, dict):
+        return previous
+    try:
+        previous.update(f"{CONCEPTS_DIR}/{name}" for name in concept_files(document))
+    except (AttributeError, TypeError):
+        pass  # an ontology.json too old or too damaged to name its pages names none
+    for entity in document.get("tables") or []:
+        if isinstance(entity, dict) and entity.get("id"):
+            previous.add(f"tables/{table_card_filename(str(entity['id']))}")
+    return previous
 
 
 def _batches_link(args: argparse.Namespace, out: Path) -> str | None:

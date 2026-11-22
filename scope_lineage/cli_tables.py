@@ -14,7 +14,13 @@ import json
 import sys
 from pathlib import Path
 
-from .corpus_cache import add_incremental_arguments, open_cache, project_profile
+from .corpus_cache import (
+    add_incremental_arguments,
+    open_cache,
+    previous_written,
+    project_profile,
+    prune_unwritten,
+)
 from .metadata.column_samples import (
     SAMPLES_TOP_DEFAULT,
     ColumnSamplesError,
@@ -121,7 +127,7 @@ def _run_merge_only(args: argparse.Namespace, documents: list) -> int:
     """``tables --merge a.json --merge b.json``: no corpus to walk, only cards to fold."""
     cards = merge_table_cards(*documents)
     chosen = formats(args.format)
-    _write_cards(Path(args.out), cards, chosen)
+    _publish(Path(args.out), cards, chosen)
     print(
         f"Merged {len(cards['tables'])} table(s) from {len(documents)} corpus(es), "
         f"{cards['corpus']['task_count']} task(s)"
@@ -163,6 +169,8 @@ def _run_corpus(args: argparse.Namespace, merged: list) -> int:
     # index for the same reason a changed samples file does. The corpus path is not in
     # the digest (Q7): the same task carded from another directory is the same task.
     options = [args.format, _samples_digest(args), args.samples_top, merged]
+    # Read before ``--no-cache`` drops the index and before this run rewrites tables.json.
+    previous = _previously_written(out_dir)
     cache = open_cache(
         args, out_dir, found[1], "tables", options, fields=[PROFILE_FIELDS_READ]
     )
@@ -176,7 +184,7 @@ def _run_corpus(args: argparse.Namespace, merged: list) -> int:
         # merged card reads in the order the reader typed, whatever was recomputed.
         cards = merge_table_cards(*merged, cards)
     chosen = formats(args.format)
-    _write_cards(out_dir, cards, chosen)
+    _publish(out_dir, cards, chosen, previous)
     cache.commit(_written(cards, chosen))
 
     print(
@@ -207,6 +215,40 @@ def _merged_report(cards: dict, merged: list) -> str:
         f", merged with {len(merged)} corpus(es) for "
         f"{cards['corpus']['task_count']} task(s) in all"
     )
+
+
+def _previously_written(out: Path) -> set[str]:
+    """The cards an earlier ``tables`` run published under ``out``, by its own record.
+
+    Two records, either enough: the incremental index's ``written``, and the
+    ``tables.json`` the run wrote beside the cards (a run without ``--incremental``
+    writes no index). Whatever neither names is not this command's file.
+    """
+    previous = previous_written(out, "tables")
+    try:
+        document = json.loads((out / "tables.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return previous
+    cards = document.get("tables") if isinstance(document, dict) else None
+    for card in cards if isinstance(cards, list) else []:
+        if isinstance(card, dict) and card.get("table"):
+            previous.add(f"tables/{table_card_filename(str(card['table']))}")
+    return previous
+
+
+def _publish(
+    out: Path, cards: dict, chosen: set[str], previous: set[str] | None = None
+) -> None:
+    """Write the cards, then remove the ones an earlier run wrote and this one did not.
+
+    Only a run that publishes the card directory prunes it: ``--format json`` leaves the
+    markdown alone, as it always has.
+    """
+    if previous is None:
+        previous = _previously_written(out)
+    _write_cards(out, cards, chosen)
+    if "md" in chosen:
+        prune_unwritten(out, previous, _written(cards, chosen), ("tables",))
 
 
 def _written(cards: dict, chosen: set[str]) -> list[str]:
