@@ -10,8 +10,9 @@ worksheet, a skeleton overrides file with one empty ``merge_into`` slot per conc
 an index saying in which order to work them. Three rules keep a batch worth opening.
 
 1. **A batch is a unit of judgement, not a slice of a list.** ``--by family`` groups the
-   concepts by ``table_family`` -- the copies of one logical table answer as one, and
-   splitting them across two batches asks the same question twice -- and fills batches up
+   concepts by the table family ``ontology.json`` published -- the copies of one logical
+   table answer as one, and splitting them across two batches asks the same question
+   twice -- and fills batches up
    to ``--batch-size`` without ever breaking a family apart. ``--by domain`` does the same
    over the tables' ``naming_hints.domain`` (then ``project``), because a domain is who a
    reviewer would have to ask. ``--by size`` is the plain chunk, for a corpus whose
@@ -51,7 +52,6 @@ from pathlib import Path
 from .concept_relations import concept_impact, provisional_concept_ids
 from .concepts import CONCEPT_OVERRIDES_DOC_FORMAT, GENERIC_STEMS, key_stem
 from .markdown_text import cell
-from .ontology import table_family
 
 #: The document ``build_review_batches`` publishes.
 DOC_FORMAT = "concept-review-batches/1"
@@ -179,7 +179,7 @@ def _groups(rows: Sequence[Mapping], ontology: Mapping, *, by: str) -> list[dict
     """
     if by == "size":
         return [{"group": None, "rows": [row]} for row in rows]
-    label = _family_label if by == "family" else _domain_label(ontology)
+    label = _family_label(ontology) if by == "family" else _domain_label(ontology)
     members: dict[str, list] = {}
     for row in rows:
         members.setdefault(label(row), []).append(dict(row))
@@ -197,9 +197,20 @@ def _group_rank(group: Mapping) -> tuple:
     )
 
 
-def _family_label(row: Mapping) -> str:
-    """Q3's family key of the one table this concept stands for."""
-    return table_family(str((row["tables"] or [""])[0]))
+def _family_label(ontology: Mapping):
+    """Q3's family key of the one table this concept stands for, as ``ontology.json``
+    published it -- the fold depends on the caller's naming convention, which only the
+    ontology build saw, so it is read back rather than recomputed."""
+    families = {
+        str(table.get("id")): str(table.get("family") or table.get("id"))
+        for table in ontology.get("tables") or []
+    }
+
+    def label(row: Mapping) -> str:
+        table = str((row["tables"] or [""])[0])
+        return families.get(table, table)
+
+    return label
 
 
 def _domain_label(ontology: Mapping):

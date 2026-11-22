@@ -267,7 +267,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                    "reference_only_edge": 0}},
   "tables": [
     {"id": "ods.customer", "kind": "physical_table",
-     "family": "ods.customer",   // Q3: the family key, the name without _di / _tmp / _mid01
+     "family": "ods.customer",   // Q3: the family key, the name without _tmp / _mid01 (and the convention's _di ...)
      "comment": null,
      "identity": {
        "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
@@ -759,7 +759,7 @@ unreadable. Q3 folds it, mechanically:
 
 | # | Rule |
 | --- | --- |
-| 1 | **Table family**: lowercase the name, split it on `_`, and strip trailing segments while they are period suffixes (`_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` / `_wf` / `_all`), stage suffixes (`_tmp` / `_mid<digits>` / `_step<digits>` / `_stage<digits>` / `_bak` / `_new` / `_old` / `_v<digits>`) or a purely numeric tail. Whole segments only, so `_dim` is not `_di` and `_info` is not `_i`; the database stays, and the last segment is never stripped (a table really called `tmp` is its own family) |
+| 1 | **Table family**: lowercase the name, split it on `_`, and strip trailing segments while they are period suffixes, stage suffixes (`_tmp` / `_mid<digits>` / `_step<digits>` / `_stage<digits>` / `_bak` / `_new` / `_old` / `_v<digits>`) or a purely numeric tail. The period suffixes come from the [domain profile](domain-profile.md)'s `table_name_convention` (the union of `full` and `incremental`, e.g. `_di` / `_df`); only the stage suffixes and numbered steps are built in, so without a convention `ods.gadget_di` and `ods.gadget_df` are two families. Whole segments only, so `_dim` is not `_di` and `_info` is not `_i`; the database stays, and the last segment is never stripped (a table really called `tmp` is its own family) |
 | 2 | **Group key**: (kind, table family, question shape). A candidate key's shape is its column set; a finding's is the finding `kind`; **a relation groups by its far side** -- an edge's open question is "is that table unique on these columns", which neither the producer nor the name it gives its own column changes, so the key is (far table's family, far columns) and the family fold only merges the copies of that far table |
 | 3 | **Inside a group**: the items keep the flat list's order, the first of them is the `representative`, and `count` is how many there are |
 | 4 | **Impact**: `impact` is what answering the group unblocks -- for a relation, the number of tables that join the far side plus the number of tasks that do; for a candidate key, the number of assumed edges that confirming it would prove; for a finding, the number of items it holds |
@@ -1147,7 +1147,7 @@ Every column of the worksheet is part of one thing: deciding without leaving the
 
 | Value | How it groups | How it packs |
 | --- | --- | --- |
-| `family` (default) | by `table_family` -- `_di` / `_df` / `_tmp` are copies of one logical table, and so one question | groups are packed into batches and **a family is never split**; a family larger than `--review-batch-size` takes a batch of its own |
+| `family` (default) | by the family `ontology.json` published (`tables[].family`) -- `_tmp` / `_mid01`, and the convention's `_di` / `_df`, are copies of one logical table, and so one question | groups are packed into batches and **a family is never split**; a family larger than `--review-batch-size` takes a batch of its own |
 | `domain` | by the table's `naming_hints.domain`, falling back to `project`, then to one unlabelled group | the same, with the domain as the unit |
 | `size` | no grouping | the ranked list flattened and chunked by `--review-batch-size` |
 

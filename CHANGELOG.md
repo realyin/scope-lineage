@@ -681,6 +681,21 @@
   `physical_source_fields` gain the FOR column. A pivot column inside a larger
   expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
   `partially_resolved`, as before.
+- **Breaking (part of the domain-profile change above) -- table families fold period
+  suffixes only when `table_name_convention` lists them.** `ontology`'s `families[]`,
+  `tables[].family` and the grouping of open items (`open_item_groups[]`,
+  `finding_groups[]`, their `group_id`s) stripped a built-in list of period suffixes
+  (`_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` / `_wf` / `_all`) from every table
+  name; they now strip only the suffixes the `domain-profile/1` convention lists (the union
+  of its `full` and `incremental`). Without a convention `ods.gadget_di` and `ods.gadget_df`
+  are two families and open items are grouped more finely; `_tmp` / `_bak` / `_new` /
+  `_old` and numbered steps still fold. A table that merely ended in one of those segments
+  (`xiao_mi`) is no longer folded into another family. With the example profile the
+  families are what they were. `--review-batches-by family` reads the family
+  `ontology.json` published instead of recomputing it. Overrides are unaffected: their keys
+  name tables, relations and concepts, never a family. The architecture test's exemption for
+  this list is gone. What to do: pass the same `--domain-profile` to `ontology` as to the
+  other commands.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
