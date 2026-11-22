@@ -383,6 +383,29 @@ table is named `gadget_df` rather than `gadget`.
    To keep one layer's old reading word for word, list only that layer's old suffixes. See
    [docs/en/domain-profile.md](docs/en/domain-profile.md).
 
+10. In a corpus with a key column that starts with `id_` or `no_`, concept ids change (the stem of
+    `id_card_no` is now `id_card`, not `card`, so `concept:card` becomes `concept:id_card`). Re-run
+    `ontology`; an entry in `concepts.overrides.json` that names the old id is listed in
+    `concept_overrides_applied.unmatched` (`unknown_concept`): rename it to the id `ontology.json`
+    now publishes.
+11. `catalog validate` now checks who owns the attributes a metric uses: `measure` and attribute
+    dimensions must belong to `on` or to a concept linked to `on` (a linked role counts with its
+    player). Otherwise it reports `metric_measure` / `metric_dimension` as an error, so a catalog
+    that used to pass may fail. Fix it by using an attribute of `on` or of a linked concept, by
+    adding the missing relation or participant, or by moving the metric to the concept that owns
+    the attribute. `catalog build --lineage` also has a new grain conflict rule,
+    `grain_not_exposed` (the key holds but is not written on target columns); that case used to
+    be reported as `grain_not_proven`. Consumers that match on the rule name should accept both.
+12. An output whose projection is a single `now()` call is no longer a UDF: `has_udf` is `false`,
+    `expression_type` is `function_expression`, and the column carries no
+    `transform_subkind: "udf"`. Re-run `parse`, and rebuild packets in a table-semantics run.
+13. Statements that read a PIVOT / UNPIVOT change. `SELECT *` now gives Spark's column set
+    (implicit grouping columns first, then one column per IN value and aggregate); a column read
+    through the alias (`p.q1`) is the column `SELECT *` gives, with `transform` `AGGREGATE` and
+    the FOR column among its sources; a reference that used to be published as the physical
+    column `<table>.p` now reads the real column. Re-run `parse` and rebuild what was derived
+    from it.
+
 ### Migrating to 0.11.0
 
 Every format keeps its number and every catalog change is additive: a catalog written for
