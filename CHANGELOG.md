@@ -478,7 +478,9 @@
   anonymous call, and a projection that was one anonymous call got the `udf` subtype without
   the function catalog being asked, so `has_udf` was true and the output was typed
   `udf_expression` although the catalog lists `now`. The subtype now consults the catalog; an
-  unknown name is still a UDF. `current_timestamp()`, `current_date()` and `unix_timestamp()`
+  unknown name is still a UDF. Such an output now reads `has_udf: false`,
+  `expression_type: function_expression`, and its column carries no `transform_subkind`
+  (it was `udf`). `current_timestamp()`, `current_date()` and `unix_timestamp()`
   parse to named nodes and were never affected.
 - **`describe` no longer describes EXCEPT / INTERSECT as a UNION.** The profile read every set
   operation as a sum of branches: the grain blocker said 「行数为各分支之和」, the stage action

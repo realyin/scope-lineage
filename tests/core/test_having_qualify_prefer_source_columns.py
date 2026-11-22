@@ -102,4 +102,3 @@ def test_the_documented_qualify_example():
 
     assert block.raw_expression == "QUALIFY `t`.`a` > 1"
     assert {(f.scope, f.column) for f in block.fields} == {("s.t", "a")}
-
