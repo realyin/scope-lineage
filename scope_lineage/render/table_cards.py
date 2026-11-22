@@ -1163,7 +1163,9 @@ def _merged_card(
     bare_name_candidates: Sequence[str] = (),
 ) -> dict:
     group = set(spellings)
-    cards = [pair for pair in members if str(pair[1].get("table")) in group]
+    cards = [pair for pair in members if group & set(_card_spellings(pair[1]))]
+    if not cards:
+        return _finding_only_card(primary, spellings, bare_name_candidates)
     produced_by = _merged_entries(cards, "produced_by")
     consumed_by = _merged_entries(cards, "consumed_by")
     columns = _merged_columns(cards)
@@ -1186,6 +1188,35 @@ def _merged_card(
             any("columns_sampled" in (item.get("coverage") or {}) for _label, item in cards),
         ),
         "findings": _findings(produced_by, consumed_by, bare_name_candidates),
+    }
+    return _with_key_claim(card)
+
+
+def _card_spellings(card: Mapping) -> list[str]:
+    """Every name a card answers for: its table and the aliases its corpus folded in.
+
+    A bare alias one corpus resolved can become ambiguous once another corpus brings a
+    second qualified table of that name; the group it then forms is answered by the
+    cards that carried it as an alias.
+    """
+    return [str(card.get("table")), *(str(name) for name in card.get("aliases") or [])]
+
+
+def _finding_only_card(
+    primary: str, spellings: Sequence[str], bare_name_candidates: Sequence[str]
+) -> dict:
+    """A group no document answers for: an empty card that only carries the ambiguity."""
+    card = {
+        "table": primary,
+        "aliases": [name for name in spellings if name != primary],
+        "comment": None,
+        **{name: None for name in ("domain", "project", "owner", "layer")},
+        "kind": TABLE_KIND_PHYSICAL,
+        "produced_by": [],
+        "consumed_by": [],
+        "columns": [],
+        "coverage": _coverage(None, [], [], [], None, False),
+        "findings": _findings([], [], bare_name_candidates),
     }
     return _with_key_claim(card)
 

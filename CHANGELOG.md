@@ -6,6 +6,11 @@
   did not know those names and refused to replace the directory (`input_failed=1`). They are now
   treated like `mapping.md` / `warnings.md`: views derived from the old contract, removed when a
   new parse generation replaces the task directory. Run `describe` again after re-parsing.
+- **`tables --merge` no longer crashes on a bare name another corpus makes ambiguous.** A bare
+  `t` that one corpus folded into `ods.t` became its own group once a second corpus brought
+  `dwd.t`, and no card answered for it (`IndexError`). The merge now matches cards by table and
+  aliases, so `t` gets a card with `ambiguous_bare_name` that keeps the bare-name reader; a group
+  no card answers for gets a card holding only that finding.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
