@@ -65,7 +65,7 @@ def _nested_query_scope(
     node = col_ref.parent
     innermost = None
     while node is not None and node is not root_expr:
-        if isinstance(node, (exp.Select, exp.Union)):
+        if isinstance(node, (exp.Select, exp.SetOperation)):
             innermost = node
             break
         node = node.parent

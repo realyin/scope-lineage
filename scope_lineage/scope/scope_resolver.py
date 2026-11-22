@@ -27,6 +27,7 @@ from .scope_types import (
     DiagnosticWarning,
 )
 from ._constants import DIALECT, _SCOPE_ID_ATTR
+from .set_operations import value_branch_ids
 from .source_refs import _constant_sources
 from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _source_free_leaf_sources
 from .column_ref_resolver import _ambiguous_ref, _materialized_star_column_state, _resolve_column_refs_in_expr  # noqa: F401
@@ -95,7 +96,7 @@ def resolve_all(
         if scope_id is None or scope_id not in result.scopes:
             continue
         scope_data = result.scopes[scope_id]
-        if isinstance(sg_scope.expression, exp.Union) and not scope_data.columns:
+        if isinstance(sg_scope.expression, exp.SetOperation) and not scope_data.columns:
             _resolve_scope_union_passthrough(scope_id, scope_data, result)
 
     # Step 3b: Expand wildcard (*) columns into concrete columns where upstream is known.
@@ -419,8 +420,14 @@ def _extract_struct_field_names(schema_text: str) -> list[str]:
 def _resolve_union_scope(
     union_scope_id: str, scope_data: ScopeData, result: ScopeLineageResult,
 ) -> None:
-    """Resolve columns for a synthetic UNION scope from its branch scopes."""
-    branch_ids = scope_data.branches or []
+    """Resolve columns for a synthetic set-operation scope from its branch scopes.
+
+    UNION merges every branch's values position by position. EXCEPT and INTERSECT take
+    their values from the left input only; the other inputs decide which left rows survive
+    and are reported by the ``set_operation_semantics_partial`` gap, never as value
+    sources (audit 1.1).
+    """
+    branch_ids = value_branch_ids(scope_data)
     if not branch_ids:
         return
 
@@ -586,7 +593,7 @@ def _refresh_union_scopes_after_star_expansion(
     _resolve_union_scopes_bottom_up(result)
 
     for sg_scope in all_scopes:
-        if not isinstance(sg_scope.expression, exp.Union):
+        if not isinstance(sg_scope.expression, exp.SetOperation):
             continue
         scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
         if scope_id is None or scope_id not in result.scopes:
@@ -1600,6 +1607,12 @@ def _build_depends_on_and_graph(result: ScopeLineageResult) -> None:
         for o in scope_data.order_by:
             if _is_dependency_scope(o.get("scope")):
                 referenced.add(o["scope"])
+
+        # A set operation reads every input, including the EXCEPT / INTERSECT inputs
+        # that contribute no column values.
+        for branch_id in scope_data.branches or []:
+            if _is_dependency_scope(branch_id):
+                referenced.add(branch_id)
 
         # Remove self-reference
         referenced.discard(scope_id)

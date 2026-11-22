@@ -249,6 +249,9 @@ class ScopeData:
     # order. `group_by` is de-duplicated across items, so it cannot be cut back into items;
     # the logic block's per-item `source_fields` read this instead (WP4 1.11).
     group_by_item_refs: List[List[SourceRef]] = field(default_factory=list)
+    # plain | cube | rollup | grouping_sets | with_cube | with_rollup | mixed; None without
+    # GROUP BY. Serialized only when not plain (audit 1.5).
+    grouping_kind: Optional[str] = None
     having: List[ScopeFilter] = field(default_factory=list)
     order_by: List[dict] = field(default_factory=list)
     lateral_views: List[dict] = field(default_factory=list)

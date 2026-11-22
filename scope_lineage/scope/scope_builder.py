@@ -50,6 +50,7 @@ from .sqlglot_walk import _find_alias_in_parent, render_sql_or_none
 # this module instead of through ._shared. Nothing in this module uses them.
 from .sqlglot_walk import _source_item_from_ast_node
 from .lineage_fact_gaps import _mark_gaps_from_recovered_syntax
+from .multi_insert import split_multi_table_inserts
 from .sql_comments import (
     merge_comments,
     node_comments,
@@ -203,12 +204,18 @@ def _collect_insert_trees(
 
 
 def _normalize_directory_insert_sql(sql: str) -> str:
-    """Normalize Spark directory writes into a form sqlglot keeps with SELECT."""
+    """Normalize Spark/Hive write forms sqlglot cannot parse into forms it keeps.
+
+    Directory writes get ``STORED AS`` in place of ``USING``; a FROM-first multi-table
+    insert is split into one ``INSERT ... SELECT ... FROM`` per target (audit 1.2, see
+    :mod:`.multi_insert`). Every parse path calls this one function, so all of them see
+    the same statements.
+    """
     pattern = re.compile(
         r"(INSERT\s+OVERWRITE\s+(?:LOCAL\s+)?DIRECTORY\s+('[^']+'|\"[^\"]+\"))\s+USING\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?=SELECT|WITH)",
         re.IGNORECASE,
     )
-    return pattern.sub(r"\1 STORED AS \3 ", sql)
+    return split_multi_table_inserts(pattern.sub(r"\1 STORED AS \3 ", sql))[0]
 
 
 def _is_ctas(tree: exp.Expression) -> bool:
@@ -1635,7 +1642,7 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
     for sg_scope in all_scopes:
         if (
             not sg_scope.is_union
-            and isinstance(sg_scope.expression, exp.Union)
+            and isinstance(sg_scope.expression, exp.SetOperation)
             and sg_scope.union_scopes
         ):
             union_scope_id = _union_scope_id_for_container(
@@ -1828,7 +1835,7 @@ def _build_source_expression(
 
     if isinstance(src, exp.Subquery):
         inner = src.this
-        if isinstance(inner, (exp.Select, exp.Union)):
+        if isinstance(inner, (exp.Select, exp.SetOperation)):
             src = inner.copy()
             sw = src.args.get("with_")
             if sw is None and w is not None:
@@ -1839,7 +1846,7 @@ def _build_source_expression(
         from_ = src.args.get("from_")
         if from_ is not None:
             from_this = getattr(from_, "this", None)
-            if isinstance(from_this, exp.Subquery) and isinstance(from_this.this, exp.Union):
+            if isinstance(from_this, exp.Subquery) and isinstance(from_this.this, exp.SetOperation):
                 all_passthrough = all(
                     (
                         isinstance(p, (exp.Column, exp.Star)) or
@@ -1867,7 +1874,7 @@ def _build_source_expression(
                         union.set("with_", w.copy())
                     return union
 
-    if w is not None and isinstance(src, (exp.Select, exp.Union)):
+    if w is not None and isinstance(src, (exp.Select, exp.SetOperation)):
         src.set("with_", w.copy())
     return src
 
@@ -1984,15 +1991,15 @@ def _compute_scope_id(sg_scope: Scope) -> str:
 
 
 def _create_union_scopes_recursive(sg_scope: Scope, result: ScopeLineageResult) -> None:
-    """Walk the scope tree and create synthetic UNION scopes wherever a scope has
-    Union expression + union_scopes children.
+    """Walk the scope tree and create synthetic set-operation scopes wherever a scope has
+    a set-operation expression (UNION / EXCEPT / INTERSECT) + union_scopes children.
 
-    Handles both top-level UNION and UNION inside CTEs.
-    UNION chains (A UNION ALL B UNION ALL C) are flattened into a single union scope
-    with N branches, not nested union scopes.
+    Handles both top-level set operations and set operations inside CTEs.
+    Chains that share one operator (A UNION ALL B UNION ALL C) are flattened into a single
+    union scope with N branches; a nested chain with a different operator keeps its own
+    scope (see `_flattens_into`).
     """
-    # Check if this scope has UNION children
-    if sg_scope.union_scopes and isinstance(sg_scope.expression, exp.Union):
+    if sg_scope.union_scopes and isinstance(sg_scope.expression, exp.SetOperation):
         _create_union_scope(sg_scope, result)
 
     # Recurse into child scopes
@@ -2009,73 +2016,119 @@ def _create_union_scopes_recursive(sg_scope: Scope, result: ScopeLineageResult) 
         _create_union_scopes_recursive(child, result)
 
 
-def _flatten_union_branches(sg_scope: Scope) -> list[Scope]:
-    """Flatten a left-deep Union tree into a flat list of leaf SELECT scopes.
+def _set_op_label(expression: exp.Expression) -> str:
+    """The contract label of one set operation.
 
-    sqlglot parses `A UNION ALL B UNION ALL C` as Union(Union(A, B), C),
-    producing a nested scope tree. We want a single flat union scope with 3 branches.
-    A branch that is itself a Union scope is recursively flattened.
+    sqlglot keeps UNION's de-duplication in ``args["distinct"]``; ``args["kind"]`` is
+    always None, so reading it labelled every UNION as UNION_ALL (audit 1.3). EXCEPT and
+    INTERSECT are labelled by operator only: Spark's default form of both is DISTINCT, and
+    their value lineage does not depend on it.
+    """
+    if isinstance(expression, exp.Except):
+        return "EXCEPT"
+    if isinstance(expression, exp.Intersect):
+        return "INTERSECT"
+    return "UNION" if expression.args.get("distinct") else "UNION_ALL"
+
+
+def _is_set_operation_scope(sg_scope: Scope) -> bool:
+    return isinstance(sg_scope.expression, exp.SetOperation) and bool(sg_scope.union_scopes)
+
+
+def _flattens_into(container: Scope, branch: Scope, position: int) -> bool:
+    """Whether a nested set-operation branch merges into its container's flat branch list.
+
+    Flattening is exact only when the merged list means the same thing:
+    - UNION over UNION: a DISTINCT container de-duplicates everything beneath it, so any
+      inner UNION folds in; under a UNION ALL container only an inner UNION ALL does --
+      an inner DISTINCT chain de-duplicates only its own branches and keeps its scope.
+    - EXCEPT / INTERSECT: only the left-deep chain of the same operator folds in
+      ((A - B) - C keeps A as the value input). Anything else keeps its own scope.
+    """
+    outer = _set_op_label(container.expression)
+    inner = _set_op_label(branch.expression)
+    if outer in ("UNION", "UNION_ALL"):
+        return inner == outer or (outer == "UNION" and inner == "UNION_ALL")
+    return inner == outer and position == 0
+
+
+def _flatten_union_branches(sg_scope: Scope) -> list[Scope]:
+    """Flatten a left-deep set-operation tree into a flat list of branch scopes.
+
+    sqlglot parses `A UNION ALL B UNION ALL C` as Union(Union(A, B), C), producing a
+    nested scope tree. We want a single flat union scope with 3 branches. A branch that is
+    itself a set operation is flattened only when `_flattens_into` says the flat list
+    keeps its meaning; otherwise it stays one branch and gets its own nested scope.
     """
     leaves = []
-    for branch in sg_scope.union_scopes:
-        if isinstance(branch.expression, exp.Union) and branch.union_scopes:
-            # Nested union — flatten it
+    for position, branch in enumerate(sg_scope.union_scopes):
+        if _is_set_operation_scope(branch) and _flattens_into(sg_scope, branch, position):
             leaves.extend(_flatten_union_branches(branch))
         else:
             leaves.append(branch)
     return leaves
 
 
-def _create_union_scope(container_scope: Scope, result: ScopeLineageResult) -> None:
-    """Create a synthetic UNION scope for a scope that has Union expression + union_scopes.
+def _mark_flattened_intermediates(sg_scope: Scope, union_scope_id: str) -> None:
+    """Point every set-operation scope flattened away under ``sg_scope`` at the union scope.
 
-    Flattens UNION chains so A UNION ALL B UNION ALL C produces one union scope
-    with 3 branches, not nested union scopes.
+    They do not appear as separate scopes in the result; aliasing them to the union scope
+    keeps any lookup by scope ID on the scope that now carries their branches.
     """
-    # Flatten the left-deep union tree into leaf branches
+    for position, branch in enumerate(sg_scope.union_scopes):
+        if _is_set_operation_scope(branch) and _flattens_into(sg_scope, branch, position):
+            setattr(branch, _SCOPE_ID_ATTR, union_scope_id)
+            _mark_flattened_intermediates(branch, union_scope_id)
+
+
+def _create_union_scope(
+    container_scope: Scope,
+    result: ScopeLineageResult,
+    union_scope_id: str | None = None,
+    branch_index: int | None = None,
+) -> None:
+    """Create a synthetic set-operation scope for a scope whose expression is a set operation.
+
+    Flattens same-operator chains so A UNION ALL B UNION ALL C produces one union scope with
+    3 branches. A nested chain that cannot be flattened (a DISTINCT chain under UNION ALL, a
+    UNION on the left of an EXCEPT) becomes a branch that is itself a ``kind="union"`` scope
+    -- ``union_scope_id`` and ``branch_index`` name it inside its parent.
+    """
     flat_branches = _flatten_union_branches(container_scope)
     if not flat_branches:
         return
 
     container_id = getattr(container_scope, _SCOPE_ID_ATTR, None)
-    union_scope_id = _union_scope_id_for_container(container_id)
-    context = union_scope_id.split(":", 1)[1]
+    if union_scope_id is None:
+        union_scope_id = _union_scope_id_for_container(container_id)
 
-    # Assign branch IDs to the flattened leaf branches
     branch_ids = []
+    nested: list[tuple[Scope, str, int]] = []
     for i, branch in enumerate(flat_branches):
-        branch_id = f"union:{context}:b{i + 1:02d}"
+        branch_id = f"{union_scope_id}:b{i + 1:02d}"
         setattr(branch, _SCOPE_ID_ATTR, branch_id)
         branch_ids.append(branch_id)
+        if _is_set_operation_scope(branch):
+            nested.append((branch, branch_id, i))
 
-    # Also fix the _lineage_scope_id on intermediate Union scopes that we
-    # flattened away — they should NOT appear as separate scopes in the result.
-    # Point them to the union scope so they're treated as aliases.
-    for branch in container_scope.union_scopes:
-        if isinstance(branch.expression, exp.Union) and branch.union_scopes:
-            setattr(branch, _SCOPE_ID_ATTR, union_scope_id)
-
-    # Determine set_op type
-    union_expr = container_scope.expression
-    set_op = "UNION_ALL"
-    if hasattr(union_expr, "args"):
-        kind = union_expr.args.get("kind", "")
-        if kind and "ALL" not in str(kind).upper():
-            set_op = "UNION"
+    _mark_flattened_intermediates(container_scope, union_scope_id)
 
     result.scopes[union_scope_id] = ScopeData(
         kind="union",
-        set_op=set_op,
+        set_op=_set_op_label(container_scope.expression),
         branches=branch_ids,
+        branch_index=branch_index,
     )
 
-    # Create branch stubs
     for i, branch_id in enumerate(branch_ids):
         if branch_id not in result.scopes:
             result.scopes[branch_id] = ScopeData(
                 kind="union_branch",
                 branch_index=i,
             )
+    for branch, branch_id, i in nested:
+        result.scopes.pop(branch_id, None)
+        _create_union_scope(branch, result, union_scope_id=branch_id, branch_index=i)
 
     # If container is ROOT, also create the ROOT stub
     if container_id == "ROOT":

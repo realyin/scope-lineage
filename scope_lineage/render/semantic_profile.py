@@ -4037,10 +4037,25 @@ def _key_block(
     """
     walked, upstream = _split_key_risks(grain, _grain_path_risks([r for r, _ in decided]))
     keys, unexposed, evidence = _target_key_columns(document, grain, walked)
+    # WP3c (audit 1.5): the scope whose CUBE / ROLLUP / GROUPING SETS decided the grain.
+    rolled_up = next(
+        (
+            str(_scopes(document).get(str(key.get("scope_id")), {}).get("grouping_kind"))
+            for key in grain.get("keys") or []
+            if isinstance(key, Mapping)
+            and _scopes(document).get(str(key.get("scope_id")), {}).get("grouping_kind")
+        ),
+        None,
+    )
     confidence = _capped_confidence(
-        _key_confidence(grain, keys, unexposed, walked),
+        _key_confidence(grain, keys, unexposed, walked, rolled_up=rolled_up),
         [level for risk, level in decided if str(risk.get("path")) == METRIC_PATH_GRAIN],
     )
+    if rolled_up and confidence != KEY_CONFIDENCE_NONE:
+        evidence = [
+            *evidence,
+            f"grouping_kind={rolled_up}：小计行的汇总键为 NULL，键唯一得不到证明",
+        ]
     if confidence != KEY_CONFIDENCE_NONE:
         evidence = [*evidence, *_upstream_fan_out_evidence(upstream)]
     return keys, unexposed, evidence, confidence
@@ -5218,7 +5233,12 @@ def _without_partition_columns(
 
 
 def _key_confidence(
-    grain: dict, keys: Sequence[str], unexposed: Sequence[dict], risks: Sequence[dict]
+    grain: dict,
+    keys: Sequence[str],
+    unexposed: Sequence[dict],
+    risks: Sequence[dict],
+    *,
+    rolled_up: str | None = None,
 ) -> str:
     """How far the published key set can be trusted (WI-1d, extended by WI-1e).
 
@@ -5234,6 +5254,10 @@ def _key_confidence(
     grouped, which inflates the aggregated numbers without adding one row to the output.
     A ``driving_table_rows`` grain has no operation making anything unique, so its list
     is unfiltered and a fan-out anywhere on its path still costs it the key.
+
+    ``rolled_up`` names a CUBE / ROLLUP / GROUPING SETS grouping (WP3c): its subtotal rows
+    carry NULL in the rolled-up keys, and a NULL already in the data shares a key tuple
+    with one, so its keys are at most ``candidate``.
     """
     basis = str(grain.get("basis"))
     # B10, asked before the risks: "the output is one row" is a statement about the
@@ -5246,6 +5270,8 @@ def _key_confidence(
     if basis in _PROVEN_BASES:
         if not grain.get("keys"):
             return KEY_CONFIDENCE_NONE
+        if rolled_up and basis == BASIS_GROUP_BY:
+            return KEY_CONFIDENCE_CANDIDATE
         return KEY_CONFIDENCE_PROVEN_UNEXPOSED if unexposed else KEY_CONFIDENCE_PROVEN
     if basis == BASIS_DRIVING_TABLE_ROWS and keys:
         return KEY_CONFIDENCE_CANDIDATE

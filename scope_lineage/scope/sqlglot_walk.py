@@ -152,7 +152,7 @@ def _inside_nested_set_op(root: exp.Expression, node: exp.Expression) -> bool:
         return False
     parent = node.parent
     while parent is not None and parent is not root:
-        if isinstance(parent, (exp.Select, exp.Union)):
+        if isinstance(parent, (exp.Select, exp.SetOperation)):
             return True
         parent = parent.parent
     return False

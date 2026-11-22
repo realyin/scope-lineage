@@ -227,9 +227,11 @@ happened in.
 | `field_usage[]` | array<object> | Which fields of each input source are used by logic blocks or output fields. |
 | `columns[]` | array<object> | A compatibility projection view; new consumers should prefer the richer `outputs[]`. |
 | `union_branch_alignment` | object | UNION branches, field positions, and alignment status. Emitted only for the relevant scopes. |
+| `set_op` / `branches[]` | string / array<string> | On a `kind=union` scope: the set operator and its input branches in order. `set_op` is `UNION_ALL`, `UNION` (de-duplicating), `EXCEPT` or `INTERSECT`. A chain of one operator is one scope; a nested chain with another operator (a `UNION` chain under `UNION ALL`, a `UNION` on the left of `EXCEPT`) is itself a `kind=union` branch, with its own `set_op` and `branches[]`. For `EXCEPT` / `INTERSECT` only the first branch supplies column values; the others only decide which rows survive and are reported by the `set_operation_semantics_partial` fact gap. |
 | `joins[]` | array<object> | A compatibility JOIN structure preserving left and right inputs, type, ON expression, and fields. For exact relations prefer `logic_blocks[].join_relation_detail`. |
 | `filters[]` | array<object> | Compatibility WHERE conditions and referenced fields. For an exact condition breakdown prefer `filter_predicate_detail`. |
 | `group_by[]` / `having[]` | array | Structured clause facts for grouping and post-aggregate filtering. |
+| `grouping_kind` | string | Present only when the GROUP BY is not a plain one: `cube`, `rollup`, `grouping_sets`, `with_cube`, `with_rollup`, or `mixed` when several of these forms meet. `group_by[]` then lists every key named in the clause, inside CUBE / ROLLUP / GROUPING SETS too. These forms add subtotal rows whose rolled-up keys are NULL, so the semantic profile publishes their keys as `candidate`, never `proven`. Absent means a plain GROUP BY or none. |
 | `order_by[]` | array<object> | Sort expressions, fields, and directions. Ordering inside a window also appears in `window_specification`. |
 | `distinct` | boolean | Whether this SELECT uses DISTINCT. |
 | `lateral_views[]` | array<object> | Structured facts for LATERAL VIEW/UDTF. |

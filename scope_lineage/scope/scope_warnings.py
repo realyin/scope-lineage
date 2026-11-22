@@ -13,6 +13,7 @@ from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
 from .scope_types import DiagnosticWarning, ScopeLineageResult
+from .set_operations import ROW_FILTERING_SET_OPS
 from ..sqlglot_config import suppress_invalid_json_path_warnings
 
 PARSE_OPTS = {"error_level": ErrorLevel.IGNORE}
@@ -117,7 +118,9 @@ def _detect_magic_numbers(result: ScopeLineageResult) -> None:
 def _detect_duplicate_table_in_union(result: ScopeLineageResult) -> None:
     """Warn when the same physical table is a FROM/JOIN source of multiple UNION branches."""
     for scope_id, scope_data in result.scopes.items():
-        if scope_data.kind != "union":
+        # EXCEPT / INTERSECT against the same table is the set form of an anti-/semi-join
+        # (`SELECT k FROM t EXCEPT SELECT k FROM t WHERE ...`), not a copy-pasted branch.
+        if scope_data.kind != "union" or scope_data.set_op in ROW_FILTERING_SET_OPS:
             continue
         branch_tables: dict[str, list[str]] = {}
         for branch_id in (scope_data.branches or []):

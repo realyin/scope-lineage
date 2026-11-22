@@ -211,10 +211,12 @@ GROUP BY c.customer_id;
 | `outputs[]` | array<object> | 当前 scope 的详细输出字段事实。 |
 | `field_usage[]` | array<object> | 每个输入来源有哪些字段被逻辑块或输出字段使用。 |
 | `columns[]` | array<object> | 兼容性投影视图；新消费者优先读取信息更完整的 `outputs[]`。 |
+| `set_op` / `branches[]` | string / array<string> | 出现在 `kind=union` 的 scope 上：集合运算符和按顺序排列的输入分支。`set_op` 取 `UNION_ALL`、`UNION`（去重）、`EXCEPT` 或 `INTERSECT`。同一运算符的链合成一个 scope；运算符不同的嵌套链（`UNION ALL` 下的 `UNION` 链、`EXCEPT` 左侧的 `UNION`）自身是一个 `kind=union` 的分支，带自己的 `set_op` 和 `branches[]`。`EXCEPT` / `INTERSECT` 只有第一个分支提供列值，其余分支只决定哪些行留下，由 `set_operation_semantics_partial` 事实缺口报告。 |
 | `union_branch_alignment` | object | UNION 分支、字段位置和对齐状态。仅相关 scope 输出。 |
 | `joins[]` | array<object> | 兼容性 JOIN 结构，保留左右输入、类型、ON 表达式和字段。精确关系优先读 `logic_blocks[].join_relation_detail`。 |
 | `filters[]` | array<object> | 兼容性 WHERE 条件和引用字段。精确条件拆分优先读 `filter_predicate_detail`。 |
 | `group_by[]` / `having[]` | array | 分组和聚合后过滤的结构化子句事实。 |
+| `grouping_kind` | string | 只在 GROUP BY 不是普通分组时出现：`cube`、`rollup`、`grouping_sets`、`with_cube`、`with_rollup`，几种写法同时出现时为 `mixed`。此时 `group_by[]` 列出子句里写到的全部键，包括 CUBE / ROLLUP / GROUPING SETS 里面的。这几种写法会加出小计行，小计行的汇总键为 NULL，所以语义画像把它们的键给成 `candidate`，不给 `proven`。没有这个键表示普通 GROUP BY 或没有 GROUP BY。 |
 | `order_by[]` | array<object> | 排序表达式、字段和方向。窗口内部排序同时位于 `window_specification`。 |
 | `distinct` | boolean | 当前 SELECT 是否使用 DISTINCT。 |
 | `lateral_views[]` | array<object> | LATERAL VIEW/UDTF 的结构化事实。 |

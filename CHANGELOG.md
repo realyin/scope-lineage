@@ -303,6 +303,41 @@
   command's own record of its last run names and this run did not write: the index's
   `written` list, or the `tables.json` / `ontology.json` the last run wrote. Files you put
   there, and cards another command wrote into a shared `--out`, are left alone.
+- **Breaking -- `set_op` reads UNION's de-duplication, and EXCEPT / INTERSECT are modelled.**
+  No format changes number; existing `set_op` values change. sqlglot keeps UNION's DISTINCT in
+  `args["distinct"]`, but the builder read `args["kind"]` (always empty), so every UNION was
+  labelled `UNION_ALL`. A de-duplicating UNION is now `UNION`. A flattened chain is labelled by
+  the operator that produces its output: `A UNION ALL B UNION C` is one `UNION` scope, while in
+  `A UNION B UNION ALL C` the DISTINCT pair keeps its own nested `kind=union` scope labelled
+  `UNION` under the `UNION_ALL` one, since only those two branches are de-duplicated. The label
+  is not used to infer keys. Separately, `EXCEPT` and `INTERSECT` were not recognised at all:
+  the statement came out with zero columns, no edges and no gap. They are now `kind=union`
+  scopes with `set_op` `EXCEPT` / `INTERSECT`; only the first (left) branch supplies column
+  values, and the other branches, which decide which rows survive, are reported by the new
+  fact gap `set_operation_semantics_partial` (`root_impact`, so `analysis_status` is
+  `partial`). `duplicate_table_in_union` is not raised for them: the same table on both sides
+  is the set form of an anti-/semi-join. Who is affected: consumers that compare `set_op` with `UNION_ALL`, and stored
+  lineage of statements with a DISTINCT UNION, EXCEPT or INTERSECT. What to do: accept the four
+  values, read EXCEPT / INTERSECT values from the first branch only, and re-run `parse` (see
+  the READMEs' migration section).
+- **Fixed: `GROUP BY CUBE / ROLLUP / GROUPING SETS` keeps its keys and no longer proves a
+  single row.** sqlglot keeps those keys outside `group.expressions`, so the scope had no
+  GROUP BY and the semantic profile published `single_row` with a `proven` empty key -- a wrong
+  uniqueness claim that reached table cards. The keys are now read from every form, the scope
+  gains the optional field `grouping_kind` (`cube`, `rollup`, `grouping_sets`, `with_cube`,
+  `with_rollup`, `mixed`; absent for a plain GROUP BY), and the profile lowers such keys to
+  `candidate` with the reason in `key_evidence`: subtotal rows carry NULL in the rolled-up keys,
+  and a NULL already in the data shares a key tuple with one.
+- **Fixed: Hive's FROM-first multi-table insert is modelled.** `FROM src INSERT OVERWRITE TABLE
+  t1 SELECT ... INSERT ... t2 SELECT ...` is not parsed by sqlglot: every INSERT clause was
+  dropped and the task reported one unsupported `SELECT` with no word about the targets. The
+  statement is now split before parsing, on sqlglot's tokens, into one `INSERT ... SELECT
+  <projection> FROM <shared FROM> <branch clauses>` per target, disclosed by the new task
+  warning `multi_table_insert_split`; statement ids and `table_state_graph` follow the split
+  statements, and the script keeps its line count. A statement whose targets the shared FROM
+  also reads is not split (Hive reads the source once; sequential INSERTs would read the first
+  branch's output) and gets the new task gap `multi_table_insert_unsupported` listing every
+  target.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
