@@ -564,6 +564,10 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
   It is empty when the cross checks did not run: a schema error, or no packet for the table.
 - `failures[].number` is the number of the check an item belongs to, the same as the
   `[N name]` of the text summary, so counting by number needs no lookup of names.
+- A failed `digest` item also has `reason_code`: `no_packet` (no packet for the table) or
+  `stale` (the document's `packet_digest` is not the packet's). `semantic render --validation`
+  decides `no_packet` / `packet_stale` by this field; a report written before it existed is
+  read by the message's `no packet` prefix.
 
 ### Exit codes
 

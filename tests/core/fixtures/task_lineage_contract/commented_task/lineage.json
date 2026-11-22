@@ -633,9 +633,7 @@
               "expression_features": {
                 "functions": [],
                 "operators": [
-                  "=",
-                  "*",
-                  "/"
+                  "="
                 ],
                 "has_case_when": false,
                 "has_if": false,
@@ -791,9 +789,7 @@
               "expression_features": {
                 "functions": [],
                 "operators": [
-                  "=",
-                  "*",
-                  "/"
+                  "="
                 ],
                 "has_case_when": false,
                 "has_if": false,

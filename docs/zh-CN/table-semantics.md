@@ -440,6 +440,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 - `not_reported` 按编号列出这些检查项（`number` 是检查项表的 #）。Schema 不通过、或没有这张表的材料包时，
   交叉检查没有运行，它为空。
 - `failures[].number` 是该条所属检查项的编号，与文字摘要里的 `[N name]` 相同，按编号统计不必再对照名称。
+- 失败的 `digest` 条目另有 `reason_code`：`no_packet`（该表没有材料包）或 `stale`（文档的 `packet_digest` 不是当前材料包的）。`semantic render --validation` 按这个字段区分 `no_packet` / `packet_stale`；没有这个字段的旧报告，按消息的 `no packet` 前缀判断。
 
 ### 退出码
 

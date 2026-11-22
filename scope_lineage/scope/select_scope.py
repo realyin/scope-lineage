@@ -956,12 +956,6 @@ def _extract_case_branches(node: exp.Expression) -> List[dict]:
                     "when_expr": if_clause.this.sql(dialect=DIALECT) if if_clause.this else "",
                     "then_value": if_clause.args.get("true").sql(dialect=DIALECT) if if_clause.args.get("true") else "",
                 })
-        # Also handle exp.When nodes (some dialects use these)
-        for when in node.find_all(exp.When):
-            branches.append({
-                "when_expr": when.this.sql(dialect=DIALECT) if when.this else "",
-                "then_value": when.expression.sql(dialect=DIALECT) if when.expression else "",
-            })
         # Default/ELSE
         default = node.args.get("default")
         if default:

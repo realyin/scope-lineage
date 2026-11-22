@@ -9,7 +9,8 @@ quote, swallowing the code up to the next literal: the reference in between was 
 expanded.
 
 Each test below is one measured reproduction (audit verify-A §2.1, verify-B §1.10,
-§1.13-c/d/e); each sentinel pins the neighbouring behaviour the fix must keep.
+§1.13-c/d/e); each sentinel pins the neighbouring behaviour the fix must keep. The struct
+path expansion and the operator scan at the end are WP4's two follow-ups (WP13).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from scope_lineage.contract import to_lineage_dict
 from scope_lineage.scope.expression_text import _parenthesize_replacement_expression
 from scope_lineage.scope.keyword_identifiers import repair_keyword_identifiers
 from scope_lineage.scope.scope_builder import parse_scope_lineage
+from scope_lineage.scope.scope_facts import _expression_features
 
 SCHEMA = {
     "ods.x": ["amt", "k", "fee"],
@@ -242,3 +244,53 @@ def test_sentinel_display_still_drops_a_single_source_qualifier() -> None:
     output = document["scopes"]["ROOT"]["outputs"][0]
 
     assert output["display_expression"] == "CONCAT('u.k', `user_id`)"
+
+
+# ---------------------------------- expansion of a struct path naming the alias (1.13-d)
+
+
+def test_expansion_keeps_a_struct_segment_named_like_the_alias() -> None:
+    # The display rewrite got its preceding-character guard in WP4; the expansion did not,
+    # so the `u`.`name` inside the STRUCT path was read as the alias `u`'s column `name`
+    # and rewritten to `s.users`.`name`, which also published a physical field that does
+    # not exist.
+    output = _root_outputs(
+        "INSERT OVERWRITE TABLE m.t SELECT u.profile.u.name AS n FROM s.users u"
+    )["n"]
+
+    assert output["expanded_expression"] == "`s.users`.`profile`.`u`.`name`"
+    assert _physical(output) == {"s.users.profile"}
+
+
+def test_physical_expansion_leaves_a_string_literal_unchanged() -> None:
+    # The physical-field rewrite (a column read straight from a table alias) is a separate
+    # text replacement from the upstream-expression one WP4 fixed; it rewrote literals too.
+    output = _root_outputs(
+        "INSERT OVERWRITE TABLE m.t SELECT CONCAT('see a.x and `a`.`x`', a.x) AS n FROM s.a a"
+    )["n"]
+
+    assert output["expanded_expression"] == "CONCAT('see a.x and `a`.`x`', `s.a`.`x`)"
+
+
+def test_sentinel_expansion_of_a_plain_struct_path() -> None:
+    output = _root_outputs("INSERT OVERWRITE TABLE m.t SELECT u.profile.name AS n FROM s.users u")["n"]
+
+    assert output["expanded_expression"] == "`s.users`.`profile`.`name`"
+    assert _physical(output) == {"s.users.profile"}
+
+
+# ------------------------------------------- expression_features.operators (WP4 follow-up)
+
+
+def test_operators_ignore_a_comment_and_a_literal() -> None:
+    features = _expression_features(
+        "expression", "CONCAT(`a`.`x`, '-') /* rate * 100 / n */", []
+    )
+
+    assert features["operators"] == []
+
+
+def test_sentinel_operators_still_list_code_operators() -> None:
+    features = _expression_features("expression", "`a`.`x` * 2 - `a`.`y` / 3 /* x */", [])
+
+    assert features["operators"] == ["-", "*", "/"]

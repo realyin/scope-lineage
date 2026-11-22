@@ -561,6 +561,24 @@
   `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
   (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
   word in a package string literal.
+- **`expression_features.operators` ignores comments and string literals.** The operator list
+  was scanned over the raw expression, so the `*` and `/` of a `/* ... */` remark or the `-` of
+  `'2024-01-01'` were listed as operators. It now reads code only, as `functions` already did.
+- **A STRUCT path whose member is named like the table alias expands correctly.**
+  `u.profile.u.name` expanded to `` `s.users`.`profile`.`s.users`.`name` `` (or, after the
+  pass-through step, lost its member path), and `physical_source_fields` listed a column
+  `s.users.name` that does not exist. The `u`.`name` inside a path is no longer read as a
+  reference to `u`. The physical-field rewrite also no longer rewrites references inside a string
+  literal (`'see a.x'` stays as written in `expanded_expression`).
+- **The parser's memo caches are bounded.** Five module-level caches (compiled patterns,
+  field-reference extraction, two STRUCT-access probes, literal-skipping patterns) were plain
+  dicts, so a process parsing many statements kept every key it had seen. Each is now an LRU of
+  4096 entries, an order of magnitude above what the largest statements measured need; output
+  and single-parse time are unchanged.
+- **`semantic validate --json`: a failed `digest` item carries `reason_code`** (`no_packet` or
+  `stale`). `semantic render --validation` now decides `no_packet` / `packet_stale` by it rather
+  than by the message wording; a report without the field (written by an earlier version) is
+  still read by the `no packet` prefix. Additive: no other field and no exit code changes.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

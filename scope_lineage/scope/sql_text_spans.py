@@ -25,6 +25,7 @@ literal, and the references in it vanished from the scan (1.10).
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Callable
 
 # `(?s:...)` scopes DOTALL to the spans that may cross a line, so a pattern embedding this
@@ -36,16 +37,14 @@ SQL_LITERAL_OR_COMMENT = rf"{_LITERAL}|{_COMMENT}"
 _SPAN = re.compile(rf"(?P<literal>{_LITERAL})|(?P<comment>{_COMMENT})")
 
 # Patterns are built from identifier names, so their number grows with a statement's
-# columns; compiled objects are kept here for the same reason expression_refs keeps its own.
-_COMBINED: dict[str, "re.Pattern[str]"] = {}
+# columns; compiled objects are kept here for the same reason expression_refs keeps its own,
+# in an LRU of the same fixed size (audit 2.2).
+_COMBINED_CACHE_SIZE = 4096
 
 
+@lru_cache(maxsize=_COMBINED_CACHE_SIZE)
 def _combined(pattern: str) -> "re.Pattern[str]":
-    compiled = _COMBINED.get(pattern)
-    if compiled is None:
-        compiled = re.compile(rf"(?P<_sql_skip>{SQL_LITERAL_OR_COMMENT})|(?:{pattern})")
-        _COMBINED[pattern] = compiled
-    return compiled
+    return re.compile(rf"(?P<_sql_skip>{SQL_LITERAL_OR_COMMENT})|(?:{pattern})")
 
 
 def sub_in_code(pattern: str, repl: str | Callable[["re.Match[str]"], str], sql: str) -> str:
