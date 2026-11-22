@@ -698,6 +698,29 @@ def equals_one_predicate(expression: str | None, column: str) -> bool:
     return False
 
 
+def equality_side_is_bare(expression: str | None, column, qualifier=None) -> bool:
+    """True when one operand of the equality ``expression`` is just the column named.
+
+    Audit WP2g: the reading a ``join_key_pairs`` side without a ``bare`` field gets (a
+    contract written before the field existed). Anything that does not parse as one
+    equality counts as not bare: a key that cannot be read proves nothing unique.
+    """
+    node = parse_expression(expression)
+    if not isinstance(node, exp.EQ) or not column:
+        return False
+    name, table = str(column).lower(), str(qualifier or "").lower()
+    for operand in (node.this, node.expression):
+        while isinstance(operand, exp.Paren):
+            operand = operand.this
+        if (
+            isinstance(operand, exp.Column)
+            and operand.name.lower() == name
+            and (not operand.table or not table or operand.table.lower() == table)
+        ):
+            return True
+    return False
+
+
 VALUE_KIND_LITERAL = "literal"
 VALUE_KIND_PARAMETER = "parameter"
 VALUE_KIND_EXPRESSION = "expression"

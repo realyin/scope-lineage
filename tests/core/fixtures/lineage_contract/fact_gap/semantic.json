@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "ab3330b352f0a01e",
+  "lineage_digest": "089a9ee1d57b7090",
   "task": {
     "task_name": "golden_fact_gap",
     "target_table": "mart.amounts",

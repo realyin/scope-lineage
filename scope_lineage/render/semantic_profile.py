@@ -6027,18 +6027,44 @@ def _physical_key_note(keys: Sequence[dict]) -> str:
 
 
 def _join_side_columns(detail: dict, side: str) -> list[str]:
-    """One side's join keys as the column names that side's own scope publishes them by."""
+    """One side's join keys as the column names that side's own scope publishes them by.
+
+    Only pairs whose right side is a bare column count (:func:`_uniqueness_key_pairs`).
+    """
     return _dedupe(
         str((pair.get(side) or {}).get("column"))
-        for pair in detail.get("join_key_pairs") or []
+        for pair in _uniqueness_key_pairs(detail)
         if (pair.get(side) or {}).get("column")
+    )
+
+
+def _uniqueness_key_pairs(detail: Mapping) -> list[dict]:
+    """The JOIN's key pairs a right-side uniqueness proof may read (audit WP2g).
+
+    ``t.region = substr(u.user_id, 1, 2)`` is a key pair -- the JOIN is on those
+    columns -- but many ``user_id`` values match one ``region``, so "the right side is
+    unique by ``user_id``" says nothing about this JOIN. A pair counts only when its
+    right side is a bare column; the left side may be wrapped (``trim(t.id) = u.id``).
+    """
+    return [
+        pair for pair in detail.get("join_key_pairs") or [] if join_pair_right_is_bare(pair)
+    ]
+
+
+def join_pair_right_is_bare(pair: Mapping) -> bool:
+    """The pair's ``right.bare``; read from its ``expression`` when the field is absent."""
+    right = pair.get("right") or {}
+    if "bare" in right:
+        return bool(right["bare"])
+    return semantic_text.equality_side_is_bare(
+        pair.get("expression"), right.get("column"), right.get("qualifier")
     )
 
 
 def _join_side_keys(detail: dict, side: str) -> list[str]:
     """One side's join keys as ``table.column``, falling back to ``scope.column``."""
     keys: list[str] = []
-    for pair in detail.get("join_key_pairs") or []:
+    for pair in _uniqueness_key_pairs(detail):
         physical = [
             f"{field.get('table')}.{field.get('field')}"
             for field in pair.get(f"{side}_fields") or []

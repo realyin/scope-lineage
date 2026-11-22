@@ -979,14 +979,16 @@
                   "column": "user_id",
                   "qualifier": "r",
                   "binding_scope_id": "union:main:b01",
-                  "input_ref_id": "input:union:main:b01:001"
+                  "input_ref_id": "input:union:main:b01:001",
+                  "bare": true
                 },
                 "right": {
                   "scope": "ods.users",
                   "column": "user_id",
                   "qualifier": "u",
                   "binding_scope_id": "union:main:b01",
-                  "input_ref_id": "input:union:main:b01:002"
+                  "input_ref_id": "input:union:main:b01:002",
+                  "bare": true
                 },
                 "left_fields": [
                   {

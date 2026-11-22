@@ -451,14 +451,16 @@
                   "column": "entry_id",
                   "qualifier": "ledger_a",
                   "binding_scope_id": "ROOT",
-                  "input_ref_id": "input:ROOT:001"
+                  "input_ref_id": "input:ROOT:001",
+                  "bare": true
                 },
                 "right": {
                   "scope": "ods.ledger_b",
                   "column": "entry_id",
                   "qualifier": "ledger_b",
                   "binding_scope_id": "ROOT",
-                  "input_ref_id": "input:ROOT:002"
+                  "input_ref_id": "input:ROOT:002",
+                  "bare": true
                 },
                 "left_fields": [
                   {

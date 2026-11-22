@@ -4757,14 +4757,16 @@
                   "column": "segment",
                   "qualifier": "a",
                   "binding_scope_id": "cte:joined",
-                  "input_ref_id": "input:cte:joined:001"
+                  "input_ref_id": "input:cte:joined:001",
+                  "bare": true
                 },
                 "right": {
                   "scope": "cte:latest_dim",
                   "column": "segment",
                   "qualifier": "d",
                   "binding_scope_id": "cte:joined",
-                  "input_ref_id": "input:cte:joined:002"
+                  "input_ref_id": "input:cte:joined:002",
+                  "bare": true
                 },
                 "left_fields": [
                   {

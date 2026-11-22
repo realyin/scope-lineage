@@ -77,10 +77,12 @@ CACHE_DIR_NAME = ".cache"
 
 # What a cache file's ``facts`` mean, independently of the file format around them.
 # Version 1 was the whole semantic profile; version 2 is the projection the command's
-# merge reads. A stored payload of another version is recomputed rather than read, in
-# the index as well as in the fact files -- an index is a promise about fact files that
-# a released version may no longer be able to keep.
-PAYLOAD_VERSION = 2
+# merge reads; version 3 is the same projection after `join_key_pairs[].left/right`
+# gained `bare` and the uniqueness rules stopped reading pairs whose right side is not
+# a bare column (audit WP2g). A stored payload of another version is recomputed rather
+# than read, in the index as well as in the fact files -- an index is a promise about
+# fact files that a released version may no longer be able to keep.
+PAYLOAD_VERSION = 3
 
 _UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]")
 
