@@ -268,6 +268,12 @@
   another packet" (`review_packet_stale`) and its findings were dropped; it is now
   `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
   `summary.flags` gains the `review_malformed` key.
+- **`scope_profile` tells tables from session relations one way.** `direct_source_tables`
+  required a dot in the name and `physical_source_tables` did not, so a bare table read
+  directly was summarized as "上游可追溯至" (traced back to). Both lists now count any name that
+  is not a scope of the statement; in a task document a temporary view or cached relation an
+  earlier statement defined is a session relation and is in neither list (it stays in
+  `direct_inputs`), and `business_summary` follows.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

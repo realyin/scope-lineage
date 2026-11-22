@@ -852,7 +852,7 @@ Each item of `scope_profile.steps[]` contains:
 | `operations[]` | The operations that occur in this scope, such as `join`, `filter`, `aggregate`, `window`. |
 | `direct_inputs[]` | The scopes or physical tables that are direct inputs. |
 | `direct_source_tables[]` | The physical tables this scope reads directly. |
-| `physical_source_tables[]` | Every physical table involved after passing through upstream scopes. |
+| `physical_source_tables[]` | Every physical table involved after passing through upstream scopes. Both lists apply one test: a name that is not a scope of the statement is a table, qualified or bare; in a task document, a temporary view or cached relation an earlier statement of the same script defined is a session relation and is in neither list (it stays in `direct_inputs`). |
 | `output_columns` | The number of output fields. |
 | `logic` | A concise structure of joins, filters, aggregations, window functions, CASE, DISTINCT, UNION, and so on. |
 | `business_summary` | A deterministic summary generated from structural templates; it must not be taken as a complete business definition. |
