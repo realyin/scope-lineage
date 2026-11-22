@@ -21,6 +21,11 @@
   file, a file that is not UTF-8, or a JSON array used to abort the whole directory; like a
   malformed JSON file, it is now recorded in `metadata_conflicts` (`metadata_rejected`) and the
   rest loads. A single named file still raises, and so does a directory where nothing loaded.
+- **`questions`: a file whose top level is not an object exits 2 and says so.** The reader
+  returned the int 2 for "cannot read" and handed any other JSON value on, so a file holding
+  `false` or `0` exited 0 with no output, `7` exited 7 and `300` exited 44. Every
+  `questions` subcommand now reports `top level is <type>, not an object` and exits 2 (a
+  top-level list or null, which used to exit 1 with a doc_format message, exits 2 too).
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the

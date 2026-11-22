@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scope_lineage.cli import main
 from scope_lineage.questions import GRADES_FORMAT, SET_FORMAT, validate_document
 
@@ -128,3 +130,41 @@ def test_cli_exits_two_on_unreadable_input(tmp_path: Path, capsys) -> None:
 
     broken = write(tmp_path / "broken.yaml", "questions: [\n")
     assert main(["questions", "validate", str(broken)]) == 2
+
+
+SCALAR_DOCUMENTS = [
+    ("f.json", "false", "bool"),
+    ("z.json", "0", "int"),
+    ("t.json", "true", "bool"),
+    ("s.json", "7", "int"),
+    ("big.json", "300", "int"),
+    ("f.yaml", "false\n", "bool"),
+    ("l.json", "[]", "list"),
+]
+
+
+@pytest.mark.parametrize(("name", "text", "kind"), SCALAR_DOCUMENTS)
+def test_validate_exits_two_when_the_top_level_is_not_an_object(
+    tmp_path: Path, capsys, name: str, text: str, kind: str
+) -> None:
+    """The reader used the int 2 as its "cannot read" signal, so a document that *was*
+    an int (or a bool, an int subclass) became the exit code: ``false`` exited 0."""
+    path = write(tmp_path / name, text)
+
+    assert main(["questions", "validate", str(path)]) == 2
+
+    err = capsys.readouterr().err
+    assert name in err and f"top level is {kind}, not an object" in err
+
+
+@pytest.mark.parametrize(("name", "text", "kind"), SCALAR_DOCUMENTS)
+def test_sheet_exits_two_when_the_top_level_is_not_an_object(
+    tmp_path: Path, capsys, name: str, text: str, kind: str
+) -> None:
+    path = write(tmp_path / name, text)
+    out = tmp_path / "sheet.md"
+
+    assert main(["questions", "sheet", str(path), "--out", str(out)]) == 2
+
+    assert f"top level is {kind}, not an object" in capsys.readouterr().err
+    assert not out.exists()

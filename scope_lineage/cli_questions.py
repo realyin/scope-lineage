@@ -102,22 +102,35 @@ def _add_subset_arguments(parser) -> None:
     )
 
 
+class _Stop(Exception):
+    """An input this command cannot use; the reason is already on stderr.
+
+    An exception rather than an int return: a document's own value may be an int (or a
+    bool, which is one), and returning it in place of the exit code made ``false`` exit 0.
+    """
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 def run_questions(args: argparse.Namespace) -> int:
-    if args.questions_command == "validate":
-        return _run_validate(args)
-    if args.questions_command == "sheet":
-        return _run_sheet(args)
-    if args.questions_command == "grading-sheet":
-        return _run_grading_sheet(args)
-    return _run_score(args)
+    try:
+        if args.questions_command == "validate":
+            return _run_validate(args)
+        if args.questions_command == "sheet":
+            return _run_sheet(args)
+        if args.questions_command == "grading-sheet":
+            return _run_grading_sheet(args)
+        return _run_score(args)
+    except _Stop as stop:
+        return stop.code
 
 
 def _run_validate(args: argparse.Namespace) -> int:
     document = _read(args.file)
-    if isinstance(document, int):
-        return document
     errors = validate_document(document)
-    doc_format = document.get("doc_format") if isinstance(document, dict) else None
+    doc_format = document.get("doc_format")
     items = _count(document)
     print(f"{args.file}: {doc_format}, {items}, {len(errors)} error(s)")
     for error in errors:
@@ -136,10 +149,7 @@ def _count(document) -> str:
 
 
 def _run_sheet(args: argparse.Namespace) -> int:
-    loaded = _selected_set(args)
-    if isinstance(loaded, int):
-        return loaded
-    document, questions = loaded
+    document, questions = _selected_set(args)
     _write(Path(args.out), render_answer_sheet(document, questions, pages=args.pages))
     print(f"Wrote {len(questions)} question(s) to {args.out}")
     if args.pages:
@@ -171,10 +181,7 @@ def _warn_pageless(pages: Path, questions: list[dict]) -> None:
 
 
 def _run_grading_sheet(args: argparse.Namespace) -> int:
-    loaded = _selected_set(args)
-    if isinstance(loaded, int):
-        return loaded
-    document, questions = loaded
+    document, questions = _selected_set(args)
     try:
         parsed = parse_answers(Path(args.answers).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as error:
@@ -191,16 +198,8 @@ def _run_grading_sheet(args: argparse.Namespace) -> int:
 
 
 def _run_score(args: argparse.Namespace) -> int:
-    loaded = _selected_set(args)
-    if isinstance(loaded, int):
-        return loaded
-    document, questions = loaded
-    rounds = []
-    for path in [*args.previous, args.grades]:
-        grades = _load(path, GRADES_FORMAT)
-        if isinstance(grades, int):
-            return grades
-        rounds.append((path, grades))
+    document, questions = _selected_set(args)
+    rounds = [(path, _load(path, GRADES_FORMAT)) for path in [*args.previous, args.grades]]
     unknown = graded_ids_outside(document["questions"], rounds[-1][1])
     if unknown:
         print(f"{args.grades}: graded ids the set does not have: {', '.join(unknown)}",
@@ -229,48 +228,57 @@ def _run_score(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------ inputs
 
 
-def _selected_set(args: argparse.Namespace) -> tuple[dict, list[dict]] | int:
+def _selected_set(args: argparse.Namespace) -> tuple[dict, list[dict]]:
     document = _load(args.set, SET_FORMAT)
-    if isinstance(document, int):
-        return document
     try:
         questions = select_questions(
             document["questions"], ids=args.ids, tables=args.only_table
         )
     except SelectionError as error:
         print(f"{args.set}: {error}", file=sys.stderr)
-        return 1
+        raise _Stop(1) from error
     return document, questions
 
 
-def _load(path: str, doc_format: str) -> dict | int:
-    """A valid document of ``doc_format``, or the exit code after saying why not."""
+def _load(path: str, doc_format: str) -> dict:
+    """A valid document of ``doc_format``; raises ``_Stop`` after saying why not."""
     document = _read(path)
-    if isinstance(document, int):
-        return document
     errors = validate_document(document)
-    found = document.get("doc_format") if isinstance(document, dict) else None
+    found = document.get("doc_format")
     if found != doc_format:
         errors = [{"at": "doc_format", "message": f"expected {doc_format}, got {found!r}"}]
     for error in errors:
         print(f"{path}: {error['at'] or '(document)'}: {error['message']}", file=sys.stderr)
-    return 1 if errors else document
+    if errors:
+        raise _Stop(1)
+    return document
 
 
-def _read(path: str) -> Any:
-    """The file's data as plain JSON values, or 2 after saying why it cannot be read."""
+def _read(path: str) -> dict:
+    """The file's data as plain JSON values; raises ``_Stop(2)`` after saying why not.
+
+    Every questions document is an object, so a top level of any other type is reported
+    the way ``semantic packet --glossary`` reports it, not handed on.
+    """
     source = Path(path)
     try:
         text = source.read_text(encoding="utf-8")
         if source.suffix.lower() in _YAML_SUFFIXES:
-            return _plain(_parse_yaml(text))
-        return json.loads(text)
-    except ImportError:
+            document = _plain(_parse_yaml(text))
+        else:
+            document = json.loads(text)
+    except ImportError as error:
         print(f"{path}: reading YAML needs PyYAML: pip install 'scope-lineage[catalog]' "
               "(or write the file as .json)", file=sys.stderr)
+        raise _Stop(2) from error
     except (OSError, UnicodeDecodeError, ValueError) as error:
         print(f"{path}: cannot be read: {' '.join(str(error).split())}", file=sys.stderr)
-    return 2
+        raise _Stop(2) from error
+    if not isinstance(document, dict):
+        print(f"{path}: cannot be read (top level is {type(document).__name__}, "
+              "not an object)", file=sys.stderr)
+        raise _Stop(2)
+    return document
 
 
 def _parse_yaml(text: str) -> Any:
