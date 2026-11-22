@@ -461,6 +461,19 @@
   `--template <out>/glossary.md` wrote the form's JSON over `<out>/glossary.json` (and
   `<out>/glossary.json` the form over `glossary.md`). Such a path is now a usage error, exit 2,
   before anything is written.
+- **Breaking -- a HAVING or QUALIFY name that is also a source column reads the column, not the
+  SELECT alias.** No format changes number; the source of existing filter blocks changes. In
+  `SELECT g, MAX(fee) AS amt FROM ods.x GROUP BY g HAVING amt > 0`, where `ods.x` has its own
+  `amt`, sqlglot expanded the name into the alias and the HAVING block read
+  `MAX(x.fee) > 0` with fields `fee`; QUALIFY did the same. Spark's rule is "HAVING prefers the
+  table column over the SELECT list alias", and QUALIFY follows HAVING
+  (https://docs.databricks.com/en/sql/language-manual/sql-ref-name-resolution.html). The shield
+  that keeps such a name in GROUP BY and the SELECT list now covers HAVING and QUALIFY under the
+  same condition (Schema, a derived table's or a CTE's columns prove a source has it). A name no
+  source has, or one the metadata cannot settle, still reads the alias; ORDER BY, which prefers
+  the alias, is unchanged. Who is affected: stored lineage whose HAVING or QUALIFY uses such a
+  name; the `raw_expression` and `fields` of that filter block change. What to do: re-run
+  `parse` (see the READMEs' migration section).
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

@@ -415,6 +415,12 @@ source, gives `c` = `a + 1 + 1`). When a source's columns are unknown (no Schema
 `lateral_alias_ambiguous` warning naming it. Before this rule the alias always won, so outputs of
 this shape changed their sources; see the CHANGELOG **Breaking** entry.
 
+HAVING and QUALIFY follow the same rule ("HAVING prefers the table column over the SELECT list
+alias", QUALIFY likewise, same page): in `SELECT g, MAX(fee) AS amt FROM ods.x GROUP BY g HAVING
+amt > 0`, with `amt` a proven column of `ods.x`, the filter block reads `x.amt > 0`, not
+`MAX(x.fee) > 0`. A name no source has, or one the metadata cannot settle, still reads the alias
+(no warning is added there). ORDER BY prefers the alias and is not changed.
+
 ### `SELECT * EXCEPT (...)`
 
 The star's exclusion list **is applied**: excluded columns appear on no output surface
