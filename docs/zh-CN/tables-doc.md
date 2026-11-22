@@ -173,7 +173,8 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
          "corpus": "…",                                 // 只有合并过才出现
          "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
-         "grain": {"basis": "group_by", "keys": ["customer_id"]},
+         "grain": {"basis": "group_by", "keys": ["customer_id"],
+                   "evidence": ["logic:ROOT:group_by:001"]},  // evidence：生产方记录了才有
          "candidate_keys": ["customer_id"], "key_confidence": "proven",
          "fields": [{"column": "…", "comment": null, "summary": "…", "structural_role": "measure"}],
          "refresh": {"cycle": "day", "cron": "…", "source": "task_meta"},
@@ -202,6 +203,10 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 - `produced_by[]` 每条来自该任务 semantic profile 的 `task` / `output_shape` / `fields` 块，
   `refresh` 来自任务 JSON 的 `meta`（`schedule_cycle` / `schedule`），没有就是 `null`——
   绝不从分区列或表名猜调度周期。
+- `produced_by[].grain.keys` 用目标列名写每个逻辑键；SELECT 没有投影出来的键（例如
+  `GROUP BY id, upper(k)` 只写聚合值）写成它分组用的表达式 `` UPPER(`a`.`k`) ``，不会写成 `None`。
+  `grain.evidence`（可选，非空才有）就是生产方自己的 `output_shape.grain.evidence`：粒度依据的
+  逻辑块，或者它的粒度推导停下来的原因；生产方没能判定粒度时，读方的 `card.grain_text` 引用它的第一条。
 - MERGE 生产语句的 `grain`、`candidate_keys`、`key_confidence` 是它写入批次的值（M1；以前恒为
   `unknown` / `[]` / `none`）。它们仍不说明整张表：合并写入算追加写入，表卡的 `key_claim`
   照旧被反证。

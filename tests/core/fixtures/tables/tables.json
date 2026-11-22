@@ -238,6 +238,9 @@
             "keys": [
               "customer_id",
               "channel_name"
+            ],
+            "evidence": [
+              "logic:ROOT:group_by:001"
             ]
           },
           "candidate_keys": [
@@ -295,6 +298,9 @@
             "keys": [
               "customer_id",
               "channel_name"
+            ],
+            "evidence": [
+              "logic:ROOT:group_by:001"
             ]
           },
           "candidate_keys": [
@@ -457,6 +463,9 @@
             "keys": [
               "segment",
               "band"
+            ],
+            "evidence": [
+              "logic:cte:agg:group_by:001"
             ]
           },
           "candidate_keys": [
@@ -637,7 +646,10 @@
           },
           "grain": {
             "basis": "driving_table_rows",
-            "keys": []
+            "keys": [],
+            "evidence": [
+              "ods.users"
+            ]
           },
           "candidate_keys": [],
           "key_confidence": "none",

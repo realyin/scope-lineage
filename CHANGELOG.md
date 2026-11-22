@@ -287,6 +287,13 @@
   evidence rule intersected the Chinese two-character fragments of three or more different
   comments, and an English comment has none, so `客户编号` / `客户号` / `Customer ID` retired
   `customer`. Only comments containing Chinese take part; with none, the rule does not apply.
+- **Table cards keep the producer's grain evidence and never write `None` as a key.**
+  `tables.json` `produced_by[].grain` gains an optional `evidence` (the producer's own
+  `output_shape.grain.evidence`, present only when non-empty), so a reader's `grain_text` for a
+  producer that could not decide its grain gives that producer's reason (a UNION, say) instead
+  of 「结构未记录原因」. A logical key the SELECT never projected is written as its expression
+  (`UPPER(a.k)`) instead of the string `None`. The unused producer-side type pass is removed;
+  column types still come from the target's metadata.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
