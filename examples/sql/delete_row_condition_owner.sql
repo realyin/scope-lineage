@@ -1,6 +1,6 @@
 -- Unqualified columns in a DELETE condition over a join. `customer_name` belongs to one
 -- of the joined tables, which the metadata settles; `dt` belongs to both, so its owner
--- stays unknown and the row-membership trace is reported incomplete.
+-- stays unknown: it gets no name and is a row_condition_source_unresolved gap.
 INSERT OVERWRITE TABLE mart.order_cleanup
 SELECT order_id, customer_id, pay_amount, dt
 FROM dwd.order_detail

@@ -406,10 +406,11 @@
 - **A DELETE / UPDATE / MERGE condition column no table can be proven to own is a gap.** An
   unqualified column in a condition subquery over several tables was written as
   `{"table": "UNKNOWN"}` beside `trace_complete: true`. The schema now settles it when exactly
-  one of the tables has the column; otherwise the task document records the new
-  `row_condition_source_unresolved` fact gap (`root_impact: true`) and the affected rows carry
-  `trace_complete: false` with that missing reason -- every column for a DELETE or MERGE
-  condition, the assigned columns for an UPDATE, and the rows a later append keeps it for.
+  one of the tables has the column; otherwise the field gets no name and the task document
+  records the new `row_condition_source_unresolved` fact gap (`root_impact: true`), the same as
+  an INSERT condition: `trace_complete` keeps answering only whether the values were traced. An
+  UPDATE assignment whose value reads such a column is a value, so that column keeps the
+  `UNKNOWN` value source and gets `trace_complete: false` with that missing reason.
 - **`scope_profile` tells tables from session relations one way.** `direct_source_tables`
   required a dot in the name and `physical_source_tables` did not, so a bare table read
   directly was summarized as "上游可追溯至" (traced back to). Both lists now count any name that
@@ -480,10 +481,10 @@
   (`scope_id: "AMBIGUOUS"`). In a DELETE / UPDATE / MERGE condition, a qualifier is now
   resolved through the query it sits in, each enclosing query, then the written table (its
   alias, else its name): a correlated `t.id` against `DELETE FROM mart.t t` used to be
-  published as table `t` and is now `mart.t`. A qualifier none of them declares is `UNKNOWN`
-  with the `row_condition_source_unresolved` gap and an incomplete row, the same as an
-  unqualified column no table can be proven to own; it used to be published as a table of
-  that name.
+  published as table `t` and is now `mart.t`. A qualifier none of them declares is treated
+  like an unqualified column no table can be proven to own (no name in a condition, `UNKNOWN`
+  in an UPDATE value, the `row_condition_source_unresolved` gap either way); it used to be
+  published as a table of that name.
 - **Breaking -- one table identity in every layer; a catalog is dropped only when configured.**
   No format changes number; table names in existing outputs change. Four rules used to
   disagree: metadata lookup cut any three-part name to its last two segments, table cards

@@ -123,9 +123,10 @@ def test_a_qualifier_naming_no_table_is_a_gap_not_a_table() -> None:
 
     for row in _rows(result):
         assert "zz" not in _membership_tables(row)
-        assert {"table": "UNKNOWN", "column": "id"} in row["row_membership_sources"]
-        assert row["trace_complete"] is False
-        assert REASON in row["missing_reasons"]
+        assert "UNKNOWN" not in _membership_tables(row)
+        assert {"table": "ods.a", "column": "id"} in row["row_membership_sources"]
+        assert row["trace_complete"] is True
+        assert REASON not in row["missing_reasons"]
     [gap] = _gaps(result)
     assert gap["column"] == "id"
     assert _invariants(result) == []

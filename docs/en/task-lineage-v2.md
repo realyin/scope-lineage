@@ -683,19 +683,22 @@ strict gate return non-zero.
 In a DELETE, UPDATE or MERGE condition, an unqualified column in a subquery over several tables
 is first assigned by schema: when exactly one table has the column and every other is known not
 to, it is recorded on that table. When that cannot be decided (several tables have it, or one
-lacks metadata), the source is still written as `{"table": "UNKNOWN", ...}`, and
-row_condition_source_unresolved is recorded, with the fields statement_id, target_table, column
-(when there is one), columns, root_impact=true, and needed_fact; the affected rows have
-`trace_complete` false and row_condition_source_unresolved among their missing_reasons. Which rows
-are affected: a DELETE or MERGE condition affects every column of the target; an UPDATE condition
-only the assigned columns; a later appending write (INSERT INTO, MERGE) that keeps those
-row-membership sources keeps the reason too.
+lacks metadata), the field gets no name -- no `{"table": "UNKNOWN", ...}` entry is written in
+row_membership_sources or value_condition_sources -- and row_condition_source_unresolved is
+recorded, with the fields statement_id, target_table, column (when there is one), columns,
+root_impact=true, and needed_fact. This is the same rule as for an INSERT condition:
+`trace_complete` still answers only whether the values were traced, and the gap is what
+`conditions_closed` reads (see "When a row may be used as a complete fact"). An UPDATE
+assignment is different, because there the column is a value: when its value expression reads a
+column no table can be proven to own, that column keeps the `{"table": "UNKNOWN", ...}` value
+source, has `trace_complete` false and row_condition_source_unresolved among its missing_reasons,
+and the same gap is recorded.
 
 A qualified column in such a condition is looked up the way Spark resolves it: the query it sits
 in, then each enclosing query (a correlated reference), then the written table, by its alias or,
 without one, by its name. A correlated `t.id` against `DELETE FROM mart.t t` is recorded on
 `mart.t`. A qualifier none of them declares is treated like an unqualified column no table can be
-proven to own: `UNKNOWN`, the gap, and incomplete rows.
+proven to own: no name in a condition, `UNKNOWN` in an UPDATE value, and the gap either way.
 
 diagnostics.json.metadata_coverage records referenced tables, covered tables, missing tables, the
 number of schema sources, and metadata conflicts.
