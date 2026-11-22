@@ -43,7 +43,6 @@ from .markdown_text import sql_alias_note as _sql_alias_note
 from .sequences import unique_ordered
 from .semantic_text import describe_nullable_argument as _describe_nullable_argument
 from .semantic_text import equality_conjunct
-from .semantic_text import SET_DIFFERENCE_TEXT_PREFIX, SET_INTERSECTION_TEXT_PREFIX
 from .semantic_text import predicate_literal_day_offset
 from .semantic_text import generated_source_text as _generated_source_text
 from .semantic_text import is_upstream_fan_out_note
@@ -246,6 +245,7 @@ _ACTION_LABELS = {
     "filter": "过滤",
     "aggregate": "聚合",
     "having": "HAVING 过滤",
+    "merge_when": "MERGE 分支条件",
     "window": "窗口",
     "distinct": "去重",
     "union": "合并",
@@ -257,6 +257,7 @@ _ACTION_LABELS = {
 _RULE_KIND_LABELS = {
     "filter": "过滤",
     "having": "HAVING",
+    "merge_when": "MERGE 分支条件",
     "join_condition": "连接条件",
     "case_branch": "CASE 分支",
 }
@@ -737,32 +738,23 @@ def _metadata_state(complete) -> str:
 
 
 # A ``union_merge`` whose set operation is EXCEPT / INTERSECT keeps the first branch's
-# rows rather than adding the branches up; its stage action says which (semantic_text).
-_SET_OPERATION_SHAPE_LABELS = (
-    (SET_DIFFERENCE_TEXT_PREFIX, "差集型（取首个分支的行，去掉其余分支中出现的行）"),
-    (SET_INTERSECTION_TEXT_PREFIX, "交集型（取首个分支的行，只留其余分支中也出现的行）"),
-)
+# rows rather than adding the branches up; ``output_shape.set_op`` says which (4.4).
+_SET_OPERATION_SHAPE_LABELS = {
+    "EXCEPT": "差集型（取首个分支的行，去掉其余分支中出现的行）",
+    "INTERSECT": "交集型（取首个分支的行，只留其余分支中也出现的行）",
+}
 
 
-def _set_operation_shape_label(profile: dict, shape: dict) -> str | None:
+def _set_operation_shape_label(shape: dict) -> str | None:
     if shape.get("shape") != "union_merge":
         return None
-    evidence = set(shape.get("shape_evidence") or [])
-    for stage in profile.get("stages") or []:
-        if stage.get("scope_id") not in evidence:
-            continue
-        for action in stage.get("actions") or []:
-            text = str(action.get("text") or "") if action.get("type") == "union" else ""
-            for prefix, label in _SET_OPERATION_SHAPE_LABELS:
-                if text.startswith(prefix):
-                    return label
-    return None
+    return _SET_OPERATION_SHAPE_LABELS.get(str(shape.get("set_op") or "").upper())
 
 
 def _render_shape(profile: dict) -> list[str]:
     shape = profile.get("output_shape") or {}
     name = str(shape.get("shape") or "unknown")
-    label = _set_operation_shape_label(profile, shape) or _SHAPE_LABELS.get(name, name)
+    label = _set_operation_shape_label(shape) or _SHAPE_LABELS.get(name, name)
     marker = f"{WARN} " if name == "unknown" else ""
     lines = [
         "",

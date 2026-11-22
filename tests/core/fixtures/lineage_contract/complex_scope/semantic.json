@@ -176,6 +176,7 @@
   ],
   "output_shape": {
     "shape": "union_merge",
+    "set_op": "UNION_ALL",
     "shape_evidence": [
       "union:main"
     ],

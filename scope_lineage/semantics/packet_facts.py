@@ -17,7 +17,11 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
-from ..render.semantic_text import NULLABLE_LEFT_JOIN_TYPES, aggregate_functions
+from ..render.semantic_text import (
+    NULLABLE_LEFT_JOIN_TYPES,
+    aggregate_functions,
+    describe_merge_when,
+)
 from .names import bare_column, bare_table, normalize_sql, strip_leading_keyword
 from .packet_meaning import (
     PASS_THROUGH_STEPS,
@@ -27,8 +31,10 @@ from .packet_meaning import (
     literal_outputs,
 )
 
+# A MERGE WHEN condition (`merge_when`, decision 2.2) keeps its own kind: it selects the
+# branch a row takes and is not a record range of the table, which `filter` rows are.
 _RULE_KINDS = {"filter": "filter", "having": "filter", "join_condition": "join",
-               "case_branch": "case"}
+               "case_branch": "case", "merge_when": "merge_when"}
 # Stage actions that say how rows are merged or de-duplicated; the profile's rules only
 # hold predicates, joins and CASE branches.
 _STAGE_RULE_ACTIONS = {"window": "dedup", "distinct": "dedup", "union": "union"}
@@ -189,6 +195,9 @@ def _profile_rule(task: str, statement: dict, rule: dict) -> dict:
     }
     if rule.get("join_type"):
         entry["join_type"] = rule["join_type"]
+    if entry["kind"] == "merge_when":
+        entry["text"] = describe_merge_when(
+            rule.get("clause"), rule.get("action"), rule.get("expression"))
     if rule.get("consumed") is False:
         entry["consumed"] = False
     if rule.get("sql_comments"):
