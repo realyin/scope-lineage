@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 
 from scope_lineage.cli import main
+from scope_lineage.cli_glossary import _template_paths
 from scope_lineage.metadata.schema_metadata import SchemaMap
 from scope_lineage.render.glossary import build_glossary
 from scope_lineage.render.glossary_template import (
@@ -362,6 +363,39 @@ def test_the_template_flag_says_it_still_needs_an_out_directory(capsys) -> None:
     error = capsys.readouterr().err
     assert "--out is required" in error
     assert "--template ranks its form from that dictionary" in error
+
+
+def test_a_json_template_path_writes_the_form_beside_it(tmp_path: Path) -> None:
+    """``--template t.json`` used to write the markdown to t.json and then overwrite it."""
+    task = _artifacts(MIXED_SQL, tmp_path / "task_a", schema=MIXED_SCHEMA)
+    out = tmp_path / "dict"
+    form = tmp_path / "forms" / "overrides.json"
+
+    assert (
+        main(
+            [
+                "glossary", "--lineage", str(task / "lineage.json"), "--out", str(out),
+                "--template", str(form),
+            ]
+        )
+        == 0
+    )
+
+    assert sorted(path.name for path in form.parent.iterdir()) == [
+        "overrides.json",
+        "overrides.md",
+    ]
+    assert json.loads(form.read_text(encoding="utf-8"))["doc_format"].startswith(
+        "glossary-overrides-template/"
+    )
+    assert not form.with_suffix(".md").read_text(encoding="utf-8").lstrip().startswith("{")
+
+
+def test_template_paths_put_the_form_in_md_and_the_data_in_json() -> None:
+    """Sentinel: a .md (or suffix-less) path keeps the layout it always had."""
+    assert _template_paths(Path("d/form.md")) == (Path("d/form.md"), Path("d/form.json"))
+    assert _template_paths(Path("d/form")) == (Path("d/form"), Path("d/form.json"))
+    assert _template_paths(Path("d/form.JSON")) == (Path("d/form.md"), Path("d/form.json"))
 
 
 def test_no_template_flag_writes_no_template(tmp_path: Path) -> None:

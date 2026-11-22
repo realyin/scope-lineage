@@ -102,3 +102,53 @@ def test_the_metadata_report_lists_parameterised_tables_apart(tmp_path) -> None:
     assert report["unbound_parameter_tables"] == [
         {"table": "cat.${db_name}.t", "referenced_by_task_count": 1, "referenced_by": ["t"]}
     ]
+
+
+def _batch_parse(tmp_path, sql: str, schema: dict):
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "t.json").write_text(
+        json.dumps({"meta": {"task_name": "t", "sql": sql}}), encoding="utf-8"
+    )
+    schema_file = tmp_path / "schema.json"
+    schema_file.write_text(json.dumps(schema), encoding="utf-8")
+    out = tmp_path / "out"
+    main(["parse", "--input-dir", str(tasks), "--out", str(out), "--schema", str(schema_file)])
+    return out / "metadata_gaps.json"
+
+
+def test_the_batch_metadata_report_lists_unbound_tables_too(tmp_path) -> None:
+    """The batch branch wrote the manifest without the unbound tables preflight lists."""
+    manifest = _batch_parse(
+        tmp_path,
+        "INSERT OVERWRITE TABLE db.tgt SELECT a.id, m.v "
+        "FROM ${src_db}.src a JOIN db.missing m ON a.id = m.id",
+        {"db.tgt": ["id", "v"]},
+    )
+
+    report = json.loads(manifest.read_text(encoding="utf-8"))
+    assert [item["table"] for item in report["missing_tables"]] == ["db.missing"]
+    assert [item["table"] for item in report["unbound_parameter_tables"]] == ["${src_db}.src"]
+
+
+def test_a_batch_with_only_unbound_tables_still_writes_the_report(tmp_path) -> None:
+    manifest = _batch_parse(
+        tmp_path,
+        "INSERT OVERWRITE TABLE db.tgt SELECT id FROM ${src_db}.src",
+        {"db.tgt": ["id"]},
+    )
+
+    report = json.loads(manifest.read_text(encoding="utf-8"))
+    assert report["missing_tables"] == []
+    assert [item["table"] for item in report["unbound_parameter_tables"]] == ["${src_db}.src"]
+
+
+def test_a_batch_with_no_gaps_writes_no_report(tmp_path) -> None:
+    """Sentinel: complete metadata and no parameters leave no manifest behind."""
+    manifest = _batch_parse(
+        tmp_path,
+        "INSERT OVERWRITE TABLE db.tgt SELECT id FROM db.src",
+        {"db.tgt": ["id"], "db.src": ["id"]},
+    )
+
+    assert not manifest.exists()

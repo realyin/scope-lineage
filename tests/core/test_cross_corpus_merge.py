@@ -34,8 +34,10 @@ from scope_lineage.render.ontology import (
 from scope_lineage.render.semantic_profile import build_semantic_profile
 from scope_lineage.render.table_cards import (
     DOC_FORMAT,
+    FINDING_AMBIGUOUS_BARE_NAME,
     FINDING_NEVER_CONSUMED,
     FINDING_PRODUCER_KEY_CONFLICT,
+    _merged_card,
     build_table_cards,
     merge_table_cards,
 )
@@ -650,3 +652,68 @@ def test_ontology_accepts_several_tables_documents(tmp_path: Path) -> None:
         "ods.customer_event.md",
     ]
     assert ontology["corpus"]["external_evidence_tables"] == 1
+
+
+# ------------------------------------------- a bare name resolved in one corpus only
+
+# Corpus 1 writes ``ods.t`` and reads it once by the bare name ``t``, which it folds into
+# ``ods.t``; corpus 2 reads another warehouse's ``dwd.t``. After the merge ``t`` could be
+# either, so it stays its own (ambiguous) card -- and the merge must not crash on it.
+BARE_HOST_CASES = (
+    ("bare_writer", "INSERT OVERWRITE TABLE ods.t SELECT id, v FROM src.x"),
+    ("bare_reader", "INSERT OVERWRITE TABLE dw.o1 SELECT id, v FROM t"),
+)
+BARE_RIVAL_CASES = (
+    ("rival_reader", "INSERT OVERWRITE TABLE dw.o2 SELECT id, v FROM dwd.t"),
+)
+
+
+def test_a_bare_alias_made_ambiguous_by_another_corpus_is_merged_with_a_finding() -> None:
+    home = _cards(BARE_HOST_CASES, "corpus_1")
+    assert _card(home, "ods.t")["aliases"] == ["t"]
+
+    merged = merge_table_cards(home, _cards(BARE_RIVAL_CASES, "corpus_2"))
+
+    bare = _card(merged, "t")
+    assert FINDING_AMBIGUOUS_BARE_NAME in [item["kind"] for item in bare["findings"]]
+    assert "bare_reader" in [item["task"] for item in bare["consumed_by"]]
+    assert [item["task"] for item in _card(merged, "dwd.t")["consumed_by"]] == [
+        "rival_reader"
+    ]
+
+
+def test_a_bare_alias_no_other_corpus_disputes_stays_on_its_host() -> None:
+    home = _cards(BARE_HOST_CASES, "corpus_1")
+
+    merged = merge_table_cards(home, _corpus_b())
+
+    host = _card(merged, "ods.t")
+    assert host["aliases"] == ["t"]
+    assert [item["task"] for item in host["consumed_by"]] == ["bare_reader"]
+    assert "t" not in [card["table"] for card in merged["tables"]]
+
+
+def test_a_merged_group_no_card_answers_for_is_a_finding_only_card() -> None:
+    card = _merged_card("t", ["t"], [], ["dwd.t", "ods.t"])
+
+    assert card["table"] == "t"
+    assert card["produced_by"] == [] and card["consumed_by"] == []
+    assert [item["kind"] for item in card["findings"]] == [FINDING_AMBIGUOUS_BARE_NAME]
+
+
+def test_merge_mode_survives_a_bare_alias_another_corpus_makes_ambiguous(
+    tmp_path: Path,
+) -> None:
+    first = _built(tmp_path, "c1", BARE_HOST_CASES)
+    second = _built(tmp_path, "c2", BARE_RIVAL_CASES)
+    out = tmp_path / "merged"
+
+    assert (
+        main(["tables", "--merge", str(first), "--merge", str(second), "--out", str(out)])
+        == 0
+    )
+
+    cards = json.loads((out / "tables.json").read_text(encoding="utf-8"))
+    bare = _card(cards, "t")
+    assert FINDING_AMBIGUOUS_BARE_NAME in [item["kind"] for item in bare["findings"]]
+    assert "bare_reader" in [item["task"] for item in bare["consumed_by"]]

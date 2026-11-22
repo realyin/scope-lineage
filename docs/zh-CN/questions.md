@@ -226,4 +226,4 @@ scope-lineage questions score run/grades.yaml --set questions.yaml \
 | --- | --- |
 | 0 | 成功（可能有警告） |
 | 1 | 文件有错误，或题号 / 表在问题集里不存在，或判分文件有问题集没有的题号 |
-| 2 | 输入文件读不了（不存在、不是合法 YAML / JSON、缺 PyYAML） |
+| 2 | 输入文件读不了（不存在、不是合法 YAML / JSON、顶层不是对象、缺 PyYAML） |

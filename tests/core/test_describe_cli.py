@@ -245,3 +245,24 @@ def test_describe_and_render_walk_the_same_input(tmp_path: Path, capsys) -> None
     counters = "(skipped_unknown_version=1, missing_diagnostics=1, skipped_unreadable=0)"
     assert f"Rendered 2 mapping document(s) {counters}" in render_out
     assert f"Described 2 task(s) {counters}" in describe_out
+
+
+def test_parse_after_describe_replaces_the_task_directory(tmp_path: Path) -> None:
+    """The documented default flow parse -> describe -> parse must not crash."""
+    sql_file = tmp_path / "t1.sql"
+    sql_file.write_text(
+        "INSERT OVERWRITE TABLE mart.daily SELECT id, amt FROM ods.real WHERE amt > 0;\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+    assert main(["parse", "--sql-file", str(sql_file), "--out", str(out)]) == 0
+    assert main(["describe", "--lineage", str(out)]) == 0
+    task_dirs = [path.parent for path in out.rglob("semantic.json")]
+    assert len(task_dirs) == 1
+
+    assert main(["parse", "--sql-file", str(sql_file), "--out", str(out)]) == 0
+
+    assert sorted(path.name for path in task_dirs[0].iterdir()) == [
+        "diagnostics.json",
+        "lineage.json",
+    ]

@@ -1192,18 +1192,22 @@ def _parse_task_inputs_v2(
         _print_unbound_parameters(unbound_referencers)
         return 1 if missing_referencers or unbound_referencers or input_failed_count else 0
 
+    # The batch manifest lands next to the artifacts, and lists unbound parameter tables
+    # exactly as the preflight one does -- also when they are the only gap. A single-file
+    # parse keeps its output directory to exactly the task artifact and lists gaps inline.
+    batch = bool(getattr(args, "input_dir", None))
+    if batch and (missing_referencers or unbound_referencers):
+        _write_metadata_gap_manifest(
+            manifest_path,
+            referenced_tables=referenced_tables,
+            covered_tables=covered_tables,
+            missing_referencers=missing_referencers,
+            unbound_referencers=unbound_referencers,
+            input_count=len(source_files),
+            input_failed_count=input_failed_count,
+        )
     if missing_referencers:
-        # The batch manifest lands next to the artifacts; a single-file parse keeps
-        # its output directory to exactly the task artifact and lists gaps inline.
-        if getattr(args, "input_dir", None):
-            _write_metadata_gap_manifest(
-                manifest_path,
-                referenced_tables=referenced_tables,
-                covered_tables=covered_tables,
-                missing_referencers=missing_referencers,
-                input_count=len(source_files),
-                input_failed_count=input_failed_count,
-            )
+        if batch:
             detail = f"list written to {manifest_path}"
         else:
             detail = "、".join(sorted(missing_referencers))

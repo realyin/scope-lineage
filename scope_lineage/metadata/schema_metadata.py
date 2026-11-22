@@ -241,7 +241,12 @@ def _read_metadata_file(
             f"元数据文件不是合法 UTF-8: {path}\n  位置: byte {exc.start:,}\n"
             f"  处理: 按 UTF-8 重新导出,或先转码后再传入"
         ) from exc
-    if require_header and not text.splitlines()[0].strip():
+    # Checked again after decoding: a file of only a BOM (or only NULs) is not empty as
+    # bytes, and an empty text has no first line to read a header from.
+    if not text:
+        raise MetadataFileError(f"元数据文件为空: {path}")
+    lines = text.splitlines()
+    if require_header and (not lines or not lines[0].strip()):
         raise MetadataFileError(f"元数据文件缺少表头: {path}")
     return MetadataReadResult(
         text=text,

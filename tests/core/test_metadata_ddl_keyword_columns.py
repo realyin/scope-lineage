@@ -15,6 +15,8 @@ milliseconds and name the cause, rather than leaving the parse-level tests to ha
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from scope_lineage.metadata.schema_metadata import load_schema_sources
@@ -199,3 +201,92 @@ def test_neighbouring_tables_are_unaffected(tmp_path: Path):
 
     assert schema["db.t"] == ["a", "not"]
     assert schema["db.u"] == ["b"]
+
+
+# ------------------------------------------------------- SQL comments inside the DDL
+
+# A ``--`` comment holding an apostrophe used to open a quote the scanner never closed,
+# so the column list was "not found", ``not`` stayed unquoted and sqlglot hung. Comments
+# and quotes are recognized in the same pass: a ``--`` inside a COMMENT string is text.
+COMMENTED_DDL = (
+    "CREATE TABLE mart.k (\n"
+    "  id BIGINT, -- user's id\n"
+    "  not DOUBLE COMMENT 'flag'\n"
+    ") PARTITIONED BY (dt STRING)"
+)
+BLOCK_COMMENTED_DDL = (
+    "CREATE TABLE mart.k (\n"
+    "  id BIGINT, /* the user's id, (pk) */\n"
+    "  not DOUBLE COMMENT 'flag'\n"
+    ") PARTITIONED BY (dt STRING)"
+)
+COMMENT_STRING_DDL = (
+    "CREATE TABLE mart.k (\n"
+    "  id BIGINT COMMENT 'pk -- natural key',\n"
+    "  not DOUBLE COMMENT 'rate /* pct */'\n"
+    ") PARTITIONED BY (dt STRING)"
+)
+
+
+def test_a_line_comment_with_an_apostrophe_does_not_hide_the_column_list():
+    normalized = _quoted_keyword_column_names(COMMENTED_DDL)
+
+    assert "`not` DOUBLE" in normalized
+    assert "-- user's id\n" in normalized
+
+
+def test_a_block_comment_with_an_apostrophe_does_not_hide_the_column_list():
+    normalized = _quoted_keyword_column_names(BLOCK_COMMENTED_DDL)
+
+    assert "`not` DOUBLE" in normalized
+    assert "/* the user's id, (pk) */" in normalized
+
+
+def test_comment_markers_inside_a_comment_string_stay_text():
+    """Sentinel: a ``--`` or ``/* */`` inside a quoted COMMENT is not a comment."""
+    normalized = _quoted_keyword_column_names(COMMENT_STRING_DDL)
+
+    assert normalized == COMMENT_STRING_DDL.replace("  not DOUBLE", "  `not` DOUBLE")
+
+
+_LOAD_IN_CHILD = """
+import json, sys, time
+from scope_lineage.metadata.target_table_metadata import load_target_table_metadata
+started = time.monotonic()
+loaded = load_target_table_metadata(sys.argv[1])
+elapsed = time.monotonic() - started
+item = loaded["mart.k"]
+print(json.dumps({
+    "elapsed": elapsed,
+    "columns": [column.name for column in item.columns],
+    "partitions": item.partition_columns,
+}))
+"""
+
+
+def _load_in_child(tmp_path: Path, ddl: str) -> dict:
+    """Load in a subprocess: a regression hangs sqlglot, and must not hang the suite."""
+    path = tmp_path / "mart.k.json"
+    path.write_text(json.dumps({"table_name": "mart.k", "ddl": ddl}), encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, "-c", _LOAD_IN_CHILD, str(path)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def test_a_commented_ddl_with_a_keyword_column_loads_without_hanging(tmp_path: Path):
+    loaded = _load_in_child(tmp_path, COMMENTED_DDL)
+
+    assert loaded["elapsed"] < 2
+    assert loaded["columns"] == ["id", "not", "dt"]
+
+
+def test_a_comment_string_holding_comment_markers_loads_unchanged(tmp_path: Path):
+    loaded = _load_in_child(tmp_path, COMMENT_STRING_DDL)
+
+    assert loaded["elapsed"] < 2
+    assert loaded["columns"] == ["id", "not", "dt"]

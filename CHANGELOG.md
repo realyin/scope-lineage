@@ -1,6 +1,45 @@
 # Changelog
 
 ## Unreleased
+- **Re-parsing after `describe` no longer fails; it deletes the old `semantic.*`.** `describe`
+  writes `semantic.json` / `semantic.md` next to `lineage.json` by default, but the task writer
+  did not know those names and refused to replace the directory (`input_failed=1`). They are now
+  treated like `mapping.md` / `warnings.md`: views derived from the old contract, removed when a
+  new parse generation replaces the task directory. Run `describe` again after re-parsing.
+- **`tables --merge` no longer crashes on a bare name another corpus makes ambiguous.** A bare
+  `t` that one corpus folded into `ods.t` became its own group once a second corpus brought
+  `dwd.t`, and no card answered for it (`IndexError`). The merge now matches cards by table and
+  aliases, so `t` gets a card with `ambiguous_bare_name` that keeps the bare-name reader; a group
+  no card answers for gets a card holding only that finding.
+- **A comment in target DDL no longer hangs `parse`.** `id BIGINT, -- user's id` hid the column
+  list from the keyword-column rewrite, so a column named `not` reached sqlglot unquoted and the
+  load never returned. Comments are now skipped in the same pass that tracks quotes; a `--`
+  inside a `COMMENT '...'` string is still text.
+- **A metadata file holding only a UTF-8 BOM is reported as empty** (`MetadataFileError`)
+  instead of failing with `IndexError`.
+- **One unusable file in a `--target-ddl-metadata` directory costs only that file.** An empty
+  file, a file that is not UTF-8, or a JSON array used to abort the whole directory; like a
+  malformed JSON file, it is now recorded in `metadata_conflicts` (`metadata_rejected`) and the
+  rest loads. A single named file still raises, and so does a directory where nothing loaded.
+- **`questions`: a file whose top level is not an object exits 2 and says so.** The reader
+  returned the int 2 for "cannot read" and handed any other JSON value on, so a file holding
+  `false` or `0` exited 0 with no output, `7` exited 7 and `300` exited 44. Every
+  `questions` subcommand now reports `top level is <type>, not an object` and exits 2 (a
+  top-level list or null, which used to exit 1 with a doc_format message, exits 2 too).
+- **`questions grading-sheet` reads code fences the CommonMark way.** A line like
+  ```` ```dt``` 是分区列 ```` opened a fence, and a ```` ```bash ```` line inside a block closed
+  it, so every later answer heading was swallowed into the first answer ("no answer for ...").
+  A backtick fence's info string may not hold a backtick, and a closing fence is the opener's
+  character, at least as long, with nothing else on the line.
+- **`glossary --template t.json` writes `t.md` and `t.json`.** It used to write the form to
+  `t.json` and then overwrite it with the data, leaving no form.
+- **`--only A B` run inside `packets/` no longer takes `B` for the directory.** The last word was
+  read as the directory whenever a folder of that name existed, so `semantic status` silently
+  dropped a table and `semantic validate` read a packet folder as the documents directory. A
+  `db.table`-shaped word is now never a path; the missing directory is a usage error (exit 2).
+- **The batch `metadata_gaps.json` lists unbound parameter tables, as documented.** A batch
+  `parse` wrote the manifest without `unbound_parameter_tables` (only `--metadata-preflight`
+  filled it) and wrote none when unbound tables were the only gap. Both are fixed.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the

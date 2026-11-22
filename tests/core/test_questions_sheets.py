@@ -111,6 +111,43 @@ def test_answers_are_split_on_level_two_headings() -> None:
     assert parsed.duplicates == []
 
 
+def test_inline_triple_backticks_do_not_open_a_fence() -> None:
+    """CommonMark: a backtick fence's info string cannot hold a backtick."""
+    parsed = parse_answers(
+        "## Q01\n```dt``` 是分区列。\n\n## Q02\n二\n\n## Q03\n三\n\n## Q04\n四\n"
+    )
+
+    assert list(parsed.answers) == ["Q01", "Q02", "Q03", "Q04"]
+    assert parsed.answers["Q01"] == "```dt``` 是分区列。"
+
+
+def test_a_fence_line_with_an_info_string_inside_a_block_does_not_close_it() -> None:
+    """CommonMark: a closing fence holds only fence characters and spaces."""
+    parsed = parse_answers(
+        "## Q01\n````markdown\n```bash\nls\n```\n## not-a-question\n````\n\n"
+        "## Q02\n二\n\n## Q03\n三\n\n## Q04\n四\n"
+    )
+
+    assert list(parsed.answers) == ["Q01", "Q02", "Q03", "Q04"]
+    assert "## not-a-question" in parsed.answers["Q01"]
+
+
+def test_a_nested_language_line_in_a_fence_stays_inside_it() -> None:
+    parsed = parse_answers(
+        "## Q01\n```text\n```bash\n```\n\n## Q02\n二\n\n## Q03\n三\n\n## Q04\n四\n"
+    )
+
+    assert list(parsed.answers) == ["Q01", "Q02", "Q03", "Q04"]
+
+
+def test_a_shorter_or_other_character_fence_does_not_close_a_block() -> None:
+    """Sentinel for the closing rule: same character, at least as long."""
+    parsed = parse_answers("## Q01\n~~~~\n```\n~~~\n## inside\n~~~~\n\n## Q02\n二\n")
+
+    assert list(parsed.answers) == ["Q01", "Q02"]
+    assert "## inside" in parsed.answers["Q01"]
+
+
 def test_a_repeated_answer_heading_is_reported() -> None:
     parsed = parse_answers("## Q01\n一\n\n## Q01\n二\n")
 
