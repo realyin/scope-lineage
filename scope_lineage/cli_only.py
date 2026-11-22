@@ -7,15 +7,21 @@ missing. The directory is declared optional (:func:`add_directory`); after parsi
 :func:`take_back_directory` moves a swallowed directory back out of ``--only`` when the
 last word there is a path (it holds ``/`` or names an existing directory) and at least
 one table stays. Anything else is a usage error that says where to put the directory.
-A table name never holds ``/``, so no table is ever taken for the directory.
+A table name never holds ``/``, and a word shaped like ``db.table`` is never read as a
+path even when a directory of that name exists (one folder per table, as under
+``packets/``), so no table is ever taken for the directory.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 _KEY = "_only_directory"
+# ``db.table`` / ``catalog.db.table``: dot-separated, every part non-empty, no separator.
+# ``.`` and ``..`` have empty parts, so they stay directories.
+_TABLE_SHAPE = re.compile(r"[^./\\]+(?:\.[^./\\]+)+")
 
 
 def add_directory(parser: argparse.ArgumentParser, name: str, help: str) -> None:
@@ -49,4 +55,6 @@ def take_back_directory(args: argparse.Namespace) -> None:
 
 
 def _is_path(word: str) -> bool:
-    return "/" in word or "\\" in word or Path(word).is_dir()
+    if "/" in word or "\\" in word:
+        return True
+    return not _TABLE_SHAPE.fullmatch(word) and Path(word).is_dir()

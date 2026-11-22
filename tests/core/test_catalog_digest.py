@@ -165,6 +165,33 @@ def test_only_swallowing_a_word_that_is_no_directory_is_an_error(tmp_path: Path,
     assert "--only takes every word after it" in capsys.readouterr().err
 
 
+def test_a_table_named_like_a_subdirectory_is_not_taken_for_the_directory(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """Run inside a directory holding one folder per table: the last table stays a table."""
+    (tmp_path / "demo_dwd.a_df").mkdir()
+    (tmp_path / "demo_dwd.b_df").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SystemExit) as raised:
+        _digest("--out", tmp_path / "out", "--only", "demo_dwd.a_df", "demo_dwd.b_df")
+
+    assert raised.value.code == 2
+    assert "--only takes every word after it" in capsys.readouterr().err
+
+
+def test_a_plain_directory_name_ending_only_is_still_taken_back(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Sentinel: a directory word that is no ``db.table`` (``docs``, ``.``) is still one."""
+    docs = _docs(tmp_path, _renamed(NEW_TABLE))
+    monkeypatch.chdir(tmp_path)
+    assert _digest("--out", tmp_path / "a", "--only", NEW_TABLE, "docs") == 0
+
+    monkeypatch.chdir(docs)
+    assert _digest("--out", tmp_path / "b", "--only", NEW_TABLE, ".") == 0
+
+
 def test_tables_are_ordered_and_the_output_is_deterministic(tmp_path: Path) -> None:
     docs = _docs(tmp_path, _renamed("demo_dwd.a_first_df"), _renamed(NEW_TABLE))
 

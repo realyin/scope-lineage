@@ -33,6 +33,10 @@
   character, at least as long, with nothing else on the line.
 - **`glossary --template t.json` writes `t.md` and `t.json`.** It used to write the form to
   `t.json` and then overwrite it with the data, leaving no form.
+- **`--only A B` run inside `packets/` no longer takes `B` for the directory.** The last word was
+  read as the directory whenever a folder of that name existed, so `semantic status` silently
+  dropped a table and `semantic validate` read a packet folder as the documents directory. A
+  `db.table`-shaped word is now never a path; the missing directory is a usage error (exit 2).
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
