@@ -42,6 +42,7 @@ from scope_lineage.render.concepts import (
     TIER_CONFIRMED,
     apply_concept_overrides,
     build_concepts,
+    name_convention,
     table_concept_id,
 )
 from scope_lineage.render.review_batches import (
@@ -53,6 +54,7 @@ from scope_lineage.render.review_batches import (
     render_batch_markdown,
 )
 
+from .concept_convention import WAREHOUSE_CONVENTION
 from .test_concept_relations import _cards, _entity, _relation
 
 
@@ -83,8 +85,10 @@ def _built(entities, relations=(), overrides=None) -> dict:
         "tables": [dict(item) for item in entities],
         "table_relations": [dict(item) for item in relations],
     }
-    document.update(build_concepts(document, _cards()))
-    apply_concept_overrides(document, overrides if overrides is not None else {})
+    # The fixture's tables are named by the warehouse convention its roles rest on.
+    with name_convention(WAREHOUSE_CONVENTION):
+        document.update(build_concepts(document, _cards()))
+        apply_concept_overrides(document, overrides if overrides is not None else {})
     document.update(build_concept_relations(document))
     for table in document["tables"]:
         table["concepts"] = _table_concepts(str(table["id"]), document["concepts"])

@@ -106,3 +106,79 @@ def test_a_word_in_a_default_tuple_is_caught(tmp_path: Path) -> None:
 def test_docstrings_and_partial_latin_words_are_not_caught(tmp_path: Path) -> None:
     root = _package(tmp_path, '"""A 回款 example."""\n\ndef f():\n    """loan."""\n    return "loans_x"\n')
     assert collect_violations(root) == []
+
+
+# A warehouse's table-name convention -- which suffix marks a full snapshot, which a
+# period increment -- is a rule in the same sense (D2): it reaches ``semantic packet`` and
+# the concept layer as ``domain-profile/1``'s ``table_name_convention``. A string literal
+# that *is* one of these suffixes is how a built-in convention looks in code.
+NAMING_SUFFIXES = frozenset({"df", "di", "hf", "hi", "mf", "mi", "wf", "wi", "da"})
+
+# ``(path relative to scope_lineage/, module-level name) -> reason``: a constant still
+# allowed such literals. Keyed by the constant, so a new tuple in the same module is caught.
+NAMING_EXEMPT: dict[tuple[str, str], str] = {
+    ("render/ontology.py", "PERIOD_SUFFIXES"): (
+        "table_family folds a table's copies into one family key (families[]); not yet "
+        "moved to the profile -- an owner decision, since it changes every corpus's families"
+    ),
+    ("render/concepts.py", "LATIN_COMMENT_BARE_SUFFIXES"): (
+        "trims a storage tail written at the end of a *comment* (「…日志表_df」) before a "
+        "name is read off it; it never decides a role or a kind"
+    ),
+}
+
+
+def _suffix_literals(tree: ast.AST) -> list[tuple[str | None, ast.Constant]]:
+    """``(the module-level name it is assigned to, or None, literal)`` for each suffix."""
+    owner: dict[int, str] = {}
+    for statement in getattr(tree, "body", []):
+        targets = (
+            statement.targets if isinstance(statement, ast.Assign)
+            else [statement.target] if isinstance(statement, ast.AnnAssign) else []
+        )
+        names = [target.id for target in targets if isinstance(target, ast.Name)]
+        if names and statement.value is not None:
+            for node in ast.walk(statement.value):
+                owner[id(node)] = names[0]
+    return [
+        (owner.get(id(node)), node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and node.value.lower() in NAMING_SUFFIXES
+    ]
+
+
+def collect_naming_violations(package_root: Path = PACKAGE_ROOT) -> list[str]:
+    violations = []
+    for path in sorted(package_root.rglob("*.py")):
+        relative = path.relative_to(package_root).as_posix()
+        for name, node in _suffix_literals(ast.parse(path.read_text(encoding="utf-8"))):
+            if (relative, name) not in NAMING_EXEMPT:
+                violations.append(
+                    f"scope_lineage/{relative}:{node.lineno} literal is the suffix {node.value!r}")
+    return violations
+
+
+def test_no_table_name_convention_in_a_package_literal() -> None:
+    violations = collect_naming_violations()
+    assert not violations, (
+        "table-name suffixes in package literals -- read them from the caller's "
+        "table_name_convention, or add a NAMING_EXEMPT entry with the reason:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_every_naming_exemption_still_holds_a_suffix() -> None:
+    for (relative, name), reason in NAMING_EXEMPT.items():
+        assert reason.strip(), f"{relative}: exemption for {name} needs a reason"
+        tree = ast.parse((PACKAGE_ROOT / relative).read_text(encoding="utf-8"))
+        assert any(owner == name for owner, _node in _suffix_literals(tree)), (
+            f"{relative}: the exemption for {name} no longer matches a literal")
+
+
+def test_a_suffix_tuple_is_caught(tmp_path: Path) -> None:
+    root = _package(tmp_path, 'FULL = ("df", "all")\nNOTE = "dfx"\n\ndef f(s):\n    return s == "di"\n')
+    assert collect_naming_violations(root) == [
+        "scope_lineage/words.py:1 literal is the suffix 'df'",
+        "scope_lineage/words.py:5 literal is the suffix 'di'",
+    ]

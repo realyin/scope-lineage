@@ -8,7 +8,9 @@ file carries all of it, and each command that reads part of it takes the same fl
 * ``qualifier_terms`` -- more qualifiers for check 12 (``semantic validate``), added to
   the generic ones;
 * ``table_name_convention`` -- the table-name suffixes that mark a full-snapshot or an
-  incremental table (``semantic packet``); without it no suffix means anything;
+  incremental table (``semantic packet``, and the concept layer of ``ontology``: a
+  member's role, the increment vote on its kind, the stem a comment-less table is named
+  by); without it no suffix means anything;
 * ``concept_words`` -- more words for the concept layer (``ontology``): ``event`` /
   ``entity`` / ``summary`` votes, ``measure_suffixes`` and ``filter_words`` for ranking
   name candidates, each added to the generic ones.

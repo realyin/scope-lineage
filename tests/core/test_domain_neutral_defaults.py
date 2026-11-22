@@ -334,3 +334,28 @@ def test_the_ontology_command_adds_the_profile_words(demo_lineage: Path, tmp_pat
     plain = votes(tmp_path / "plain")
     worded = votes(tmp_path / "worded", "--domain-profile", profile)
     assert ("demo_dwd.dwd_lending_borrower_df", CONCEPT_EVENT) in worded - plain
+
+
+def test_the_ontology_command_reads_table_suffixes_only_from_the_profile(
+    demo_lineage: Path, tmp_path: Path
+) -> None:
+    """The concept layer's `_df` / `_di` reading is the profile's convention (WP11 / D2)."""
+    from .table_semantics_demo import read_json, run
+
+    profile = _write(tmp_path / "p.json", {
+        "doc_format": DOC_FORMAT, "table_name_convention": {"full": ["df"], "incremental": []}})
+
+    def stems(out: Path, *extra) -> set:
+        assert run("ontology", "--lineage", demo_lineage, "--out", out, "--format", "json",
+                   "--no-cache", *extra) == 0
+        return {
+            str(candidate["text"])
+            for concept in read_json(out / "ontology.json")["concepts"]
+            for candidate in concept["name_candidates"]
+            if candidate["source"] == "key_stem"
+        }
+
+    plain = stems(tmp_path / "plain")
+    named = stems(tmp_path / "named", "--domain-profile", profile)
+    assert not any(stem.endswith("_df") for stem in named)
+    assert any(stem.endswith("_df") for stem in plain)

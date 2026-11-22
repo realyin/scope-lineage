@@ -2,8 +2,8 @@
   "doc_format": "domain-profile/1",
   "qualifier_terms": ["运费", "优惠券"],
   "table_name_convention": {
-    "full": ["df", "da", "full", "snapshot"],
-    "incremental": ["di", "hi", "inc", "incr", "delta"]
+    "full": ["df", "da", "full", "snapshot", "hf", "mf", "wf", "all"],
+    "incremental": ["di", "hi", "inc", "incr", "delta", "mi", "wi"]
   },
   "concept_words": {
     "event": ["下单", "发货", "退货"],
