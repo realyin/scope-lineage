@@ -6,6 +6,7 @@ import re
 from .expression_refs import _cached_pattern, _strip_sql_comments, _strip_sql_string_literals
 from .scope_types import ScopeData
 from .sequences import _unique_ordered
+from .sql_text_spans import blank_literals_and_comments
 
 def _unexpanded_bound_aliases_in_expression(scope_data: ScopeData, expression: str | None) -> list[str]:
     expression = _strip_sql_comments(_strip_sql_string_literals(str(expression or "")))
@@ -98,17 +99,28 @@ _SQL_KEYWORDS_BEFORE_PAREN = frozenset({
 })
 
 
+# What precedes a type rather than a call: `AS` (CAST / TRY_CAST) or the `::` cast.
+_TYPE_POSITION = re.compile(r"(?:\bas|::)\s*$")
+
+
 def _function_names(expression: str) -> list[str]:
     """The function names an expression calls, lower-case and in order, deduplicated.
 
-    String literals are removed first: a regex has no way to tell `upper(` inside a
-    quoted value from a call, and a literal is data, not code.
+    String literals and comments are removed first: a regex has no way to tell `upper(`
+    inside a quoted value or a `/* note(x) */` remark from a call, and neither is code.
+
+    A type is written in the same `<name>(` shape -- `CAST(x AS DECIMAL(18, 2))`,
+    `x::DECIMAL(18, 2)` -- so a name written where a type goes (after `AS` or `::`) is
+    not a call. The position decides, not a list of type names: `char(65)` is a Spark
+    function as well as a type, and it stays a call where it is called (WP4 1.13-m).
     """
     names = []
-    scanned = _strip_sql_string_literals(expression)
+    scanned = blank_literals_and_comments(expression)
     for match in re.finditer(r"\b([a-z_][a-z0-9_]*)\s*\(", scanned):
         name = match.group(1)
         if name in _SQL_KEYWORDS_BEFORE_PAREN:
+            continue
+        if _TYPE_POSITION.search(scanned, 0, match.start()):
             continue
         if name not in names:
             names.append(name)

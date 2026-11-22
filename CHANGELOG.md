@@ -103,6 +103,12 @@
   question goes to a sub-agent and the main conversation keeps a brief of at most 5 KB.
   `references/catalog-questions.md` keeps the `catalog query` lookups and the seven reporting
   rules and points to the walk for SQL.
+- **`expression_features.functions` / `has_udf`: a CAST type or a comment is not a call.**
+  `CAST(x AS DECIMAL(18, 2))` published `decimal` as a function, and a block comment kept inside
+  an expression (`/* note(x) */`) published `note`; neither is in the function catalog, so an
+  ordinary CAST or a commented expression was marked a UDF black box. Literals and comments are
+  now skipped by one shared splitter (`scope/sql_text_spans.py`), and a name written where a type
+  goes (after `AS` or `::`) is not collected; `char(65)` called as a function still is.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

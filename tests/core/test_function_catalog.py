@@ -252,3 +252,65 @@ def test_a_real_call_beside_a_keyword_is_still_collected() -> None:
         "upper",
         "coalesce",
     ]
+
+
+# ------------------------------ comments and type names are not calls (WP4 1.13-m)
+
+# A type in a CAST is written `DECIMAL(18, 2)`, the same `<name>(` shape as a call, and a
+# block comment stays inside the expression text sqlglot renders. Both were harvested as
+# function names, and a name the catalog cannot place is published as a UDF: an ordinary
+# CAST, or a comment mentioning `decimal(10,2)`, became a "UDF black box".
+
+TYPE_AND_COMMENT_MEASURES = {
+    "cast_to_decimal": "CAST(src.amt AS DECIMAL(18, 2))",
+    "cast_to_varchar": "CAST(src.s AS VARCHAR(20))",
+    "colon_cast": "src.amt::DECIMAL(38, 10)",
+    "block_comment_call": "src.amt + src.bal /* note(x) */",
+    "block_comment_type": "src.amt /* decimal(10,2) rounded upstream */ + src.bal",
+}
+
+
+@pytest.mark.parametrize(
+    "measure", TYPE_AND_COMMENT_MEASURES.values(), ids=TYPE_AND_COMMENT_MEASURES
+)
+def test_a_type_name_or_a_comment_is_not_a_udf(measure: str) -> None:
+    assert _udf_expressions(_measure_document(measure)) == []
+
+
+@pytest.mark.parametrize(
+    "measure", TYPE_AND_COMMENT_MEASURES.values(), ids=TYPE_AND_COMMENT_MEASURES
+)
+def test_a_type_name_or_a_comment_is_not_published_as_a_function(measure: str) -> None:
+    document = _measure_document(measure)
+
+    found = set()
+    for scope in (document.get("scopes") or {}).values():
+        for item in [*(scope.get("logic_blocks") or []), *(scope.get("outputs") or [])]:
+            found.update((item.get("expression_features") or {}).get("functions") or [])
+
+    assert not found & {"decimal", "varchar", "note"}
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("cast(x as decimal(18, 2))", []),
+        ("x::decimal(18, 2)", []),
+        ("round(x, 2) /* upper(y) */", ["round"]),
+        ("round(x, 2) -- upper(y)", ["round"]),
+        # Sentinels: a real call stays a call, `char(` included -- it is a Spark function
+        # as well as a type, so it is skipped only where a type is written.
+        ("char(65)", ["char"]),
+        ("concat(cast(x as char(4)), char(65))", ["concat", "char"]),
+        ("upper('/* not a comment */') || lower(y)", ["upper", "lower"]),
+    ],
+)
+def test_function_names_skip_types_and_comments(expression: str, expected: list[str]) -> None:
+    assert _function_names(expression) == expected
+
+
+def test_a_cast_beside_a_real_udf_still_reports_the_udf() -> None:
+    flagged = _udf_expressions(_measure_document("my_udf(CAST(src.amt AS DECIMAL(18, 2)))"))
+
+    assert flagged
+    assert all("my_udf" in expression.lower() for expression in flagged)
