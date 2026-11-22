@@ -14,9 +14,11 @@ Priority (first match wins):
 
 `window` exists because the previous rule labelled EVERY window-bearing scope `dedup`:
 a CTE that only computes `SUM(total) OVER (PARTITION BY band)` was published as a
-deduplicating stage, which is the one thing it does not do. The pin may be written in
-this scope, or in a scope that reads it -- `WHERE s.rn = 1` and
-`LEFT JOIN d ON x.k = d.k AND d.rn = 1` are the same pattern.
+deduplicating stage, which is the one thing it does not do. The pin is written in a
+scope that reads it -- `WHERE s.rn = 1` and `LEFT JOIN d ON x.k = d.k AND d.rn = 1` are
+the same pattern. The window scope's own WHERE cannot pin it (it runs before the
+projection), and a reader's predicate counts only through the reference that names
+this scope.
 
 The pin test reads the predicate's text rather than re-parsing it, so it does not see
 boolean structure: a rank pinned inside an `OR` counts as a pin. Rank columns are not
@@ -90,15 +92,14 @@ def _is_dedup_window(
     ranked = _ranking_window_columns(scope_data)
     if not ranked:
         return False
-    if any(_pins_a_rank(expression, ranked) for expression, _ in _predicates(scope_data)):
-        return True
+    # The scope's own WHERE / ON is not consulted: it is evaluated before the projection,
+    # so a name there is a source column even when it spells the rank's alias (1.13-f).
     for reader in _readers(result, scope_id):
         for expression, refs in _predicates(reader):
-            visible = {
-                ref.column.lower() for ref in refs if ref.scope == scope_id
-            } & ranked
-            if visible and _pins_a_rank(expression, visible):
-                return True
+            for ref in refs:
+                if ref.scope == scope_id and ref.column.lower() in ranked \
+                        and _pins_a_rank(expression, {ref.column.lower()}, ref.qualifier):
+                    return True
     return False
 
 
@@ -127,19 +128,28 @@ def _predicates(scope_data: "ScopeData") -> Iterator[tuple[str, list]]:
         yield join.condition_expression or "", join.condition_columns
 
 
-def _pins_a_rank(expression: str, names: set[str]) -> bool:
+def _pins_a_rank(expression: str, names: set[str], qualifier: str | None = None) -> bool:
     for name in names:
-        for match in _pin_pattern(name).finditer(expression or ""):
+        for match in _pin_pattern(name, qualifier).finditer(expression or ""):
             if int(match.group("rank")) <= _MAX_PINNED_RANK:
                 return True
     return False
 
 
-def _pin_pattern(name: str) -> re.Pattern:
-    """``[qualifier.]<name> (= | <= | <) <integer>``, backticks optional."""
+def _pin_pattern(name: str, qualifier: str | None = None) -> re.Pattern:
+    """``<qualifier>.<name> (= | <= | <) <integer>``, backticks optional.
+
+    The qualifier is the one the reader's reference to the window scope carries, so
+    ``o.rn = 1`` on another relation with an ``rn`` is not taken for ``w.rn = 1``; a bare
+    reference matches only a bare name.
+    """
+    if qualifier:
+        prefix = r"(?:`" + re.escape(qualifier) + r"`|" + re.escape(qualifier) + r")\s*\.\s*"
+    else:
+        prefix = ""
     return re.compile(
-        r"(?<![A-Za-z0-9_$])"
-        r"(?:(?:`[^`]+`|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*)?"
+        r"(?<![A-Za-z0-9_$.`])"
+        + prefix +
         r"`?" + re.escape(name) + r"`?\s*(?:<=|<|=)\s*"
         r"(?P<rank>[0-9]+)(?![0-9.])",
         re.IGNORECASE,
