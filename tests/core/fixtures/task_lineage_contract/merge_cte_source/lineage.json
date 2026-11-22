@@ -1570,7 +1570,7 @@
         },
         "ROOT": {
           "kind": "root",
-          "role": "pass_through",
+          "role": "join",
           "depends_on": [
             "subq:source"
           ],
@@ -2426,6 +2426,27 @@
               "merge_branch": "not_matched",
               "merge_when_index": 1,
               "display_expression": "account_key"
+            }
+          ],
+          "joins": [
+            {
+              "join_type": "MERGE",
+              "left_scope": "mart.event_target",
+              "right_scope": "subq:source",
+              "alias_in_parent": "source",
+              "condition_expression": "`target`.`id` = `source`.`id`",
+              "condition_columns": [
+                {
+                  "scope": "mart.event_target",
+                  "column": "id",
+                  "qualifier": "target"
+                },
+                {
+                  "scope": "subq:source",
+                  "column": "id",
+                  "qualifier": "source"
+                }
+              ]
             }
           ]
         }
@@ -3721,11 +3742,11 @@
             "scope_id": "ROOT",
             "name": "ROOT",
             "kind": "root",
-            "role": "pass_through",
+            "role": "join",
             "operations": [
-              "pass_through"
+              "join"
             ],
-            "business_summary": "基于 subq:source；上游可追溯至 dim.accounts、ods.events",
+            "business_summary": "基于 subq:source；关联 1 个上游；上游可追溯至 dim.accounts、ods.events",
             "direct_inputs": [
               "subq:source"
             ],
@@ -3736,7 +3757,13 @@
             ],
             "output_columns": 6,
             "logic": {
-              "joins": [],
+              "joins": [
+                {
+                  "type": "MERGE",
+                  "right": "subq:source",
+                  "on": "`target`.`id` = `source`.`id`"
+                }
+              ],
               "filters": [],
               "aggregations": [],
               "window_functions": [],
@@ -3867,8 +3894,8 @@
         "lineage_fact_gap_types": {},
         "lineage_fact_gap_samples": [],
         "stats": {
-          "scope_count": 5,
-          "physical_table_count": 2,
+          "scope_count": 6,
+          "physical_table_count": 3,
           "cte_count": 1,
           "subquery_count": 1,
           "union_count": 0,
@@ -3876,7 +3903,7 @@
           "max_depth": 3,
           "case_when_count": 0,
           "window_function_count": 0,
-          "join_count": 1,
+          "join_count": 2,
           "aggregate_function_count": 0
         },
         "full_diagnostics_file": "diagnostics.json"

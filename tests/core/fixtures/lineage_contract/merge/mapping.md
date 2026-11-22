@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "merge_contract"
 target_table: "mart.customer_profile"
 stmt_kind: "MERGE"
-lineage_digest: "2467f32c459c3d23"
+lineage_digest: "c5cd1b6e82999004"
 ---
 
 # 字段映射文档 mart.customer_profile
@@ -65,11 +65,11 @@ lineage_digest: "2467f32c459c3d23"
 
 ## 6. 加工逻辑汇总
 
-### scope `ROOT`（root，角色 pass_through）
+### scope `ROOT`（root，角色 join）
 
-- 概要：基于 subq:source；上游可追溯至 ods.customer_delta
+- 概要：基于 subq:source；关联 1 个上游；上游可追溯至 ods.customer_delta
 - 输入：subq:source；物理上游：ods.customer_delta
-- 逻辑：join 0、filter 0、聚合 0、窗口 0、union 分支 0、distinct 否
+- 逻辑：join 1、filter 0、聚合 0、窗口 0、union 分支 0、distinct 否
 
 ## 7. scope 结构图
 

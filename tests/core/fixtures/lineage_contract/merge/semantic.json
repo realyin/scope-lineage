@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "2467f32c459c3d23",
+  "lineage_digest": "c5cd1b6e82999004",
   "task": {
     "task_name": "merge_contract",
     "target_table": "mart.customer_profile",
@@ -190,7 +190,7 @@
       "scope_id": "ROOT",
       "name": "ROOT",
       "kind": "root",
-      "role": "pass_through",
+      "role": "join",
       "direct_inputs": [
         "subq:source"
       ],
@@ -205,7 +205,7 @@
         "customer_name"
       ],
       "output_count": 3,
-      "pattern_signature": "role=pass_through|kind=root|inputs=tables:0,scopes:1,union:no|blocks=|derive=0|window=|agg="
+      "pattern_signature": "role=join|kind=root|inputs=tables:0,scopes:1,union:no|blocks=|derive=0|window=|agg="
     }
   ],
   "rules": [],

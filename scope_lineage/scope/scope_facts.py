@@ -50,7 +50,7 @@ from .lineage_fact_gaps import (
     _root_gap_reasons_for_output,
 )
 from .passthrough_resolution import _propagate_passthrough_expression_resolution
-from .logic_block import _populate_logic_blocks  # noqa: F401
+from .logic_block import _populate_logic_blocks, _populate_merge_root_logic_blocks  # noqa: F401
 
 
 # The FRONT resolution segment used to be hand-unrolled (P I O, P I O, P I); full
@@ -153,6 +153,7 @@ def _populate_structural_facts(
         _populate_logic_blocks(scope_id, scope_data, sg_scope, result, schema)
     # A MERGE's ROOT has no sqlglot scope, so the loop above never reaches it.
     _populate_merge_root_input_edges(result)
+    _populate_merge_root_logic_blocks(result)
     _populate_scope_input_source_refs(result)
     _populate_scope_raw_sql_quality_and_source_coverage(result)
     _populate_scope_alias_source_bindings(result)

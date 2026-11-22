@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_merge_cte_source",
-  "lineage_digest": "f27ea4b6262f696c",
+  "lineage_digest": "32d764c3b9ee58e0",
   "produced_tables": [
     "mart.event_target"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:001",
-      "lineage_digest": "600911913756e92a",
+      "lineage_digest": "7df798db1cd949ae",
       "task": {
         "task_name": "golden_merge_cte_source#0",
         "target_table": "mart.event_target",
@@ -334,7 +334,7 @@
           "scope_id": "ROOT",
           "name": "ROOT",
           "kind": "root",
-          "role": "pass_through",
+          "role": "join",
           "direct_inputs": [
             "subq:source"
           ],
@@ -353,7 +353,7 @@
             "account_key"
           ],
           "output_count": 6,
-          "pattern_signature": "role=pass_through|kind=root|inputs=tables:0,scopes:1,union:no|blocks=|derive=0|window=|agg="
+          "pattern_signature": "role=join|kind=root|inputs=tables:0,scopes:1,union:no|blocks=|derive=0|window=|agg="
         }
       ],
       "rules": [
