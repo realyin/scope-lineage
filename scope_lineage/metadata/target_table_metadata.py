@@ -445,6 +445,24 @@ def _spark_keywords() -> frozenset[str]:
     )
 
 
+def _comment_end(text: str, index: int) -> int | None:
+    """Where a SQL comment starting at ``index`` ends, or None when none starts there.
+
+    Called only outside quotes, so the scanners recognize comments and quotes in one pass:
+    a ``--`` inside ``COMMENT 'pk -- natural key'`` is text, while an apostrophe inside
+    ``-- user's id`` is comment and must not open a quote. Stripping comments first and
+    scanning afterwards gets the first case wrong. An unterminated block comment runs to
+    the end of the text.
+    """
+    if text.startswith("--", index):
+        newline = text.find("\n", index)
+        return len(text) if newline < 0 else newline
+    if text.startswith("/*", index):
+        close = text.find("*/", index + 2)
+        return len(text) if close < 0 else close + 2
+    return None
+
+
 def _column_list_bounds(ddl: str) -> tuple[int, int] | None:
     """Locate the top-level column list, or report that it could not be found.
 
@@ -464,6 +482,9 @@ def _column_list_bounds(ddl: str) -> tuple[int, int] | None:
                 continue
             if char == quote:
                 quote = ""
+        elif (skip := _comment_end(ddl, index)) is not None:
+            index = skip
+            continue
         elif char in "'\"`":
             quote = char
         elif char == "(":
@@ -495,6 +516,9 @@ def _split_column_definitions(region: str) -> list[str] | None:
                 continue
             if char == quote:
                 quote = ""
+        elif (skip := _comment_end(region, index)) is not None:
+            index = skip
+            continue
         elif char in "'\"`":
             quote = char
         elif char in "(<":
@@ -513,8 +537,26 @@ def _split_column_definitions(region: str) -> list[str] | None:
     return segments
 
 
+def _definition_start(segment: str) -> int:
+    """Index of the first character that is neither whitespace nor part of a comment.
+
+    A comment written after a column's comma -- ``id BIGINT, -- user's id`` -- opens the
+    next segment, so the name it precedes is found only by stepping over it.
+    """
+    index = 0
+    while index < len(segment):
+        if segment[index].isspace():
+            index += 1
+            continue
+        skip = _comment_end(segment, index)
+        if skip is None:
+            return index
+        index = skip
+    return index
+
+
 def _quoted_column_definition(segment: str, keywords: frozenset[str]) -> str:
-    stripped = segment.lstrip()
+    stripped = segment[_definition_start(segment):]
     if not stripped or not (stripped[0].isalpha() or stripped[0] == "_"):
         return segment
     name = ""

@@ -11,6 +11,10 @@
   `dwd.t`, and no card answered for it (`IndexError`). The merge now matches cards by table and
   aliases, so `t` gets a card with `ambiguous_bare_name` that keeps the bare-name reader; a group
   no card answers for gets a card holding only that finding.
+- **A comment in target DDL no longer hangs `parse`.** `id BIGINT, -- user's id` hid the column
+  list from the keyword-column rewrite, so a column named `not` reached sqlglot unquoted and the
+  load never returned. Comments are now skipped in the same pass that tracks quotes; a `--`
+  inside a `COMMENT '...'` string is still text.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
