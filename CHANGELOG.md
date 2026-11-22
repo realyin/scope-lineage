@@ -240,6 +240,27 @@
   another packet" (`review_packet_stale`) and its findings were dropped; it is now
   `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
   `summary.flags` gains the `review_malformed` key.
+- **`window_context_sources` and MERGE condition entries say which state they read.** Like
+  `value_sources` and `row_membership_sources`, an entry naming a relation the script wrote
+  now carries `source_state`, and `session_scoped: true` when that relation is a temp view.
+  This covers `window_context_sources` (beside `role`), a MERGE's `value_condition_sources`,
+  and `effect.rowset_effect.membership_sources`. New optional keys; entries naming a table the
+  script never wrote are unchanged.
+- **`fold_session_scoped` no longer drops or leaves behind what a temp view decided.**
+  - A value read through a view keeps the view's own row conditions: `SELECT id FROM tv`
+    over `tv ... WHERE amt > 0` now folds `amt` into `row_membership_sources` (every hop of a
+    chain), as the equivalent CTE does. The row used to say `value_sources_folded: true`
+    with the condition gone.
+  - `window_context_sources` and `value_condition_sources` are folded too, so a window or
+    MERGE condition read through a view no longer names the view after it is dropped. An
+    unstamped entry naming a session relation (a document from an older producer) makes the
+    row `value_sources_folded: false` with the new reason `session_scoped_reference_unmarked`.
+  - A temp view nobody reads is dropped from `end_to_end_lineage` and `final_table_states`.
+  - `COUNT(*)` through a view that reads another view folds through every hop, with each
+    hop's row conditions, instead of stopping at `rowset_relation_unresolved`.
+  - A chain of views whose conditions all read the previous view folded in time exponential
+    in its length (N=13 took seconds); answers are now cached per column and state, and the
+    walk is linear.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
