@@ -221,6 +221,18 @@ Note:
 - this is a deployment/batch-level parsing policy, not a business attribute of a SQL task, so it does not belong in task JSON;
 - Schema and target-table metadata may still carry fully qualified names, but they do not stand in for this setting when deciding whether lineage keeps the catalog.
 
+Every layer reads table names by this one rule (the table identity): identifier quotes are
+dropped, case is folded (the target table too, so `INSERT INTO MART.Y` and `mart.y` are one
+table), and a leading catalog is dropped only when it is configured. A three-part name that is
+not configured is kept whole, so `cat1.ods.t` and `cat2.ods.t` are two tables in lineage, table
+cards and the glossary. A spelling that differs only by qualification still finds its table
+when exactly one candidate could be it: Schema keyed `ods.t` describes a `lake.ods.t` read, and
+an `orders` read joins the `ods.orders` card. With two candidates (`ods.t` beside `cat1.ods.t`
+and `cat2.ods.t`) neither is chosen. `tables`, `glossary` and `catalog` read
+`SCOPE_LINEAGE_CATALOG_PREFIXES` the same way; `--catalog-prefixes` applies to `parse`.
+The catalog's own tables are `db.table`, so a catalog match keeps the last two segments of the
+normalized name.
+
 ## Source-table Schema metadata
 
 `--schema` accepts a JSON/CSV file, or a directory of rich JSON, used for source-field
@@ -461,7 +473,7 @@ mart.customer_daily,country_code,JP,20
 
 | Key | Value | Purpose |
 | --- | --- | --- |
-| `table` | `db.table` or a fully qualified name | matched the way a card normalizes it: last two segments, case ignored. |
+| `table` | `db.table` or a fully qualified name | matched by the table identity: quotes and case ignored, a configured catalog dropped; a spelling that differs only by qualification matches when it could be no other table in the file. |
 | `column` | column name | case ignored; a table or column the corpus does not know lands in `samples_applied.unmatched[]`. |
 | `value` | any scalar | trimmed, then redacted, then cut above 64 characters; an empty value is skipped. |
 | `count` | integer, optional | when given, values are ordered by it descending; a column with no counts keeps file order. |

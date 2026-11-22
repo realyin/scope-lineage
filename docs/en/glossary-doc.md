@@ -242,6 +242,12 @@ attribution rule: a physical table is claimed only when **exactly one** of the r
 `fields[]` carries that column name, otherwise the entry falls back to the scope level
 (with two joined tables both holding `status`, either choice is a guess).
 
+The `<db.table>` of a physical `column_ref` is the corpus's primary spelling of that table,
+grouped by the table identity (the rule the table cards use): a bare `orders` read is filed
+under the `ods.orders` the corpus also writes, and `cat1.ods.t` and `cat2.ods.t` are two owners
+unless their catalogs are configured in `SCOPE_LINEAGE_CATALOG_PREFIXES`. Before this rule the
+owner was the last two segments, which filed one catalog's codes under the other's table.
+
 `sql_alias` (WI-B) appears only where the write is **bound by DDL position**, the
 observation lands on a target column, the alias the author wrote differs from the column
 name at that position, and that alias is one a person wrote (not a `_col_N` placeholder);

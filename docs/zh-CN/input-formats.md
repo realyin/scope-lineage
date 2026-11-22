@@ -202,6 +202,14 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 - 这是部署/批次级解析策略，不是某个 SQL 任务的业务属性，因此不放进任务 JSON；
 - Schema 和目标表元数据仍可以填写完整表名，但它们不会替代本配置来决定 Lineage 中是否保留 catalog。
 
+所有层都按同一条规则（表身份）读表名：去掉标识符引号、统一小写（目标表也一样，`INSERT INTO MART.Y` 和
+`mart.y` 是同一张表），首段 catalog 只在配置了时才剥。没配置的三段名保持原样，所以 `cat1.ods.t` 和
+`cat2.ods.t` 在血缘、表卡和字典里都是两张表。只差限定级别的写法，在恰好只有一个候选时仍然能找到对应的表：
+键为 `ods.t` 的 Schema 能描述读 `lake.ods.t` 的语句，读裸名 `orders` 的语句并入 `ods.orders` 的表卡。
+有两个候选时（`ods.t` 旁边同时有 `cat1.ods.t` 和 `cat2.ods.t`）两个都不选。`tables`、`glossary`、
+`catalog` 同样读 `SCOPE_LINEAGE_CATALOG_PREFIXES`；`--catalog-prefixes` 只作用于 `parse`。
+目录（catalog）自己的表名是 `db.table`，所以目录匹配取规范化后表名的最后两段。
+
 ## 源表 Schema 元数据
 
 `--schema` 接收一个 JSON/CSV 文件，也可以接收一个包含富 JSON 的目录，用于源字段解析、
@@ -430,7 +438,7 @@ mart.customer_daily,country_code,JP,20
 
 | Key | Value | 用途 |
 | --- | --- | --- |
-| `table` | `db.table` 或全限定名 | 按表卡的规则匹配：取最后两段、忽略大小写。 |
+| `table` | `db.table` 或全限定名 | 按表身份规则匹配：忽略引号和大小写，剥掉已配置的 catalog；只差限定级别的写法，在文件里不可能是别的表时才算匹配。 |
 | `column` | 列名 | 忽略大小写；表或列在语料里不存在时进 `samples_applied.unmatched[]`。 |
 | `value` | 任意标量 | 去首尾空白后脱敏、超过 64 字符截断；空值跳过。 |
 | `count` | 整数，可省 | 给了就按它从大到小排；整列都没给就按文件顺序。 |

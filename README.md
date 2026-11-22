@@ -340,6 +340,28 @@ now yield scopes labelled `EXCEPT` / `INTERSECT` plus a `set_operation_semantics
    `UNION`, `EXCEPT` and `INTERSECT`, and take `EXCEPT` / `INTERSECT` values from the first
    branch only.
 
+Table names now follow one identity rule in every layer, and it follows
+`SCOPE_LINEAGE_CATALOG_PREFIXES` (see [Catalog-prefix normalization](#catalog-prefix-normalization)).
+The target table is lower-cased like the tables a query reads, and a configured catalog is
+dropped from it whatever its case. A three-part name whose catalog is not configured is no
+longer cut to its last two segments anywhere, so two catalogs' tables of the same name stay two
+tables.
+
+5. Re-run `parse` when a target was written in upper case or with an upper-case catalog
+   (`INSERT INTO MART.Y`, `SPARK_CATALOG.mart.y`): `target_table` and the table state become
+   `mart.y`.
+6. Glossary `column_ref`: an owner is the corpus's primary spelling of its table. A bare-name
+   read is filed under its one qualified table (`orders.status` becomes `ods.orders.status`),
+   and `cat1.ods.t` / `cat2.ods.t` codes are no longer filed together. Rebuild `glossary` and
+   re-key any overrides that named the old `column_ref`.
+7. Same-named tables in two catalogs: if they are in fact one table, configure the catalog
+   prefixes; otherwise expect two table cards, two glossary owners, and Schema looked up per
+   catalog. Inline Schema whose spellings fold to one name records a `catalog_collision` in
+   `metadata_conflicts` and keeps the first.
+8. Catalog match key: the catalog view now drops quotes and case before matching, and drops a
+   catalog only when configured (otherwise it keeps the last two segments, as before). Schema
+   keyed `db.table` still describes a `catalog.db.table` read when no other entry could be it.
+
 ### Migrating to 0.11.0
 
 Every format keeps its number and every catalog change is additive: a catalog written for

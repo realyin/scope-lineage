@@ -301,6 +301,13 @@ in the corpus matches it by suffix; when several do, it gets a card of its own a
 card's `findings` carry `ambiguous_bare_name`, for a person to confirm which table the
 script actually reads and writes.
 
+The same holds one level up. Names are normalized first (quotes dropped, lower case, a leading
+catalog dropped only when `SCOPE_LINEAGE_CATALOG_PREFIXES` names it), so a quoted `` `ODS`.`Orders` ``
+writer and an `ods.orders` reader are one card, while `cat1.ods.t` and `cat2.ods.t` stay two
+cards when their catalogs are not configured. An `ods.t` written beside both could be either:
+it gets its own card with `ambiguous_bare_name` (the finding keeps its name although the name
+is qualified).
+
 ### Sample values (`--samples`)
 
 Core does not connect to a database, so "what does a value of this column look like" can
@@ -324,9 +331,11 @@ mart.customer_daily,country_code,CN,10
 }
 ```
 
-- **The table name is matched the way a card normalizes it**: last two segments, case
-  ignored, so `spark_catalog.MART.t` is the `mart.t` on the card. Column names ignore case
-  too.
+- **The table name is matched by the table identity**: quotes and case ignored, a configured
+  catalog dropped, and a spelling that differs only by qualification matched when the file
+  holds no other table it could be -- so `spark_catalog.MART.t` on a card finds rows for
+  `mart.t`, but rows for `cat1.mart.t` and `cat2.mart.t` stay with their own cards. Column
+  names ignore case too.
 - **At most N distinct values per column** (default 5, `--samples-top`): ordered by `count`
   descending where the file gave counts, otherwise in file order; a repeated value takes
   one slot, not two.
