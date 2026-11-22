@@ -41,6 +41,7 @@ from .merge_spec import build_merge_spec
 from .select_scope import _star_modifiers
 from .scope_warnings import detect_warnings
 from .scope_role_inferrer import infer_roles
+from .named_windows import inline_named_windows
 from ..sqlglot_config import suppress_invalid_json_path_warnings
 from ._constants import DIALECT, PARSE_OPTS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR
 from .expression_refs import _inside_nested_subquery
@@ -846,6 +847,9 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
     and qualified it a second time to learn what the first call already knew
     (QUALIFY-001).
     """
+    # A named window's columns live in the WINDOW clause, not under ``OVER w``; inline
+    # them first so every window rule downstream sees one self-contained node (1.6).
+    inline_named_windows(ast)
     # ``qualify`` assigns generated aliases (usually ``_col_N``) to anonymous
     # expressions. Preserve whether an alias existed in the source SQL so the
     # projection resolver can recover a sole referenced field without confusing

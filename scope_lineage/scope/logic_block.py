@@ -26,6 +26,7 @@ from .sequences import _extend_unique, _unique_ordered
 from .source_refs import _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _source_ref_binding_key, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id
 from .column_expression_resolution import _expression_resolution_for_scope_column
 from .sql_comments import comments_in_sql, node_comments, normalize, subtree_comments
+from .qualify_clause import own_windows, qualify_condition
 
 
 def _populate_logic_blocks(
@@ -119,6 +120,8 @@ def _populate_logic_blocks(
             )
         )
 
+    qualify_block_ids = _append_qualify_blocks(blocks, scope_id, scope_data, sg_scope, result, schema)
+
     if scope_data.group_by:
         logic_block_id = _logic_block_id(scope_id, "group_by", 1)
         blocks.append(
@@ -175,7 +178,143 @@ def _populate_logic_blocks(
             )
         )
 
+    blocks.extend(
+        _qualify_window_blocks(
+            scope_id, scope_data, sg_scope, result, schema,
+            qualify_block_ids, first_index=counters.get("window", 0) + 1,
+        )
+    )
     scope_data.logic_blocks = blocks
+
+
+def _append_qualify_blocks(
+    blocks: list[ScopeLogicBlock],
+    scope_id: str,
+    scope_data: ScopeData,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> list[str]:
+    """QUALIFY as a filter block with ``predicate_type="qualify"`` (D5); returns their ids.
+
+    A filter like WHERE in every respect a consumer reads -- it decides which rows the
+    scope returns -- except when it is evaluated: after the window functions. The id
+    names the clause so it cannot collide with a WHERE filter's numbering.
+    """
+    qualify_ast = sg_scope.expression.args.get("qualify") if isinstance(sg_scope.expression, exp.Select) else None
+    ids: list[str] = []
+    for index, scope_filter in enumerate(scope_data.qualify, start=1):
+        logic_block_id = _logic_block_id(scope_id, "qualify", index)
+        ids.append(logic_block_id)
+        blocks.append(
+            ScopeLogicBlock(
+                logic_block_id=logic_block_id,
+                logic_type="filter",
+                raw_expression=scope_filter.expression,
+                normalized_expression=_normalize_expression(scope_filter.expression),
+                fingerprint=_fingerprint("qualify", scope_filter.expression),
+                fields=list(scope_filter.columns),
+                input_sources=_source_ids_from_refs(scope_filter.columns),
+                field_usage=_field_usage_from_refs(scope_filter.columns, logic_block_id=logic_block_id),
+                filter_predicate_detail=_filter_predicate_detail(
+                    scope_filter,
+                    qualify_ast,
+                    sg_scope,
+                    result,
+                    schema,
+                    predicate_type="qualify",
+                ),
+                comments=comments_in_sql(scope_filter.expression),
+            )
+        )
+    return ids
+
+
+def _qualify_window_blocks(
+    scope_id: str,
+    scope_data: ScopeData,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+    qualify_block_ids: list[str],
+    *,
+    first_index: int,
+) -> list[ScopeLogicBlock]:
+    """One window block for each window function a QUALIFY computes itself.
+
+    Such a window is no output column, so it has no output field; its link to the
+    conjunct that tests it is recorded in ``filter_after_window`` the way a WHERE on a
+    ranked column is linked to that column's window block.
+    """
+    condition = qualify_condition(sg_scope.expression)
+    if condition is None or not qualify_block_ids:
+        return []
+    blocks: list[ScopeLogicBlock] = []
+    index = first_index
+    for conjunct, _joined_by in _split_conjuncts_with_comments(condition):
+        windows = own_windows(conjunct)
+        if not windows:
+            continue
+        conjunct_refs = _resolve_column_refs_in_expr(conjunct, sg_scope, result, schema)
+        link = {
+            "scope_id": scope_id,
+            "logic_block_id": qualify_block_ids[0],
+            "expression": conjunct.sql(dialect=DIALECT),
+            "fields": [_source_ref_to_dict(ref) for ref in conjunct_refs],
+        }
+        for window in windows:
+            blocks.append(
+                _qualify_window_block(
+                    _logic_block_id(scope_id, "window", index),
+                    window, link, scope_data, sg_scope, result, schema,
+                )
+            )
+            index += 1
+    return blocks
+
+
+def _qualify_window_block(
+    logic_block_id: str,
+    window: exp.Window,
+    link: dict,
+    scope_data: ScopeData,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> ScopeLogicBlock:
+    raw = window.sql(dialect=DIALECT)
+    refs = _resolve_column_refs_in_expr(window, sg_scope, result, schema)
+    partition_exprs = list(window.args.get("partition_by") or [])
+    order = window.args.get("order")
+    order_exprs = list(order.expressions if order is not None else [])
+
+    def per_item(expressions: list[exp.Expression]) -> list[list[SourceRef]]:
+        return [_resolve_column_refs_in_expr(item, sg_scope, result, schema) for item in expressions]
+
+    return ScopeLogicBlock(
+        logic_block_id=logic_block_id,
+        logic_type="window",
+        raw_expression=raw,
+        normalized_expression=_normalize_expression(raw),
+        fingerprint=_fingerprint("window", raw),
+        fields=list(refs),
+        input_sources=_source_ids_from_refs(refs),
+        field_usage=_field_usage_from_refs(refs, logic_block_id=logic_block_id),
+        window_specification={
+            "window_function": _window_function_name(raw),
+            "output_field": None,
+            "expression_sql": raw,
+            "partition_by": _window_expression_items(
+                scope_data, partition_exprs, [], grouped_refs=per_item(partition_exprs)
+            ),
+            "order_by": _window_expression_items(
+                scope_data, order_exprs, [], grouped_refs=per_item(order_exprs), include_direction=True
+            ),
+            "filter_after_window": [link],
+            "trace_status": "complete",
+        },
+        comments=comments_in_sql(raw),
+    )
 
 
 def _window_specification_for_column(scope_data: ScopeData, column) -> dict[str, object]:
@@ -696,7 +835,7 @@ def _filter_predicate_detail(
     *,
     predicate_type: str,
 ) -> dict[str, object]:
-    root_expr = getattr(filter_ast, "this", None) if isinstance(filter_ast, (exp.Where, exp.Having)) else filter_ast
+    root_expr = getattr(filter_ast, "this", None) if isinstance(filter_ast, (exp.Where, exp.Having, exp.Qualify)) else filter_ast
     conjuncts = []
     ordered_refs: list[SourceRef] = []
     seen_refs: set[tuple[str, str, str, str, str]] = set()

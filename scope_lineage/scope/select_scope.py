@@ -40,7 +40,7 @@ def _resolve_select_scope(
     sg_scope: Scope, scope_id: str, scope_data: ScopeData,
     result: ScopeLineageResult, schema: dict | None = None,
 ) -> None:
-    """Resolve projections, joins, filters, group_by, having, order_by for a Select scope."""
+    """Resolve projections, joins, filters, group_by, having, qualify, order_by for a Select scope."""
     sel = sg_scope.expression
 
     # Resolve projections
@@ -79,6 +79,11 @@ def _resolve_select_scope(
     having = sel.args.get("having")
     if having:
         scope_data.having = _resolve_filter(having, sg_scope, result, schema)
+
+    # Resolve QUALIFY: a filter on the rows after the window functions (D5)
+    qualify = sel.args.get("qualify")
+    if qualify:
+        scope_data.qualify = _resolve_filter(qualify, sg_scope, result, schema)
 
     # Resolve ORDER BY
     order = sel.args.get("order")
@@ -802,7 +807,7 @@ def _resolve_filter(
     clause: exp.Expression, sg_scope: Scope,
     result: ScopeLineageResult, schema: dict | None = None,
 ) -> List[ScopeFilter]:
-    """Resolve a WHERE or HAVING clause into ScopeFilter(s)."""
+    """Resolve a WHERE, HAVING or QUALIFY clause into ScopeFilter(s)."""
     columns = _resolve_column_refs_in_expr(clause, sg_scope, result, schema)
     return [ScopeFilter(expression=clause.sql(dialect=DIALECT), columns=columns)]
 

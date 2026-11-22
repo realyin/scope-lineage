@@ -240,6 +240,23 @@
   another packet" (`review_packet_stale`) and its findings were dropped; it is now
   `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
   `summary.flags` gains the `review_malformed` key.
+- **A named window reads the columns of its definition.** `ROW_NUMBER() OVER w` with
+  `WINDOW w AS (PARTITION BY user_id ORDER BY ts)` was a CONSTANT and `SUM(amt) OVER w` lost
+  `user_id` and `ts`: the partition and order sit in the WINDOW clause, which nothing read.
+  Named windows are now inlined into every `OVER` that names them before scopes are built,
+  including a window built on another (`w2 AS (w1 ORDER BY ts)`, `w2 AS w1`) and an `OVER`
+  that refines one (`OVER (w ORDER BY ts)`). The window's `expression` / `raw_expression`
+  text now shows the inlined specification.
+- **QUALIFY is read (new `predicate_type="qualify"`).** The clause was ignored: no logic
+  block, role `pass_through`, and the window's columns appeared only in the raw SQL. It is now
+  a `logic_type=filter` block with `filter_predicate_detail.predicate_type="qualify"` (id
+  `logic:<scope>:qualify:<n>`), and each window function the clause computes gets its own
+  window block (`output_field` null, the testing conjunct in `filter_after_window`). A
+  ranking window pinned to a small constant makes the scope `dedup`, and `ROW_NUMBER() ... =
+  1` at ROOT proves its partition keys unique in the semantic profile, the same reading the
+  subquery form already had. The statement's output columns are unchanged (the clause is not
+  rewritten into a subquery). Consumers that list WHERE conditions from `logic_type=filter`
+  blocks should skip `predicate_type` other than `where`, as `mapping.md` does.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
