@@ -98,8 +98,9 @@ def _env_value(run: Path, name: str) -> str:
     return ""
 
 
-def _profile_step(run: Path, skipped: set[str]) -> tuple[str, str] | None:
-    """S2a: draft a domain profile from the corpus, between S2 and the first packet.
+def _profile_step(run: Path, skipped: set[str]) -> tuple[tuple[str, str] | None, tuple[str, str] | None]:
+    """S2a: draft a domain profile from the corpus, between S2 and the first packet;
+    ``(S2a now, back to S3)``, each ``(step, reason)`` or None.
 
     Skipped when env.sh already names a profile or ``profile/DECISION`` records the
     decision (``enabled <sha256>`` / ``skipped <reason>``); a run whose packets were built
@@ -112,12 +113,20 @@ def _profile_step(run: Path, skipped: set[str]) -> tuple[str, str] | None:
     if not decided and (profile or packets):
         skipped.add("S2a")
     if not profile and not decided and not packets:
-        return "S2a", "S2 做完了，env.sh 的 DOMAIN_PROFILE 是空的，也没有 profile/DECISION"
+        return ("S2a", "S2 做完了，env.sh 的 DOMAIN_PROFILE 是空的，也没有 profile/DECISION"), None
     path = Path(profile) if profile else None
     if path and path.is_file() and packets and path.stat().st_mtime > min(packets):
-        return "S3", (f"领域配置 {path} 比已有的材料包新：回 S3 用同一条命令重建全部材料包"
-                      f"（packet_digest 会变）")
-    return None
+        return None, ("S3", f"领域配置 {path} 比已有的材料包新：回 S3 用同一条命令重建全部材料包"
+                            f"（packet_digest 会变）")
+    return None, None
+
+
+def _packet_gap(run: Path, tables: list[str], rebuild: tuple[str, str] | None) -> str | None:
+    """Why S3 is not done: tables without a packet, or a profile newer than the packets."""
+    no_packet = [table for table in tables if not (run / "packets" / table / "packet.json").is_file()]
+    if no_packet:
+        return "这些表还没有材料包：" + "、".join(no_packet)
+    return rebuild[1] if rebuild else None
 
 
 def _review_passes(run: Path) -> int:
@@ -213,19 +222,17 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
     missing = [f"corpus/{name}" for name in ("tables.json", "glossary.json") if not (run / "corpus" / name).is_file()]
     if missing:
         return "S2", "缺 " + "、".join(missing), [], skipped
-    profile_step = _profile_step(run, skipped)
-    if profile_step and profile_step[0] == "S2a":
-        return (*profile_step, [], skipped)
+    profile_now, profile_rebuild = _profile_step(run, skipped)
+    if profile_now:
+        return (*profile_now, [], skipped)
 
     blocked = set(_lines(run / "blocked.txt"))
     tables = [table for table in _lines(run / "tables.txt") if table not in blocked]
     if not tables:
         return "S3", "tables.txt 不存在或是空的", [], skipped
-    no_packet = [table for table in tables if not (run / "packets" / table / "packet.json").is_file()]
-    if no_packet:
-        return "S3", "这些表还没有材料包：" + "、".join(no_packet), [], skipped
-    if profile_step:
-        return (*profile_step, [], skipped)
+    gap = _packet_gap(run, tables, profile_rebuild)
+    if gap:
+        return "S3", gap, [], skipped
 
     status = run / "status.json"
     if not status.is_file():
