@@ -342,6 +342,10 @@ scope-lineage parse \
 
 `--allow-partial` 只改变命令退出码，不会把失败结果改成成功，也不会隐藏诊断。
 
+`--schema` / `--schema-fallback` / `--target-ddl-metadata` 指向的文件读不了（不存在、去掉 BOM 后为空、不是 UTF-8、
+不是合法 JSON）时，`parse` 在标准错误打印该错误的说明（第一行写明原因和文件路径），退出码为 2，
+不打印 traceback，也不写任何产物。`--allow-partial` 不改变这一点。
+
 任务级 DELETE/TRUNCATE/UPDATE 和多语句最终状态**始终**会产出——自 0.2.0 起任务文档（契约
 2.0）是唯一产物。`--contract-version` 仍只接受 `2.0`，保留一个版本是为了让显式请求 1.0 的
 调用得到明确报错，而不是"未知参数"。流水线需要拒绝不确定结果时加质量门禁：

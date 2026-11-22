@@ -550,6 +550,12 @@
   quoting is disclosed as a new `parameter_names_quoted_for_parse` warning. Who is affected:
   scripts with a parameter inside a table-name part; their `source_tables`, metadata coverage
   and `analysis_status` change (`syntax_recovered` gives way to `input_incomplete`).
+- **`parse` reports an unusable metadata file as an input error instead of a Traceback.** A
+  `--schema` or `--target-ddl-metadata` file that is missing, empty after its BOM, not UTF-8
+  or not valid JSON raised `MetadataFileError` out of the CLI: a Python Traceback and exit
+  code 1, the code that means "a task failed". `parse` now prints the error's message on
+  stderr (first line: cause and file) and exits 2, like a bad `--metadata-patch`. Who is
+  affected: scripts that matched on exit code 1 or on the Traceback text for this case.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
