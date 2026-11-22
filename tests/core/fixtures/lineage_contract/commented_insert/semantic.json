@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "9452fdf61353b87f",
+  "lineage_digest": "f6b9b653a6449d5b",
   "task": {
     "task_name": "golden_commented_insert",
     "target_table": "mart.channel_summary",

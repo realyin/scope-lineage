@@ -17,8 +17,10 @@ from .scope_types import (
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
 from ._constants import DIALECT, PARSE_OPTS
-from .expression_refs import _cached_pattern, _qualified_field_refs
+from .expression_refs import _qualified_field_refs
+from .expression_text import _replace_ref_text_in_code
 from .sequences import _unique_ordered
+from .sql_text_spans import sub_in_code
 from .source_refs import _generated_sources_from_refs, _physical_source_fields_from_refs, _qualified_physical_field_sql, _source_kind_for_resolution
 
 
@@ -215,7 +217,11 @@ def _qualifier_is_direct_physical_source(scope_data: ScopeData, qualifier: str, 
 
 
 def _replace_qualified_field_ref(expression: str, qualifier: str, field: str, physical_table: str) -> str:
+    # Code only, and only where a reference can start: `'see a.x'` is a value, and the
+    # `u`.`name` in `u`.`profile`.`u`.`name` is a STRUCT path's tail (the same guards the
+    # upstream-expression rewrite in expression_text uses; WP4 2.1 / 1.13-d).
     qualified = _qualified_physical_field_sql(physical_table, field)
-    expression = expression.replace(f'`{qualifier}`.`{field}`', qualified)
-    expression = _cached_pattern(f'(?<![.`\\w]){re.escape(qualifier)}\\.{re.escape(field)}(?![`.\\w])').sub(lambda _match: qualified, expression)
+    expression = _replace_ref_text_in_code(expression, f'`{qualifier}`.`{field}`', qualified)
+    if f'{qualifier}.{field}' in expression:
+        expression = sub_in_code(f'(?<![.`\\w]){re.escape(qualifier)}\\.{re.escape(field)}(?![`.\\w])', qualified, expression)
     return expression

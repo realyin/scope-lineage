@@ -461,6 +461,15 @@
   `--template <out>/glossary.md` wrote the form's JSON over `<out>/glossary.json` (and
   `<out>/glossary.json` the form over `glossary.md`). Such a path is now a usage error, exit 2,
   before anything is written.
+- **`expression_features.operators` ignores comments and string literals.** The operator list
+  was scanned over the raw expression, so the `*` and `/` of a `/* ... */` remark or the `-` of
+  `'2024-01-01'` were listed as operators. It now reads code only, as `functions` already did.
+- **A STRUCT path whose member is named like the table alias expands correctly.**
+  `u.profile.u.name` expanded to `` `s.users`.`profile`.`s.users`.`name` `` (or, after the
+  pass-through step, lost its member path), and `physical_source_fields` listed a column
+  `s.users.name` that does not exist. The `u`.`name` inside a path is no longer read as a
+  reference to `u`. The physical-field rewrite also no longer rewrites references inside a string
+  literal (`'see a.x'` stays as written in `expanded_expression`).
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

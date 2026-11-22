@@ -5,7 +5,7 @@
     "task_count": 13,
     "statement_count": 13,
     "lineage_digests": {
-      "golden_commented_insert": "9452fdf61353b87f",
+      "golden_commented_insert": "f6b9b653a6449d5b",
       "golden_complex_scope": "fca0adb2e008d085",
       "golden_directory_target": "1ba502ab8f5efe17",
       "golden_fact_gap": "0bf3e3493edf2a75",

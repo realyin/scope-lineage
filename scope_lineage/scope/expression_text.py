@@ -44,7 +44,11 @@ def _unexpanded_bound_aliases_in_expression(scope_data: ScopeData, expression: s
 
 
 def _qualifier_present(expression: str, qualifier: str) -> bool:
-    if f"`{qualifier}`." in expression:
+    # Only where a reference can start: the `u`. in `s.users`.`profile`.`u`.`name` is a
+    # STRUCT path's segment, not the alias `u` left unexpanded.
+    if f"`{qualifier}`." in expression and _cached_pattern(
+        rf"(?<![.`\w])`{re.escape(qualifier)}`\."
+    ).search(expression):
         return True
     return bool(_cached_pattern(rf"(?<![.`\w]){re.escape(qualifier)}\.").search(expression))
 
@@ -57,22 +61,29 @@ def _qualifier_present(expression: str, qualifier: str) -> bool:
 
 def _replace_qualified_ref_with_expression(expression: str, qualifier: str, field: str, replacement: str) -> str:
     replacement_sql = _parenthesize_replacement_expression(replacement)
-    expression = _replace_text_in_code(expression, f"`{qualifier}`.`{field}`", replacement_sql)
-    expression = _replace_text_in_code(expression, f"`{qualifier}`.{replacement_sql}", replacement_sql)
+    expression = _replace_ref_text_in_code(expression, f"`{qualifier}`.`{field}`", replacement_sql)
+    expression = _replace_ref_text_in_code(expression, f"`{qualifier}`.{replacement_sql}", replacement_sql)
     if f"{qualifier}.{field}" in expression:
         expression = sub_in_code(
             rf"(?<![.`\w]){re.escape(qualifier)}\.{re.escape(field)}(?![`.\w])",
             replacement_sql,
             expression,
         )
-    expression = _replace_text_in_code(expression, f"{qualifier}.{replacement_sql}", replacement_sql)
+    expression = _replace_ref_text_in_code(expression, f"{qualifier}.{replacement_sql}", replacement_sql)
     return expression
 
 
-def _replace_text_in_code(expression: str, text: str, replacement: str) -> str:
+def _replace_ref_text_in_code(expression: str, text: str, replacement: str) -> str:
+    """Replace ``text`` where it starts a reference, in code only.
+
+    A reference never follows a `.`, a word character or a backtick: in
+    `u`.`profile`.`u`.`name` the second `u`.`name` is a STRUCT path's tail, not the alias
+    `u`'s column, and rewriting it turned the path into `s.users`.`profile`.`s.users`.`name`
+    (the guard the display rewrite got in WP4 1.13-d).
+    """
     if text not in expression:
         return expression
-    return sub_in_code(re.escape(text), replacement, expression)
+    return sub_in_code(rf"(?<![.`\w]){re.escape(text)}", replacement, expression)
 
 
 def _replace_unqualified_ref_with_expression(expression: str, field: str, replacement: str) -> str:

@@ -58,7 +58,10 @@ def _qualified_field_refs_uncached(expression_sql: str) -> list[tuple[str, str]]
     ast_ref_keys = _qualified_field_ref_keys_from_ast(expression_sql, lambda_qualifiers)
     refs: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    for match in re.finditer(r"`([^`]+)`\.`([^`]+)`", scan_sql):
+    # A pair never starts after a `.`: in `u`.`profile`.`u`.`name` the second `u`.`name` is
+    # the STRUCT path's tail, not the alias `u`'s column (the unquoted scan below already
+    # refuses a `.` on either side).
+    for match in re.finditer(r"(?<![.`\w])`([^`]+)`\.`([^`]+)`", scan_sql):
         qualifier, field = match.group(1), match.group(2)
         if qualifier in lambda_qualifiers:
             continue
