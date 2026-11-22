@@ -572,7 +572,8 @@
   expanded; the resolution is `unresolved` (or `partially_resolved` beside other resolved
   references) with the reason `ambiguous_unqualified`, readiness is `blocked`, and the
   field mapping chain's `chain_status` is `unresolved` instead of `partially_resolved`.
-  Metadata that rules the joined table out still resolves it, as does a qualified `c.v`.
+  Like any other ambiguous output, it is now an `expression_source_unresolved` gap, so a
+  task that has one is `analysis_status: partial` (it was `complete`). Metadata that rules the joined table out still resolves it, as does a qualified `c.v`.
 - **A bare column a correlated subquery's tables lack resolves to the enclosing query.** In
   `... FROM s.o o WHERE EXISTS (SELECT 1 FROM s.i i WHERE i.k = o.id AND flag = 1)` with
   metadata saying `s.i` has no `flag` and `s.o` does, Spark resolves `flag` as an outer
@@ -587,6 +588,13 @@
   says does not exist; it is now the enclosing query's table or the written table, and
   `UNKNOWN` with the gap when none of them has it. Without metadata both paths keep the
   subquery's table, as before.
+- **sqlglot 30.0: a bare column of a correlated subquery is no longer an outer struct field.**
+  `qualify` in sqlglot 30.0 rewrote a bare `flag` in a subquery that references the outer
+  `o` as `o.i.flag` (a struct field of a column `i` of the outer table), so a field that
+  does not exist (`s.o.i`) was published as a source; `MAX(k)` in a correlated scalar
+  subquery became `MAX(o.i.k)`. The reference is now put back as later sqlglot versions
+  leave it (`i.flag`, still marked unqualified) before columns are resolved. Outputs on
+  sqlglot 30.16 / 30.17 do not change.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

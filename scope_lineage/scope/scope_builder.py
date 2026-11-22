@@ -872,6 +872,8 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
     for column in ast.find_all(exp.Column):
         if not column.table:
             column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
+            if isinstance(column.this, exp.Identifier):
+                column.this.meta[_BARE_IDENTIFIER_META] = True
     lateral_candidates: list[tuple[exp.Select, exp.Column]] = []
     shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(
         ast, schema, lateral_candidates,
@@ -892,11 +894,43 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
         _check_no_shield_placeholder(ast)
         return ast, False
     _restore_shielded_columns(qualified, shielded, qualify_sole_source=True)
+    _undo_outer_struct_reading(qualified)
     _restore_using_join_keys(using_joins)
     _record_lateral_alias_ambiguity(qualified, lateral_candidates)
     _restore_sentinels(qualified, outer_refs)
     _check_no_shield_placeholder(qualified)
     return qualified, True
+
+
+_BARE_IDENTIFIER_META = "lineage_bare_column_identifier"
+
+
+def _undo_outer_struct_reading(tree: exp.Expression) -> None:
+    """Turn a bare column sqlglot read as an outer query's struct field back into a column.
+
+    In a correlated subquery, sqlglot 30.0 qualifies a bare ``flag`` to the subquery's own
+    source ``i`` and then, in the outer scope, reads ``i.flag`` as the struct field
+    ``flag`` of a column ``i`` of the outer ``o``: ``o.i.flag``, a column that does not
+    exist (``MAX(k)`` in a scalar subquery became ``MAX(o.i.k)``). Later versions leave it
+    ``i.flag``. The author's identifier survives inside the ``Dot``, so the reference is
+    put back as the later versions produce it, still marked originally unqualified, and
+    the resolver decides between the subquery's sources and the enclosing query's.
+    """
+    for dot in list(tree.find_all(exp.Dot)):
+        field, base = dot.expression, dot.this
+        if not (
+            isinstance(field, exp.Identifier)
+            and field.meta.get(_BARE_IDENTIFIER_META)
+            and isinstance(base, exp.Column)
+            and base.table
+        ):
+            continue
+        select = dot.find_ancestor(exp.Select)
+        if select is None or base.name.lower() not in _select_source_names(select):
+            continue
+        column = exp.column(field.copy(), table=exp.to_identifier(base.name))
+        column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
+        dot.replace(column)
 
 
 _AUTHORED_COALESCE_META = "lineage_authored_coalesce"

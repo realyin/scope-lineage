@@ -97,6 +97,23 @@ def test_a_derived_table_does_not_reach_the_outer_query() -> None:
     assert {"table": "s.o", "column": "flag"} not in _row(result)["row_membership_sources"]
 
 
+def test_a_bare_column_of_a_correlated_scalar_subquery_is_its_own_tables() -> None:
+    """sqlglot 30.0 read ``MAX(k)`` here as ``MAX(o.i.k)``, a struct field of the outer table.
+
+    Later versions leave ``i.k``; the CI matrix runs both, so this pins the shape.
+    """
+    result = parse_task_lineage(
+        "INSERT OVERWRITE TABLE m.t "
+        "SELECT (SELECT MAX(k) FROM s.i i WHERE i.k = o.id) AS id FROM s.o o",
+        "t",
+        schema=SCHEMA,
+    )
+
+    fields = {(source["table"], source["column"]) for source in _row(result)["value_sources"]}
+    assert ("s.i", "k") in fields
+    assert ("s.o", "i") not in fields
+
+
 # The DELETE / UPDATE / MERGE predicate path resolves columns from the AST on its own
 # (``_expression_field_sources``) and had the same blind spot in a sharper form: a bare
 # column in a one-table subquery was given to that table without asking the schema, so
