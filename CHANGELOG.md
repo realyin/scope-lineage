@@ -315,6 +315,10 @@
   unknown concepts and no validation errors; otherwise nothing is written and stderr says so.
   The default is unchanged: without `--atomic` a merge with validation errors is written, so the
   errors can be read in place.
+- **`glossary --template` refuses a path over the dictionary's own files.**
+  `--template <out>/glossary.md` wrote the form's JSON over `<out>/glossary.json` (and
+  `<out>/glossary.json` the form over `glossary.md`). Such a path is now a usage error, exit 2,
+  before anything is written.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

@@ -21,6 +21,8 @@ import datetime
 import json
 from pathlib import Path
 
+import pytest
+
 from scope_lineage.cli import main
 from scope_lineage.cli_glossary import _template_paths
 from scope_lineage.metadata.schema_metadata import SchemaMap
@@ -489,3 +491,46 @@ def test_a_top_of_zero_keeps_single_value_columns() -> None:
         "ods.src.state",
     ]
     assert "ods.src.state=OK" in _keys(build_overrides_template(glossary, top=0, today=DAY))
+
+
+@pytest.mark.parametrize("name", ["glossary.md", "glossary.json", "GLOSSARY.JSON"])
+def test_a_template_over_the_dictionary_s_own_files_is_refused(
+    tmp_path: Path, capsys, name: str
+) -> None:
+    """``--template <out>/glossary.md`` put the form's JSON on the dictionary's own
+    glossary.json (and ``<out>/glossary.json`` the form on glossary.md)."""
+    task = _artifacts(MIXED_SQL, tmp_path / "task_a", schema=MIXED_SCHEMA)
+    out = tmp_path / "dict"
+
+    code = main(
+        [
+            "glossary", "--lineage", str(task / "lineage.json"), "--out", str(out),
+            "--template", str(out / name),
+        ]
+    )
+
+    assert code == 2
+    assert "--template" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_a_template_beside_the_dictionary_is_still_written(tmp_path: Path) -> None:
+    """Sentinel: another name in the same directory is fine."""
+    task = _artifacts(MIXED_SQL, tmp_path / "task_a", schema=MIXED_SCHEMA)
+    out = tmp_path / "dict"
+
+    assert (
+        main(
+            [
+                "glossary", "--lineage", str(task / "lineage.json"), "--out", str(out),
+                "--template", str(out / "form.md"),
+            ]
+        )
+        == 0
+    )
+    assert sorted(path.name for path in out.iterdir()) == [
+        "form.json", "form.md", "glossary.json", "glossary.md",
+    ]
+    assert json.loads((out / "glossary.json").read_text(encoding="utf-8"))["doc_format"].startswith(
+        "glossary"
+    )

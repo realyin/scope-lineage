@@ -439,7 +439,9 @@ per column, one row per value) and the same-named `.json` is what `--overrides` 
 straight back (`doc_format: "glossary-overrides-template/1"`, `values` keyed on
 `<table.column>=<unquoted value>`, an empty `meaning`, and today's `date`). Both files ask
 about the same values. A path ending in `.json` names that JSON file, and the form is written
-beside it as the same-named `.md`.
+beside it as the same-named `.md`. A path whose two files would be the dictionary's own
+(`--template <out>/glossary.md` or `<out>/glossary.json`) is refused with exit code 2 before
+anything is written.
 
 `--template` still needs `--out`: the form is **a ranking of the dictionary**, not a
 replacement for it. Without `--out` the command stops with exit code 2 and prints that

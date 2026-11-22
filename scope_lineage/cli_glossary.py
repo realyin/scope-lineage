@@ -136,6 +136,8 @@ def run_glossary(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    if _template_over_the_dictionary(args):
+        return 2
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
         return overrides
@@ -254,6 +256,30 @@ def _write_template(glossary: dict, args: argparse.Namespace) -> dict | None:
         json.dumps(template, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return template
+
+
+def _template_over_the_dictionary(args: argparse.Namespace) -> bool:
+    """Refuse a ``--template`` whose files are the dictionary's own (exit 2, nothing written).
+
+    ``--template <out>/glossary.md`` wrote the form's data over ``<out>/glossary.json``, and
+    ``<out>/glossary.json`` the form over ``glossary.md``. Compared resolved and without
+    case, since a case-insensitive disk holds ``GLOSSARY.JSON`` and ``glossary.json`` as one.
+    """
+    path = getattr(args, "template", None)
+    if not path:
+        return False
+    out_dir = Path(args.out).resolve()
+    own = {str(out_dir / name).lower() for name in ("glossary.json", "glossary.md")}
+    clash = [
+        str(item) for item in _template_paths(Path(path)) if str(item.resolve()).lower() in own
+    ]
+    if clash:
+        print(
+            f"--template {path} would overwrite the dictionary's own {', '.join(clash)}; "
+            "name the form something else",
+            file=sys.stderr,
+        )
+    return bool(clash)
 
 
 def _template_paths(path: Path) -> tuple[Path, Path]:
