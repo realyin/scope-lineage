@@ -989,8 +989,8 @@ The personal data a comment most often carries is a way to reach a person, so **
 | Shape | Replaced by | Notes |
 | --- | --- | --- |
 | Email address | `<email>` | Bounded to the characters an address is written with, so adjacent words and punctuation are not swallowed |
-| Phone number | `<phone>` | An 11-digit mainland-China mobile (`1[3-9]…`) and international forms such as `+86 138…` |
-| ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes, whose middle digits must read as a real birth date |
+| Phone number | `<phone>` | An 11-digit mainland-China mobile (`1[3-9]…`) and international forms such as `+86 138…`: 9 to 15 digits of country code and number, not followed by another digit; a number part that is exactly an 8-digit date (`T+1 20260802`, `UTC+8 20260802`) is not masked |
+| ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes, whose middle digits must read as a real birth date in a year from 1900 to the current one; the 18th check digit is not verified |
 
 Masking happens **at collection time**, on the comment text itself, so every comment key above and the inline copy inside a rendered expression (such as `logic_blocks[].raw_expression`) all carry the same masked text; `task_meta.description` goes through it too, being free text a person wrote.
 

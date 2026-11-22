@@ -26,9 +26,15 @@ from typing import Callable
 # Applied in this order, over the comment text only -- never over a SQL expression, where
 # the same digits are data the statement operates on. Email first: its replacement carries
 # no digits, so a phone-shaped run inside an address cannot be matched twice. The ID rule
-# precedes both phone rules, and every numeric rule is fenced by digit lookarounds, so a
-# longer run of digits (an 18-digit ID, a 20-digit transaction key) is judged as one run
-# rather than having an 11-digit "phone" carved out of its middle.
+# precedes both phone rules, and every numeric rule ends with a digit lookahead (the ID
+# and mainland rules are fenced on both sides), so a longer run of digits (an 18-digit ID,
+# a 20-digit transaction key) is judged as one run rather than having an 11-digit "phone"
+# carved out of its middle or a ``<phone>890`` tail left behind.
+#
+# The international rule is *not* fenced in front, on purpose: a real number is often
+# glued to an ASCII label (``tel+86…``, ``contact_+86…``), and judging the character
+# before the ``+`` stopped masking those. It refuses concrete shapes instead -- see
+# :func:`_mask_intl_phone`.
 #
 # The address rule is bounded to the characters an address is actually written with
 # rather than to "everything that is not a space". A comment is usually a Chinese
@@ -48,7 +54,11 @@ def _mask_id_number(match: re.Match[str]) -> str:
     as ``<id>`` deleted a value the author wrote down on purpose. An ID number carries a
     six-digit region code (which never starts with a zero) followed by a birth date --
     ``YYMMDD`` in the 15-digit form, which is always 19xx, and ``YYYYMMDD`` in the
-    18-digit one -- and a date that does not exist is the cheap, decisive test.
+    18-digit one -- and a date that does not exist is the cheap, decisive test. A date
+    that exists but no living holder was born on (year 0001, year 9999) fails it too: the
+    birth year must fall between 1900 and the current year. The 18th character is a
+    check digit and is deliberately *not* verified -- a real number copied with one wrong
+    digit must still be masked.
 
     Still a shape and still not a certainty: a 15-digit code whose middle six digits do
     read as a date is masked anyway, and ``--strip-comments`` remains the only complete
@@ -57,6 +67,8 @@ def _mask_id_number(match: re.Match[str]) -> str:
     digits = match.group(0)
     birth = ("19" + digits[6:12]) if len(digits) == 15 else digits[6:14]
     if digits.startswith("0") or not _is_real_date(birth):
+        return digits
+    if not 1900 <= int(birth[:4]) <= date.today().year:
         return digits
     return "<id>"
 
@@ -71,10 +83,36 @@ def _is_real_date(text: str) -> bool:
 
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
+# A YYYYMMDD date in 1900-2099. A number part that is exactly this shape is far more often
+# a partition date after an offset (``T+1 20260802``, ``UTC+8 20260802``) than a phone.
+_DATE8 = r"(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?!\d)"
+_INTL_PHONE = re.compile(r"\+(\d{1,3})([\s-]?)(?!" + _DATE8 + r")(\d{6,14})(?!\d)")
+
+
+def _mask_intl_phone(match: re.Match[str]) -> str:
+    """Mask a ``+``-prefixed number only when it has the shape of an E.164 number.
+
+    The pattern already refuses two shapes: a digit run that continues past the number
+    (an over-long key is one run and is kept whole) and a number part that is exactly an
+    8-digit date. Here the country code and the number together must hold 9 to 15
+    digits: fewer is an amount or an offset (``+1000000``, ``a+1 2345678``), more is not
+    a phone number at all.
+
+    Two narrow shapes are let through on purpose, and a real number of either shape is
+    no longer masked: 8 digits or fewer in total (a few small countries), and a number
+    part that happens to read as a real date (``+86 20231215``). The rule still masks
+    toward privacy wherever the shape fits -- ``T+3 2026080212`` is masked, because a
+    10-digit number part is not a date. A number written in groups (``+86 138 0000
+    0000``) is not recognised, as before.
+    """
+    if 9 <= len(match.group(1)) + len(match.group(3)) <= 15:
+        return "<phone>"
+    return match.group(0)
+
 _REDACTIONS: tuple[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]], ...] = (
     (_EMAIL, "<email>"),
     (_ID_NUMBER, _mask_id_number),
-    (re.compile(r"\+\d{1,3}[\s-]?\d{6,14}"), "<phone>"),
+    (_INTL_PHONE, _mask_intl_phone),
     (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "<phone>"),
 )
 

@@ -103,6 +103,14 @@
   question goes to a sub-agent and the main conversation keeps a brief of at most 5 KB.
   `references/catalog-questions.md` keeps the `catalog query` lookups and the seven reporting
   rules and points to the walk for SQL.
+- **Comment masking: a date after an offset is no longer a phone number.** The international
+  phone rule had no boundary, so `T+1 20260802`, `UTC+8 20260802` and `金额 +1000000` became
+  `<phone>`, and a 20-digit key lost its head (`<phone>890`). The rule now needs 9 to 15 digits
+  of country code and number, refuses a run that continues with another digit, and refuses a
+  number part that is exactly an 8-digit date. A number glued to an ASCII label (`tel+86…`) is
+  still masked. Two narrow shapes are deliberately let through: 8 digits or fewer in total, and
+  a number part that reads as a real date (`+86 20231215`). An 18-digit ID number must now have a
+  birth year from 1900 to the current year, so `110101000101011234` is left as written.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
