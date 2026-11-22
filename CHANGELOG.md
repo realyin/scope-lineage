@@ -410,6 +410,57 @@
   `row_condition_source_unresolved` fact gap (`root_impact: true`) and the affected rows carry
   `trace_complete: false` with that missing reason -- every column for a DELETE or MERGE
   condition, the assigned columns for an UPDATE, and the rows a later append keeps it for.
+- **`scope_profile` tells tables from session relations one way.** `direct_source_tables`
+  required a dot in the name and `physical_source_tables` did not, so a bare table read
+  directly was summarized as "上游可追溯至" (traced back to). Both lists now count any name that
+  is not a scope of the statement; in a task document a temporary view or cached relation an
+  earlier statement defined is a session relation and is in neither list (it stays in
+  `direct_inputs`), and `business_summary` follows.
+- **Key-fold candidates: a leading `id_` / `no_` stays in the key stem.** `key_stem` took `id`
+  / `no` off the front of a key as well as the back, so `id_card_no` reduced to `card` and an
+  identity-card table folded into one concept with a bank card's `card_no`. Only a trailing
+  `id` / `no` is a key marker now (the other affixes are still taken off both ends), and the
+  role names read from column names follow. Concept ids change where a key column starts with
+  `id_` or `no_` (`concept:card` → `concept:id_card` in that example). **Migration:** an entry in
+  `concepts.overrides.json` that names such a concept by its old id is reported as unknown on
+  the next run; rename it to the id `ontology.json` now publishes (the `identity.stem` of the
+  concept holding those tables).
+- **Key-fold candidates: one English comment no longer retires a key stem.** The generic-stem
+  evidence rule intersected the Chinese two-character fragments of three or more different
+  comments, and an English comment has none, so `客户编号` / `客户号` / `Customer ID` retired
+  `customer`. Only comments containing Chinese take part; with none, the rule does not apply.
+- **Table cards keep the producer's grain evidence and never write `None` as a key.**
+  `tables.json` `produced_by[].grain` gains an optional `evidence` (the producer's own
+  `output_shape.grain.evidence`, present only when non-empty), so a reader's `grain_text` for a
+  producer that could not decide its grain gives that producer's reason (a UNION, say) instead
+  of 「结构未记录原因」. A logical key the SELECT never projected is written as its expression
+  (`UPPER(a.k)`) instead of the string `None`. The unused producer-side type pass is removed;
+  column types still come from the target's metadata.
+- **`ontology --export shacl,linkml` escapes every control character.** A comment holding a
+  carriage return went out raw, which made the Turtle file invalid and was folded to a space by
+  a YAML reader. `\r` is now escaped, and the rest of C0 and DEL go out as `\uXXXX`.
+- **Catalog pages: a rule cites a table by its whole name.** `scopes.md` and `catalog query`
+  matched a rule's expression by substring, so a rule about `db.t_order_refund` was listed under
+  `db.t_order` too. The name must now stand alone or be followed by `.column`.
+- **Catalog pages count metrics in the drafted share.** `catalog validate` counted metrics, but
+  `index.md` (whole document) and each concept's `governance.md` row and page line left them
+  out. A metric now counts on the document and on the concept it is `on`. The ontology-json/3
+  schema lists `metrics` under `required`; `catalog build` has always written it.
+- **`catalog validate` checks whose attributes a metric uses.** A metric's `measure` and its
+  attribute dimensions must belong to `on` or to a concept linked to `on` (a linked role with
+  its player); otherwise `metric_measure` / `metric_dimension` is an error. Catalogs whose
+  metrics measured or broke down by an unrelated concept's attribute used to pass and now fail.
+  New warning `grain_identifier_unbound`: a representation's grain names an identifier no
+  column of the table binds.
+- **`catalog merge --atomic`.** New option (with `--out` or `--in-place`): the merge goes into a
+  hidden staging copy, is validated there, and reaches the target only with no conflicts, no
+  unknown concepts and no validation errors; otherwise nothing is written and stderr says so.
+  The default is unchanged: without `--atomic` a merge with validation errors is written, so the
+  errors can be read in place.
+- **`glossary --template` refuses a path over the dictionary's own files.**
+  `--template <out>/glossary.md` wrote the form's JSON over `<out>/glossary.json` (and
+  `<out>/glossary.json` the form over `glossary.md`). Such a path is now a usage error, exit 2,
+  before anything is written.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

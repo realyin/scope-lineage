@@ -328,7 +328,9 @@ or concepts linked to `on` -- an event's participants, the other end of a relati
 `additivity` (as on an attribute), `unit`, and the common fields. `on` must be a concept,
 `measure` an attribute, each dimension an attribute or a concept linked to `on`, each
 constraint a constraint (`metric_on`, `metric_measure`, `metric_dimension`,
-`metric_constraint`).
+`metric_constraint`). An attribute used as `measure` or as a dimension must belong to `on` or
+to a concept linked to `on`; a linked role counts with its player, whose attributes its
+tables bind as their own.
 
 ```yaml
 metrics:
@@ -588,7 +590,7 @@ directory, no manifest, YAML without PyYAML).
 | `duplicate_code_value` | a code set lists the same value twice |
 | `relation_endpoint` | a relation's `from` / `to` is not a concept |
 | `constraint_on` | `on` is not a concept, attribute, relation or identifier |
-| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | a metric's `on` is not a concept, its `measure` not an attribute, a dimension neither an attribute nor a concept linked to `on`, a `constraints` entry not a constraint |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | a metric's `on` is not a concept, its `measure` not an attribute, a dimension neither an attribute nor a concept linked to `on`, a `constraints` entry not a constraint; an attribute used as `measure` or dimension belongs to neither `on` nor a concept linked to it (a linked role with its player) |
 | `term_refers_to` | `refers_to` does not exist |
 | `representation_concept` | the representation's `concept` is not a concept |
 | `representation_grain` | a grain identifier is not an identifier |
@@ -622,6 +624,7 @@ identifier (the demo's installment loan lists `id:loan_no`).
 | `binding_key_without_key_column` | a binding's `holds` has `key`, and none of its code sets has a `lookup` with a `key_column` or `values` carrying a `key` -- the catalog cannot translate that key |
 | `binding_lang_unknown` | a binding's `lang` is not the language of any meaning column of its code sets' `lookup`s (code sets listing their values are not checked) |
 | `unmapped_binding` | a column is bound `to: unmapped` |
+| `grain_identifier_unbound` | a representation's grain names an identifier that no column of the table binds (`identifier` or `foreign_identifier`); whose identifier it is is not checked, a summary table's grain may be another concept's |
 | `self_reference_relation_unnamed` | a self-referencing column names no `relation` while its concept has two or more self relations — which one it realises cannot be told, so it is attributed to each |
 | `unknown_file` | a file the layout does not name; it was ignored |
 
@@ -961,7 +964,8 @@ anywhere, English ones as whole words (an underscore separates words, so `is_del
 
 The same page lists the tables that declare no `scope`, and the constraints of kind
 `business_rule` / `value_domain` that cite a representation's table in their `evidence` or
-expression.
+expression. An expression cites a table by its whole name, which may be followed by
+`.column`: a rule about `db.t_order_refund` does not cite `db.t_order`.
 
 ## Query: `catalog query`
 
@@ -1550,6 +1554,7 @@ written), a table named by `--only` has no document, a `--lineage` directory hol
 scope-lineage catalog merge examples/catalog-demo \
   examples/catalog-fragments/disbursement.json --out out/merged
 scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
+scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place --atomic
 ```
 
 1. Every fragment is read and checked against its schema first; if one fails, nothing is
@@ -1574,6 +1579,12 @@ scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
    printed; last comes the coverage report: for each table in the fragments, whether it has
    a representation and how many columns bind to each target (`identifier`,
    `foreign_identifier`, `attribute`, `foreign_attribute`, `technical`, `unmapped`).
+6. `--atomic` (with `--out` or `--in-place`) does steps 2-5 in a hidden staging copy beside
+   the target and puts the result in place only when there are no conflicts, no unknown
+   concepts and no validation errors: `--in-place` replaces the changed files one by one,
+   `--out` receives the whole staged directory. Otherwise nothing is written (`--out` is not
+   created, the base is untouched), the same report is printed and stderr says
+   `--atomic: nothing written`. Without `--atomic` the result is written in every case.
 
 ```text
 Merged 1 fragment(s) into out/merged: added attribute=1, code_set=1, constraint=1, term=2, representation=1; 1 unchanged; 0 conflict(s), 0 unknown concept(s)
@@ -1588,7 +1599,7 @@ Coverage: 1 table(s) in the fragments, 1 with a representation, 1 unmapped colum
 | Exit code | Meaning |
 | --- | --- |
 | `0` | merged, and the result validates without errors (warnings allowed) |
-| `1` | a fragment or the base catalog fails its schemas (nothing written); or there are conflicts, unknown concepts, or validation errors after the merge (written, so they can be read in place) |
+| `1` | a fragment or the base catalog fails its schemas (nothing written); or there are conflicts, unknown concepts, or validation errors after the merge (written, so they can be read in place; with `--atomic`, nothing written) |
 | `2` | a fragment or the base catalog cannot be read; `--out` is the base (without `--in-place`), inside it, or not empty |
 
 ## Writing YAML safely

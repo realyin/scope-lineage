@@ -101,7 +101,10 @@ def _cites(constraint: Mapping, table: str) -> bool:
     evidence = [str(item) for item in constraint.get("evidence") or []]
     if any(item == table or item.startswith(f"{table}.") for item in evidence):
         return True
-    return table in str(constraint.get("expression") or "")
+    # 6.3-d: the whole name, which may be followed by `.column` but not by more of a name
+    # (`t_order` is not cited by `t_order_refund`) nor preceded by one.
+    pattern = rf"(?<![\w.]){re.escape(table)}(?!\w)"
+    return re.search(pattern, str(constraint.get("expression") or "")) is not None
 
 
 # ------------------------------------------------------------------ scopes.md

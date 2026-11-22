@@ -547,10 +547,7 @@ def _producer_entry(record: _Statement) -> dict:
         "statement_id": record.statement_id,
         "stmt_kind": task_block.get("stmt_kind"),
         "partition": _partition(task_block.get("partition")),
-        "grain": {
-            "basis": grain.get("basis"),
-            "keys": [str(key.get("name")) for key in grain.get("keys") or []],
-        },
+        "grain": _producer_grain(grain),
         "candidate_keys": [str(key) for key in shape.get("candidate_keys") or []],
         "key_confidence": shape.get("key_confidence"),
         # M4: the batch's key under target column names, for a window reading the table
@@ -569,6 +566,27 @@ def _producer_entry(record: _Statement) -> dict:
         for key in PRODUCER_KEY_ORDER
         if key not in ("batch_write_keys", "validity_window") or entry[key]
     }
+
+
+def _producer_grain(grain: dict) -> dict:
+    """The producer's grain as a card keeps it (4.5-a).
+
+    A logical key the SELECT never projected has no name; it is written as the
+    expression it groups by rather than as the string ``None``. ``evidence`` -- why the
+    producer's walk decided what it decided, or why it stopped -- is kept when there is
+    any, so a reader's 「未能判定粒度（…）」 can say the producer's own reason.
+    """
+    entry = {
+        "basis": grain.get("basis"),
+        "keys": [
+            str(key.get("name") or key.get("expression") or key.get("scope_id"))
+            for key in grain.get("keys") or []
+        ],
+    }
+    evidence = [str(item) for item in grain.get("evidence") or [] if str(item)]
+    if evidence:
+        entry["evidence"] = evidence
+    return entry
 
 
 def _producer_field(field: dict) -> dict:
@@ -678,7 +696,8 @@ def _columns(
             _fill(entry, "comment", column.get("comment"))
             for usage in column.get("usages") or []:
                 entry["consumer_usage_counts"][usage] += 1
-    _fill_produced_types(columns, produced_by)
+    # 4.5-a: no producer-side type pass. A producer entry carries no field type: a written
+    # column's type comes from the target's metadata, which `declared` already read above.
     return [_ordered_column(entry) for entry in columns.values()]
 
 
@@ -713,15 +732,6 @@ def _fill(entry: dict, key: str, value) -> None:
     """First non-null wins: producers are read before consumers, tasks in name order."""
     if entry.get(key) is None and value is not None:
         entry[key] = value
-
-
-def _fill_produced_types(columns: dict[str, dict], produced_by: Sequence[dict]) -> None:
-    """A written column's declared type, used only where no consumer supplied one."""
-    for producer in produced_by:
-        for field in producer["fields"]:
-            entry = columns.get(str(field["column"]))
-            if entry is not None:
-                _fill(entry, "type", field.get("type"))
 
 
 def _ordered_column(entry: dict) -> dict:

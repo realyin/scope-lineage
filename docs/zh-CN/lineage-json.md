@@ -789,7 +789,7 @@ additive 且**带标记**的——被补丁写过的列多一个 `comment_source
 | `operations[]` | 该 scope 出现的操作，如 `join`、`filter`、`aggregate`、`window`。 |
 | `direct_inputs[]` | 直接输入的 scope 或物理表。 |
 | `direct_source_tables[]` | 当前 scope 直接读取的物理表。 |
-| `physical_source_tables[]` | 穿透上游 scope 后涉及的全部物理表。 |
+| `physical_source_tables[]` | 穿透上游 scope 后涉及的全部物理表。两个列表用同一个判定：不是本语句 scope 的名字就是表，带不带库名都算；在任务级文档里，同一脚本中更早的语句定义的临时视图或缓存关系是会话关系，两个列表都不收（它仍在 `direct_inputs` 里）。 |
 | `output_columns` | 输出字段数。 |
 | `logic` | joins、filters、aggregations、window functions、CASE、DISTINCT、UNION 等简明结构。 |
 | `business_summary` | 基于结构模板生成的确定性摘要；不应当作完整业务定义。 |

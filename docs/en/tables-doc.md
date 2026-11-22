@@ -221,7 +221,8 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
          "corpus": "…",                                 // only after a merge
          "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
-         "grain": {"basis": "group_by", "keys": ["customer_id"]},
+         "grain": {"basis": "group_by", "keys": ["customer_id"],
+                   "evidence": ["logic:ROOT:group_by:001"]},  // evidence: only when the producer recorded any
          "candidate_keys": ["customer_id"], "key_confidence": "proven",
          "fields": [{"column": "…", "comment": null, "summary": "…", "structural_role": "measure"}],
          "refresh": {"cycle": "day", "cron": "…", "source": "task_meta"},
@@ -251,6 +252,12 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   `output_shape`, `fields`); `refresh` comes from the task JSON's `meta`
   (`schedule_cycle` / `schedule`) and stays `null` when none was supplied — a cadence is
   never guessed from a partition column or a table name.
+- `produced_by[].grain.keys` names each logical key by its target column; a key the SELECT
+  never projected (`GROUP BY id, upper(k)` writing only an aggregate) is written as the
+  expression it groups by, `` UPPER(`a`.`k`) ``, never as `None`. `grain.evidence` (optional,
+  present only when non-empty) is the producer's own `output_shape.grain.evidence`: the
+  logic blocks behind the grain, or the reason its walk stopped; a reader's
+  `card.grain_text` quotes the first entry when the producer could not decide its grain.
 - A MERGE producer's `grain`, `candidate_keys` and `key_confidence` are its written batch's
   (M1; they used to be `unknown` / `[]` / `none`). They still say nothing about the table:
   a merging producer is an appending one, so the card's `key_claim` is defeated.

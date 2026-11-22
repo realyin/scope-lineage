@@ -293,7 +293,8 @@ constraints:
 `time_window`（文字）、`dimensions`（可下钻的维度：`on` 的属性，或与 `on` 相连的概念——事件的参与者、
 关系的另一端）、`additivity`（同属性）、`unit` 与通用字段。
 `on` 必须是概念，`measure` 必须是属性，每个维度必须是属性或与 `on` 相连的概念，每个约束必须存在（`metric_on`、`metric_measure`、
-`metric_dimension`、`metric_constraint`）。
+`metric_dimension`、`metric_constraint`）。用作 `measure` 或维度的属性必须属于 `on` 或与 `on` 相连的概念；相连的角色连同它的
+扮演者一起算，因为角色的表把扮演者的属性当作自己的来绑定。
 
 ```yaml
 metrics:
@@ -517,7 +518,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `duplicate_code_value` | 码值集里同一个值出现两次 |
 | `relation_endpoint` | 关系的 `from` / `to` 不是概念 |
 | `constraint_on` | `on` 不是概念、属性、关系或标识符 |
-| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | 指标的 `on` 不是概念，`measure` 不是属性，某个维度既不是属性、也不是与 `on` 相连的概念，`constraints` 里某项不是约束 |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | 指标的 `on` 不是概念，`measure` 不是属性，某个维度既不是属性、也不是与 `on` 相连的概念，`constraints` 里某项不是约束；用作 `measure` 或维度的属性既不属于 `on`，也不属于与它相连的概念（相连的角色连同扮演者） |
 | `term_refers_to` | `refers_to` 不存在 |
 | `representation_concept` | 表现的 `concept` 不是概念 |
 | `representation_grain` | 粒度里有一项不是标识符 |
@@ -550,6 +551,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `binding_key_without_key_column` | 绑定的 `holds` 含 `key`，其码值集却没有一个带 `key_column` 的 `lookup`，也没有带 `key` 的 `values`——目录翻不了这个代理键 |
 | `binding_lang_unknown` | 绑定的 `lang` 不是其码值集 `lookup` 里任何含义列的语言（只列取值的码值集不查） |
 | `unmapped_binding` | 某列绑定为 `to: unmapped` |
+| `grain_identifier_unbound` | 表现表的 grain 写了一个本表没有任何列绑定的标识（`identifier` 或 `foreign_identifier`）；不检查它是谁的标识，汇总表的粒度本来就可能是别的概念的标识 |
 | `self_reference_relation_unnamed` | 自关联列没写 `relation`，而该概念有两条或更多自关联——说不清它实现哪一条，会被归给每一条 |
 | `unknown_file` | 布局里没有的文件；已忽略 |
 
@@ -841,7 +843,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | 分区/快照日期 | `partition` | 分区、快照、`dt`、`ds`、`partition`、`snapshot` |
 | 其他 | `other` | 以上都不像 |
 
-同一页还列出没写 `scope` 的表，以及种类为 `business_rule` / `value_domain`、在 `evidence` 或表达式里引用了某张表现表的约束。
+同一页还列出没写 `scope` 的表，以及种类为 `business_rule` / `value_domain`、在 `evidence` 或表达式里引用了某张表现表的约束。表达式按完整表名引用，后面可以紧跟 `.列名`：讲 `db.t_order_refund` 的规则不算引用 `db.t_order`。
 
 ## 查询：`catalog query`
 
@@ -1324,6 +1326,7 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 scope-lineage catalog merge examples/catalog-demo \
   examples/catalog-fragments/disbursement.json --out out/merged
 scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
+scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place --atomic
 ```
 
 1. 先读所有片段并按 schema 检查；有一处不合就什么都不写。基础目录的文件读不了或不合 schema 时也不合并。
@@ -1339,6 +1342,10 @@ scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
 5. 在进程内对结果跑 `catalog validate`，打印错误与警告；最后打印覆盖报告：片段里的每张表有没有表现、
    列按绑定去向（`identifier`、`foreign_identifier`、`attribute`、`foreign_attribute`、`technical`、`unmapped`）
    各多少。
+6. `--atomic`（配 `--out` 或 `--in-place`）在目标旁边的隐藏暂存副本里做第 2–5 步，只有没有冲突、没有未知概念、
+   校验没有错误时才把结果放到位：`--in-place` 逐个替换有变化的文件，`--out` 整个接收暂存目录。否则什么都不写
+   （`--out` 不会被建出来，基础目录不变），报告照常打印，stderr 写 `--atomic: nothing written`。不加 `--atomic` 时
+   任何情况下都写出结果。
 
 ```text
 Merged 1 fragment(s) into out/merged: added attribute=1, code_set=1, constraint=1, term=2, representation=1; 1 unchanged; 0 conflict(s), 0 unknown concept(s)
@@ -1353,7 +1360,7 @@ Coverage: 1 table(s) in the fragments, 1 with a representation, 1 unmapped colum
 | 退出码 | 含义 |
 | --- | --- |
 | `0` | 合并完成，结果校验没有错误（可以有警告） |
-| `1` | 片段不合 schema、基础目录不合 schema（都不写任何东西）；或有冲突、未知概念、合并后校验有错误（已写出，便于就地查看） |
+| `1` | 片段不合 schema、基础目录不合 schema（都不写任何东西）；或有冲突、未知概念、合并后校验有错误（已写出，便于就地查看；加 `--atomic` 时什么都不写） |
 | `2` | 片段或基础目录读不了；`--out` 是基础目录（没有 `--in-place`）、在基础目录里面，或不是空目录 |
 
 ## 安全地写 YAML
