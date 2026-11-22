@@ -318,6 +318,11 @@ task-level facts.
 
 ### Migrating to the next release (Unreleased)
 
+This release corrects a number of lineage facts (see Unreleased in the CHANGELOG). Re-run
+`parse` for every stored `lineage.json` and rebuild what was derived from it (`describe`, `tables`,
+`glossary`, `ontology`, packets, catalog evidence); the items below list only what needs more than a
+re-run.
+
 No format changes number, but some field sources change. A SELECT-list name that is both a
 source column and an earlier alias in the same SELECT (`SELECT fee AS amt, amt AS fee`) now
 reads the source column, as Spark does, wherever Schema proves the source has it; before, the

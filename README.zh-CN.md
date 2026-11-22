@@ -315,6 +315,9 @@ scope-lineage parse \
 
 ### 迁移到下一个版本（Unreleased）
 
+这个版本改正了一批血缘事实（见 CHANGELOG 的 Unreleased 段）。所有已保存的 `lineage.json` 都重跑 `parse`，并重建由它派生的产物
+（`describe`、`tables`、`glossary`、`ontology`、材料包、目录证据）；下面各项只列出除了重跑之外还要动手的地方。
+
 格式版本都不变，但部分字段的来源会变。投影里的名字既是源列、又是同一 SELECT 里更早的别名时
 （`SELECT fee AS amt, amt AS fee`），只要 Schema 能证明来源有这一列，现在就按 Spark 的规则读源列；以前一律按别名读，
 而且不报任何提示。Schema 定不下来的名字照旧按别名读，同时加一条 `lateral_alias_ambiguous` 警告。完整说明见
