@@ -1177,6 +1177,10 @@ HTTP 服务还在 `/` 提供一个只读的浏览页面（浏览器打开 `http:
 不会整份发给浏览器。页面用的是 `scope_lineage.cli_catalog_answers` 里专为浏览准备的回答（`browse_index`、`browse_list`、`neighbourhood`、
 `table_semantics`、`questions`），它们没有对应的命令：同样的事实在命令行里仍由 `query`、`context` 和 `render` 给出。
 
+以 `--ask` 启动时，页面还多一个问数面板：服务器上的模型按技能的 `catalog-answers.md` 步骤回答数据问题，只能用上面这些回答作工具；页面显示每一步、
+SQL、每个条件的依据和每个待确认占位（在占位旁填写的定义会追加到待确认文件）。它从不执行 SQL；它会产生费用，并把目录文字发给模型提供方，所以默认关闭。
+详见 [service/README.md](../../service/README.md)。
+
 ## 起草：`catalog digest` 与 `catalog merge`
 
 已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：

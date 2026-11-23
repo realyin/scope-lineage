@@ -1359,6 +1359,12 @@ is never sent whole. The page is built on browse answers in
 `scope_lineage.cli_catalog_answers` (`browse_index`, `browse_list`, `neighbourhood`, `table_semantics`,
 `questions`) that no command prints: the command line keeps `query`, `context` and `render` for the same facts.
 
+Started with `--ask`, the page also gets an ask panel: a model on the server answers a data question by the
+skill's `catalog-answers.md` walk, with the answers above as its only tools, and the page shows the steps, the
+SQL, the basis of each condition and each 待确认 placeholder (a definition typed beside one is appended to the
+pending file). It never runs SQL; it costs money and sends catalog text to the model provider, so it is off
+by default. See [service/README.md](../../service/README.md).
+
 ## Drafting: `catalog digest` and `catalog merge`
 
 Once a batch of tables has [table semantics](table-semantics.md) (`table-semantics/1`), a

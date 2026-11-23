@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **New: an opt-in ask panel on the browse page (`scope-lineage-service http --ask`).** A person types a
+  data question; a model on the server -- never in the browser -- answers it by the skill's own walk
+  (`catalog-answers.md`, packaged as an exact copy that a test holds to the skill file) with the catalog
+  answers as its only tools (search, context, query, check-sql, and pending add with `--pending`). The page
+  shows each step as it happens (candidates, the tables and columns taken, each check-sql round), the final
+  SQL, the basis of each condition and every 待确认 placeholder, beside which the reader can type a
+  definition that is appended to the pending file. Follow-ups carry the previous brief; conversations live
+  in server memory. Per-question caps on turns, tool calls, output tokens and wall time; cancel; token
+  usage per question. It never runs SQL, costs money and sends catalog text to the model provider, so it
+  is off by default; the `anthropic` SDK is an optional `[ask]` extra of the service only, credentials come
+  from the server's environment. `--ask-dev-fake-model` (a development aid, clearly marked on the page)
+  walks the page through scripted real tool calls with no model and no network.
+- **Every POST to `scope-lineage-service http` must come from its own origin.** An `Origin` header naming
+  another host or port (another port on the same machine included), or a `Sec-Fetch-Site` other than
+  `same-origin`, is refused with 403; clients that send neither header are unaffected.
 - **New: a read-only browse page for a built catalog, served by `scope-lineage-service http` at
   `/`.** Domains, concepts, metrics and tables with hash links; a concept's neighbourhood drawn as an
   SVG relations graph with each relation's join conditions; a table's catalog facts beside its
