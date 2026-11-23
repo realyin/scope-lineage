@@ -1,8 +1,11 @@
 // The browse page: hash routes (#/concept/<id>, #/table/<db.table>, ...) so every view can
-// be linked, a navigation bar, and the search box. Read-only: it only ever GETs.
+// be linked, a navigation bar, and the search box. The browse views only GET; the ask panel
+// (ask.js) posts questions to the server and, when asked to, a 待确认 definition to the
+// pending file.
 
 import { h, href, pageTitle } from "./dom.js";
 import * as views from "./views.js";
+import { ask } from "./ask.js";
 
 // view name -> function(id, URLSearchParams) returning the nodes of <main>
 const ROUTES = {
@@ -15,20 +18,22 @@ const ROUTES = {
   metrics: views.metrics,
   questions: views.questions,
   search: views.search,
+  ask,
 };
 
-// The navigation, in order. A later view (an ask panel answering data questions from the
-// catalog) is added here and in ROUTES; nothing else in the page needs to change.
+// The navigation, in order. A view is added here and in ROUTES; nothing else in the page
+// needs to change.
 const NAV = [
   ["", "目录"],
   ["tables", "表"],
   ["metrics", "指标"],
   ["questions", "待确认问题"],
+  ["ask", "问数"],
 ];
 
 const TITLES = {
   "": "本体目录", domain: "业务域", concept: "概念", metric: "指标", table: "表",
-  tables: "表", metrics: "指标", questions: "待确认问题", search: "搜索",
+  tables: "表", metrics: "指标", questions: "待确认问题", search: "搜索", ask: "问数",
 };
 
 let current = 0;
