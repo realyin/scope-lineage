@@ -8,6 +8,7 @@ include pyproject.toml
 recursive-include scope_lineage *.py *.json
 prune .claude
 prune .claude-plugin
+prune service
 prune skills
 prune dev-notes
 prune docs

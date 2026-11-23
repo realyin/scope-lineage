@@ -1158,6 +1158,20 @@ scope-lineage catalog pending list pending.jsonl --ontology out/ontology.json --
 - 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
 ```
 
+## 以服务提供：HTTP 与 MCP
+
+`search`、`context`、`query`、`check-sql` 与 `pending list/add` 也可以不经命令行、由一个常驻服务回答。服务放在本仓库的
+[`service/`](../../service/README.md) 目录，单独打包（`scope-lineage-service`），核心包不因此多任何依赖。HTTP 服务只用标准库，默认只绑定
+`127.0.0.1`；MCP 服务走 stdio，基于官方 Python SDK。两者调用的正是命令行所调用的函数（`scope_lineage.cli_catalog_answers`），所以同样的输入
+得到的就是 `--json` 打印的那份 JSON；退出码的含义（找到 / 没找到 / 输入不可用）也一样保留。服务从不执行 SQL，唯一会写的是启动时给定的待确认文件；
+文件在磁盘上变了，下一次请求就读新的，不必重启。
+
+```bash
+pip install -e . -e service
+scope-lineage-service http out/ontology.json --semantics semantics/ --pending pending.jsonl
+scope-lineage-service mcp out/ontology.json --semantics semantics/
+```
+
 ## 起草：`catalog digest` 与 `catalog merge`
 
 已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：

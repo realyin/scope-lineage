@@ -95,7 +95,7 @@ def run_pending(args: argparse.Namespace) -> int:
 
 
 def _run_add(args: argparse.Namespace) -> int:
-    from .render.catalog_pending import lines_from_placeholders, pending_line
+    from .render.catalog_pending import pending_line
 
     problem = _add_options_problem(args)
     if problem:
@@ -103,7 +103,7 @@ def _run_add(args: argparse.Namespace) -> int:
         return 2
     date = args.date or today()
     if args.from_sql:
-        lines = _lines_from_sql(args, date, lines_from_placeholders)
+        lines = _lines_from_sql(args, date)
         if isinstance(lines, int):
             return lines
     else:
@@ -147,32 +147,18 @@ def _is_date(text: str) -> bool:
     return True
 
 
-def _lines_from_sql(args: argparse.Namespace, date: str, build):
-    from .scope.query_facts import QueryFactsError, query_facts
+def _lines_from_sql(args: argparse.Namespace, date: str):
+    from .cli_catalog import _refused_or
+    from .cli_catalog_answers import pending_lines_from_sql
 
     try:
         sql = Path(args.from_sql).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as error:
         print(f"catalog pending add: cannot read {args.from_sql}: {error}", file=sys.stderr)
         return 2
-    try:
-        statements = query_facts(sql)
-    except QueryFactsError as error:
-        print(f"catalog pending add: {error}", file=sys.stderr)
-        return 2
-    lines, empty = build(statements, question=args.question, date=date, sql=args.from_sql)
-    if empty:
-        where = "、".join(f"第 {item['statement']} 条语句" for item in empty)
-        print(
-            f"catalog pending add: {where}有 待确认 占位没有写缺什么；补上再记，什么也没写入",
-            file=sys.stderr,
-        )
-        return 1
-    if not lines:
-        print(f"catalog pending add: {args.from_sql} has no /* 待确认：… */ placeholder",
-              file=sys.stderr)
-        return 1
-    return lines
+    return _refused_or(
+        pending_lines_from_sql, sql, question=args.question, date=date, sql_name=args.from_sql
+    )
 
 
 def _append(path: Path, lines: list[dict]) -> None:
@@ -189,14 +175,12 @@ def _append(path: Path, lines: list[dict]) -> None:
 
 
 def _run_list(args: argparse.Namespace) -> int:
-    from .cli_catalog import _load_ontology, _semantics_option
-    from .render.catalog_pending import pending_report, read_pending, render_pending_text
+    from .cli_catalog import _load_ontology, _print_answer, _refused_or, _semantics_option
+    from .cli_catalog_answers import pending_answer, read_pending_file
 
-    try:
-        text = Path(args.pending).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as error:
-        print(f"catalog pending list: cannot read {args.pending}: {error}", file=sys.stderr)
-        return 2
+    text = _refused_or(read_pending_file, args.pending)
+    if isinstance(text, int):
+        return text
     document = None
     if args.ontology:
         document = _load_ontology(args.ontology)
@@ -205,10 +189,4 @@ def _run_list(args: argparse.Namespace) -> int:
     semantics = _semantics_option(args.semantics)
     if isinstance(semantics, int):
         return semantics
-    entries, problems = read_pending(text.splitlines())
-    report = pending_report(entries, problems, document=document, semantics=semantics)
-    if args.json:
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-    else:
-        print(render_pending_text(report), end="")
-    return 1 if problems else 0
+    return _print_answer(pending_answer(text, document, semantics), args.json)

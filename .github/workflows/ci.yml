@@ -24,6 +24,27 @@ jobs:
       - name: Test Core closure
         run: python -m pytest -q tests/core tests/architecture
 
+  # The separately packaged servers (service/): installed apart from the core job above,
+  # so the core closure keeps running without their dependency.
+  service:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" -e service
+      - name: Lint
+        run: python -m ruff check service
+      - name: Test the HTTP and MCP servers
+        run: python -m pytest -q service/tests
+
   # Non-blocking while the typed slice grows (governance plan WI-10): flip
   # continue-on-error off once the include list covers the whole scope package.
   typecheck:
