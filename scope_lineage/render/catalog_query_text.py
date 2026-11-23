@@ -126,6 +126,8 @@ def _table(match: Mapping) -> list[str]:
         f"  时间语义：{TIME_TEXT[match['time']]}"
         + (f"；{match['usage']}" if match.get("usage") else ""),
     ]
+    if match.get("refresh"):
+        lines.append(f"  刷新：{match['refresh']}")
     evidence = match.get("evidence") or {}
     about = [
         f"{label} {text}"

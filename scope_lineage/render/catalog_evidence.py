@@ -33,7 +33,8 @@ changed and a reader can always tell a claim from its evidence:
 
 Nothing here parses a contract document: the statements and their profiles come from
 ``semantic_profile`` and ``ontology.write_statements``, the JOIN key pairs from
-``ontology.join_key_pairs`` and the schedule from ``table_cards.refresh_from_task_meta``.
+``ontology.join_key_pairs`` and the schedule from ``table_cards.refresh_from_task_meta``, read
+as one word by ``table_cards.refresh_cadence``.
 A table is matched on its last two dotted segments, because the catalog names tables
 ``db.table`` and a corpus may spell the same table ``catalog.db.table``. When the names
 matched to one catalog table are not one table (``cat1.ods.t`` and ``cat2.ods.t`` with no
@@ -53,7 +54,7 @@ from ..table_identity import canonical_table_name, group_spellings
 from .catalog_view import catalog_table_name, lookup_columns, realises
 from .ontology import join_key_pairs, write_statements
 from .semantic_profile import KEY_CONFIDENCE_PROVEN_UNEXPOSED, build_semantic_profile
-from .table_cards import refresh_from_task_meta
+from .table_cards import refresh_cadence, refresh_from_task_meta
 
 EXPRESSION_LIMIT = 200
 JOIN_SAMPLE_LIMIT = 3
@@ -184,10 +185,9 @@ def _joins(document: Mapping) -> Iterable[JoinFact]:
 
 
 def _cycle(task_meta) -> Optional[str]:
-    refresh = refresh_from_task_meta(task_meta)
-    if not refresh:
-        return None
-    return str(refresh.get("cycle") or refresh.get("cron"))
+    """The write's cadence as ``refresh_cadence`` reads it (a literal ``unknown`` cycle
+    gives way to the cron), or None when the metadata has neither."""
+    return refresh_cadence(refresh_from_task_meta(task_meta))
 
 
 def _grain(shape: Mapping) -> dict:

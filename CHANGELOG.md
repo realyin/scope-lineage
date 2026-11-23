@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **Fixed: a literal `unknown` schedule cycle no longer hides the cron.** Some task exports write
+  `unknown` as `schedule_cycle`; the evidence `catalog build` attaches (`refresh`) and the table card's
+  更新频率 took it as the value. Both now read `table_cards.refresh_cadence`: a missing or `unknown`
+  cycle (any case) gives way to the cron, and `unknown` stays only when there is no cron either; a real
+  cycle reads as before. A catalog built from such task metadata shows the cron after a rebuild. The
+  context pack's 刷新 line adds the cycle the table-semantics document wrote (表语义写的周期), and
+  `catalog query table` prints the representation's `refresh` as a 刷新 line (none without it).
 - **Changed: a table's constraints in `catalog context` say how their source tables relate to it.**
   Which tables a constraint comes from is now one judgement (`catalog_scopes.constraint_tables`): the
   tables its `rules` name, or those its `evidence` or expression cites. `catalog query table`,

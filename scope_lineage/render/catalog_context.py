@@ -1147,8 +1147,7 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
         lines.append(f"- 粒度：{'、'.join(grain['columns'])}（{grain.get('source') or '未说明'}）")
     for conflict in table.get("conflicts") or []:
         lines.append(f"- 证据与目录矛盾：{conflict['text']}")
-    if table.get("time") or table.get("refresh"):
-        lines.append(f"- 时间形态：{table.get('time') or '未说明'}；刷新：{table.get('refresh') or '未说明'}")
+    lines += _refresh_line(table)
     for column in table["time_columns"]:
         lines.append(f"- 时间列：{column['column']}（{column['role']}）")
     if table.get("partition"):
@@ -1163,6 +1162,16 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
             "- 这个概念上的指标：" + "、".join(f"{m['name']}（{m['id']}）" for m in table["metrics"])
         )
     return lines + _semantics_text(table["semantics"], brief) + [""]
+
+
+def _refresh_line(table: Mapping) -> list[str]:
+    """The time shape and refresh the catalog records, then the cycle the table-semantics
+    document wrote (often the only place saying on which days a task runs)."""
+    cycle = ((table.get("semantics") or {}).get("refresh") or {}).get("cycle")
+    if not (table.get("time") or table.get("refresh") or cycle):
+        return []
+    line = f"- 时间形态：{table.get('time') or '未说明'}；刷新：{table.get('refresh') or '未说明'}"
+    return [line + (f"；表语义写的周期：{cycle}" if cycle else "")]
 
 
 def _partition_line(item: Mapping) -> str:

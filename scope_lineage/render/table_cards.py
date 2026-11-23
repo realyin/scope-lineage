@@ -609,6 +609,25 @@ def refresh_from_task_meta(task_meta: dict | None) -> dict | None:
     return {"cycle": cycle, "cron": cron, "source": REFRESH_SOURCE_TASK_META}
 
 
+def refresh_cadence(refresh: Mapping | None) -> str | None:
+    """The one word for a write's cadence: the cycle, or the cron when the cycle is
+    missing or the literal ``unknown`` (any case); ``unknown`` only when there is no cron
+    either; None for no refresh at all.
+
+    Some task exports write ``unknown`` as the cycle, and read as a value it hid a cron
+    that does say when the task runs. The evidence ``catalog build`` attaches and the
+    table card's 更新频率 both read this, so they cannot disagree.
+    """
+    if not refresh:
+        return None
+    cycle, cron = refresh.get("cycle"), refresh.get("cron")
+    if cycle and str(cycle).strip().casefold() != "unknown":
+        return str(cycle)
+    if cron:
+        return str(cron)
+    return str(cycle) if cycle else None
+
+
 def _consumer_entry(record: _Statement, item: dict, spelling: str | None = None) -> dict:
     entry = {
         "task": record.task,
@@ -1744,7 +1763,7 @@ def _render_producers(card: dict) -> list[str]:
         partition = producer["partition"]
         columns = "、".join(partition["columns"]) or "无分区"
         refresh = producer["refresh"] or {}
-        cadence = refresh.get("cycle") or refresh.get("cron") or UNKNOWN_TEXT
+        cadence = refresh_cadence(refresh) or UNKNOWN_TEXT
         lines.append(
             "| "
             + " | ".join(
