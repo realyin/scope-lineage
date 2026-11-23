@@ -14,8 +14,8 @@ OpenAI-compatible endpoints.
 
 ## Install
 
-From a checkout of this repository (the core function module first ships in the release after 0.15.0,
-so install the core from the same checkout):
+From a checkout of this repository (the core function module first ships in 0.16.0; installing the core from the same
+checkout keeps the two in step):
 
 ```bash
 pip install -e . -e service

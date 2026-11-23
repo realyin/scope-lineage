@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 - **New: several models on the ask panel (`scope-lineage-service http --ask --ask-models FILE`).** A JSON
   file lists models -- `anthropic` (the official API, or a gateway speaking the Messages API through a
   per-model `base_url`, with the refusal fallback, prompt caching, streamed tool input, adaptive thinking and

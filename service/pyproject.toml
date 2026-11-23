@@ -7,9 +7,8 @@ requires-python = ">=3.10"
 license = "Apache-2.0"
 # The core package stays free of web, model and vector dependencies: this separately
 # packaged directory is where the servers and their one protocol dependency live.
-# `scope_lineage.cli_catalog_answers` first ships in the release after 0.15.0; until then
-# install the core from this repository (`pip install -e .` at its root).
-dependencies = ["scope-lineage>=0.15", "mcp>=2.3,<3"]
+# `scope_lineage.cli_catalog_answers` first ships in 0.16.0.
+dependencies = ["scope-lineage>=0.16", "mcp>=2.3,<3"]
 
 [project.optional-dependencies]
 # The ask panel (`http --ask`): a model answers data questions on the server through the
