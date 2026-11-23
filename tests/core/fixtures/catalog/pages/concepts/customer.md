@@ -142,7 +142,7 @@ A person the shop has registered, whether or not they ever borrow.
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:one_account_per_channel` | 基数 | holds `rel:customer_holds_app_account` | a customer holds at most one account in each channel | 软 | 草拟（sql） |
-| `cons:active_customers_only` | 业务规则 | 客户 `concept:customer` | customer counts read only rows whose customer_status is active | 软 | 草拟（owner） |
+| `cons:active_customers_only` | 业务规则 | 客户 `concept:customer` | customer counts read only rows whose customer_status is active；来源表：`demo_dwd.dwd_party_customer_info_df` | 软 | 草拟（owner） |
 
 ### A7 治理缺口
 

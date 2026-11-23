@@ -145,7 +145,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:loan_no_unique` | 唯一 | 借据号 `id:loan_no` | no two loans share a loan_no, whatever the channel | 硬 | 已确认（owner） |
-| `cons:principal_positive` | 值域 | 本金 `attr:loan.principal` | principal > 0 | 硬 | 已确认（owner） |
+| `cons:principal_positive` | 值域 | 本金 `attr:loan.principal` | principal > 0；来源表：`demo_dwd.dwd_lending_loan_df` | 硬 | 已确认（owner） |
 | `cons:settled_is_final` | 状态迁移 | 借据状态 `attr:loan.loan_status` | a settled loan never changes status again | 硬 | 已确认（owner） |
 | `cons:penalty_rule` | 派生 | 逾期罚息 `attr:loan.overdue_penalty` | accrues only while loan_status is overdue | 软 | 草拟（comment） |
 

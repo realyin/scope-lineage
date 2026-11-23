@@ -10,7 +10,10 @@ cites, and one line a column. ``context_pack`` returns exactly that, and a named
 full. Provenance (``sources``, ``confidence``), upstream tables and the processing steps stay
 in the document: they explain how the table was built, not how to query it. The tasks and
 tables that read the table are kept, because "what does a change here reach" is a question
-readers ask of a table.
+readers ask of a table. Under a table each constraint on its concept says which tables it
+comes from (``catalog_scopes.constraint_tables``) and how they relate to this table in the
+catalog's lineage evidence (``_table_constraints``), since a condition from an upstream, a
+downstream or an unrelated table means different things here.
 
 Two options shorten a table's pack for an agent that asks many questions. ``brief`` keeps
 every item that decides how to query -- the catalog facts, what a row is, how to read it,
@@ -56,6 +59,7 @@ from .catalog_joins import (
     uncovered,
 )
 from .catalog_query import find_concepts, find_metrics
+from .catalog_scopes import constraint_tables
 from .catalog_units import SUPPORTED, UNJUDGED, material_documents, unit_support
 from .catalog_view import CatalogView, catalog_table_name, realises
 
@@ -288,17 +292,93 @@ def _metric_ref(metric: Mapping) -> dict:
     return {"id": metric["id"], "name": metric.get("name") or metric["id"]}
 
 
+def _constraint(view: CatalogView, constraint: Mapping) -> dict:
+    return {
+        "id": constraint["id"],
+        "kind": constraint["kind"],
+        "on": _ref(view, constraint["on"]),
+        "expression": constraint.get("expression"),
+        "strength": constraint.get("strength"),
+    }
+
+
 def _constraints(view: CatalogView, concept_id: str) -> list[dict]:
-    return [
-        {
-            "id": c["id"],
-            "kind": c["kind"],
-            "on": _ref(view, c["on"]),
-            "expression": c.get("expression"),
-            "strength": c.get("strength"),
-        }
-        for c in view.constraints_on(concept_id)
-    ]
+    """A concept's constraints, each with the tables it comes from (``constraint_tables``)
+    when it names any."""
+    found = []
+    for constraint in view.constraints_on(concept_id):
+        entry = _constraint(view, constraint)
+        tables = constraint_tables(view, constraint)
+        if tables:
+            entry["tables"] = tables
+        found.append(entry)
+    return found
+
+
+# How a constraint's source tables relate to the table it is listed under, in the order
+# a constraint takes the first that holds and the text lists them.
+THIS_TABLE, UPSTREAM, DOWNSTREAM, UNRELATED, OTHER_TABLE = (
+    "this_table", "upstream", "downstream", "unrelated", "other_table",
+)
+
+
+def _table_constraints(view: CatalogView, rep: Mapping) -> tuple[list[dict], dict]:
+    """The constraints on a table's concept, each saying how its sources relate to the
+    table, and ``{relation: n}`` of those left out for being on an attribute the table
+    binds no column to.
+
+    A constraint from this table's rules is ``this_table``. Otherwise, with lineage
+    evidence in the catalog, it is ``upstream`` when a source is upstream of this table
+    (``also_downstream`` names its sources that read this table), else ``downstream``,
+    else ``unrelated`` -- upstream and downstream followed through catalog tables only.
+    Without lineage evidence it is ``other_table``. A constraint naming no table is listed
+    as it always was: no ``tables``, no ``relation``.
+    """
+    table = rep["table"]
+    lineage = view.lineage_checked()
+    upstream = _reach(view, table, "upstream_tables") if lineage else set()
+    downstream = _reach(view, table, "downstream_tables") if lineage else set()
+    bound = {b.get("ref") for b in rep["bindings"] if b.get("ref")}
+    listed: list[dict] = []
+    unbound: dict[str, int] = {}
+    for constraint in view.constraints_on(rep["concept"]):
+        entry = _constraint(view, constraint)
+        tables = constraint_tables(view, constraint)
+        if not tables:
+            listed.append(entry)
+            continue
+        if table in tables:
+            relation, both = THIS_TABLE, []
+        elif not lineage:
+            relation, both = OTHER_TABLE, []
+        elif any(t in upstream for t in tables):
+            relation, both = UPSTREAM, [t for t in tables if t in downstream]
+        elif any(t in downstream for t in tables):
+            relation, both = DOWNSTREAM, []
+        else:
+            relation, both = UNRELATED, []
+        if constraint["on"] in view.attributes and constraint["on"] not in bound:
+            unbound[relation] = unbound.get(relation, 0) + 1
+            continue
+        entry.update(tables=tables, relation=relation)
+        if both:
+            entry["also_downstream"] = both
+        listed.append(entry)
+    return listed, unbound
+
+
+def _reach(view: CatalogView, table: str, key: str) -> set[str]:
+    """The catalog tables reached from ``table`` by following the lineage evidence's
+    ``upstream_tables`` or ``downstream_tables``, hop after hop, through catalog tables."""
+    found: set[str] = set()
+    todo = [table]
+    while todo:
+        for name in view.rep_evidence(todo.pop()).get(key) or []:
+            rep = view.representation(name)
+            if rep is not None and rep["table"] != table and rep["table"] not in found:
+                found.add(rep["table"])
+                todo.append(rep["table"])
+    return found
 
 
 def _metric(view: CatalogView, metric: Mapping, material: Optional[Mapping] = None) -> dict:
@@ -623,11 +703,13 @@ def _table(
         ],
         **({"partition": _partition(rep)} if partition_reading(rep) else {}),
         "joins": _joins(view, rep),
-        "constraints": _constraints(view, concept_id),
-        "metrics": [
-            {"id": m["id"], "name": m["name"]} for m in view.metrics_on(concept_id)
-        ],
     }
+    answer["constraints"], unbound = _table_constraints(view, rep)
+    if unbound:
+        answer["constraints_unbound"] = unbound
+    answer["metrics"] = [
+        {"id": m["id"], "name": m["name"]} for m in view.metrics_on(concept_id)
+    ]
     conflicts = view.rep_evidence(rep["table"]).get("conflicts")
     if conflicts:
         answer["conflicts"] = [
@@ -991,10 +1073,69 @@ def unit_text(item: Mapping) -> Optional[str]:
 
 
 def _constraint_lines(constraints: list) -> list[str]:
+    """A concept's constraints, each naming the tables it comes from when it has any."""
     return [
-        f"- 约束 {c['id']}（{c['kind']}，针对 {c['on']['name']}）：{c.get('expression') or ''}"
+        f"- 约束 {c['id']}（{c['kind']}，针对 {c['on']['name']}"
+        + (f"；来源 {'、'.join(c['tables'])}" if c.get("tables") else "")
+        + f"）：{c.get('expression') or ''}"
         for c in constraints
     ]
+
+
+# Each relation's heading and the one sentence saying what it means for this table.
+_SEGMENTS = (
+    (THIS_TABLE, "本表的规则带出", ""),
+    (
+        UPSTREAM, "上游表的规则带出",
+        "本表的行若就是从这张上游表来的，条件已经带进来；本表若只是关联它补字段，条件不适用。"
+        "工具分不出是哪一种，按来源表核对",
+    ),
+    (DOWNSTREAM, "下游表的规则带出", "是下游表加工时才做的，本表没有做"),
+    (
+        UNRELATED, "与本表没有血缘关系的表的规则带出",
+        "目录的血缘证据里来源表与本表没有上下游关系，是否对本表成立工具不知道",
+    ),
+    (
+        OTHER_TABLE, "其他表的规则带出",
+        "目录没有合并血缘证据，来源表与本表是什么关系、是否对本表成立工具不知道",
+    ),
+)
+_UNIQUE_UPSTREAM = "  - 上游的唯一性在本表不一定还成立：本表的粒度可能与上游不同"
+
+
+def _table_constraint_lines(table: Mapping) -> list[str]:
+    """A table's constraints: those naming no table as they always were, then one segment
+    a relation, each line naming its sources, an upstream ``unique`` set apart, and a count
+    of those on an attribute the table binds no column to."""
+    constraints = table["constraints"]
+    lines = _constraint_lines([c for c in constraints if not c.get("relation")])
+    unbound = table.get("constraints_unbound") or {}
+    for relation, label, meaning in _SEGMENTS:
+        group = [c for c in constraints if c.get("relation") == relation]
+        if not group and not unbound.get(relation):
+            continue
+        lines.append(f"- 约束（{label}）：{meaning}")
+        unique = [c for c in group if relation == UPSTREAM and c["kind"] == "unique"]
+        lines += [_sourced_line(c, table["table"]) for c in group if c not in unique]
+        if unique:
+            lines += [_UNIQUE_UPSTREAM] + [_sourced_line(c, table["table"]) for c in unique]
+        if unbound.get(relation):
+            lines.append(f"  - 另有 {unbound[relation]} 条约束针对本表没有绑定列的属性，未列出")
+    return lines
+
+
+def _sourced_line(constraint: Mapping, table: str) -> str:
+    if constraint["relation"] == THIS_TABLE:
+        others = [t for t in constraint["tables"] if t != table]
+        source = f"；也来自 {'、'.join(others)}" if others else ""
+    else:
+        source = f"；来源 {'、'.join(constraint['tables'])}"
+        if constraint.get("also_downstream"):
+            source += f"；{'、'.join(constraint['also_downstream'])} 也读本表"
+    return (
+        f"  - 约束 {constraint['id']}（{constraint['kind']}，针对 {constraint['on']['name']}"
+        f"{source}）：{constraint.get('expression') or ''}"
+    )
 
 
 def _table_text(table: Mapping, brief: bool = False) -> list[str]:
@@ -1016,7 +1157,7 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
         lines.append(f"- 范围：{line}")
     for join in table["joins"]:
         lines += _join_lines(table["table"], join)
-    lines += _constraint_lines(table["constraints"])
+    lines += _table_constraint_lines(table)
     if table["metrics"]:
         lines.append(
             "- 这个概念上的指标：" + "、".join(f"{m['name']}（{m['id']}）" for m in table["metrics"])

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from .catalog_gaps import concept_gaps, conflict_text, share_text
 from .catalog_overview import concept_overview, overview_lines
+from .catalog_scopes import constraint_tables
 from .catalog_view import (
     BINDING_TEXT,
     CATEGORIES,
@@ -604,7 +605,7 @@ def _constraints(view: CatalogView, concept: dict) -> list[str]:
                 expr_span(constraint["id"]),
                 CONSTRAINT_TEXT[constraint["kind"]],
                 f"{view.name(constraint['on'])} {expr_span(constraint['on'])}",
-                cell(_expression_text(constraint)),
+                cell(_expression_text(constraint, constraint_tables(view, constraint))),
                 STRENGTH_TEXT[constraint["strength"]],
                 status_text(constraint),
             )
@@ -612,12 +613,16 @@ def _constraints(view: CatalogView, concept: dict) -> list[str]:
     return lines + _metrics(view, concept)
 
 
-def _expression_text(constraint: dict) -> str:
-    """The expression, and the table-semantics rules the constraint carries when it names them."""
+def _expression_text(constraint: dict, tables: list[str]) -> str:
+    """The expression, the table-semantics rules the constraint carries when it names them,
+    and the catalog tables it comes from (``constraint_tables``) when there are any."""
+    text = constraint["expression"]
     rules = constraint.get("rules") or []
-    if not rules:
-        return constraint["expression"]
-    return f"{constraint['expression']}；承接规则：" + "、".join(f"`{rule}`" for rule in rules)
+    if rules:
+        text += "；承接规则：" + "、".join(f"`{rule}`" for rule in rules)
+    if tables:
+        text += "；来源表：" + "、".join(f"`{table}`" for table in tables)
+    return text
 
 
 def _metrics(view: CatalogView, concept: dict) -> list[str]:

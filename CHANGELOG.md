@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- **Changed: a table's constraints in `catalog context` say how their source tables relate to it.**
+  Which tables a constraint comes from is now one judgement (`catalog_scopes.constraint_tables`): the
+  tables its `rules` name, or those its `evidence` or expression cites. `catalog query table`,
+  `scopes.md`, the index's count of rules citing a table, `catalog query scope` and the concept page
+  (A6 adds 来源表) all use it; a constraint whose `rules` name a table its evidence does not cite now
+  appears under that table too, and none listed before is dropped. Under a table the pack gives each
+  constraint `tables` and `relation` (`this_table`, `upstream`, `downstream`, `unrelated`; `other_table`
+  without lineage evidence; `also_downstream` for a source on both sides) and prints one segment a
+  relation with what it means for the table: from upstream, carried in when the rows come from that
+  table, not applicable when it is only joined for extra fields; a `unique` from upstream may not hold
+  at this grain. A constraint on an attribute the table binds no column to is counted
+  (`constraints_unbound`), not listed. A constraint naming no table is listed as before. `--concept`
+  constraints carry `tables`. `doc_format` stays `catalog-context/1`.
 - **New: `parse` reads a task JSON's scheduling template and parameter list.** A task JSON may carry
   `meta.task_sql` (the script with its `${name}` parameters) and `meta.task_parameters` (an object
   `{name: definition}`, or a list of `{"name", "value"}` items with `paramKey` / `paramValue` accepted

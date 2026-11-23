@@ -12,7 +12,8 @@ line under the kind of filter it states, found by keywords:
 - ``other``     其他 -- none of these.
 
 A line stating two kinds is filed under both. The business rules and value domains that
-cite a table (in their evidence or their expression) are gathered beside the lines.
+come from a table (``constraint_tables``: their ``rules`` name it, or their evidence or
+expression cites it) are gathered beside the lines.
 ``scopes.md`` renders all of it; ``catalog query scope <keyword|kind>`` answers from it.
 """
 
@@ -88,13 +89,40 @@ def scope_lines(view: CatalogView) -> list[tuple[dict, str, list[str]]]:
 
 
 def cited_rules(view: CatalogView) -> list[tuple[str, dict]]:
-    """``(table, constraint)`` for every business rule or value domain citing the table."""
-    found = []
-    for table in sorted(view.representations):
-        for constraint in sorted(view.constraints, key=lambda c: c["id"]):
-            if constraint["kind"] in RULE_KINDS and _cites(constraint, table):
-                found.append((table, constraint))
-    return found
+    """``(table, constraint)`` for every business rule or value domain citing the table
+    (``constraint_tables``)."""
+    rules = sorted(
+        (c for c in view.constraints if c["kind"] in RULE_KINDS), key=lambda c: c["id"]
+    )
+    sources = {id(rule): set(constraint_tables(view, rule)) for rule in rules}
+    return [
+        (table, rule)
+        for table in sorted(view.representations)
+        for rule in rules
+        if table in sources[id(rule)]
+    ]
+
+
+def constraint_tables(view: CatalogView, constraint: Mapping) -> list[str]:
+    """The catalog tables a constraint comes from, in name order: every table its ``rules``
+    name (``<db.table>#rN``, the table matched as ``catalog query`` matches a name), and
+    every table its ``evidence`` or expression cites (``_cites``).
+
+    The one judgement ``catalog query table``, ``scopes.md``, ``catalog context`` and the
+    concept page share. It is the union so that a constraint whose evidence cites a table
+    its ``rules`` do not name -- the only judgement before ``rules`` existed -- is still
+    that table's. A table outside the catalog is never a source here.
+    """
+    named = set()
+    for rule in constraint.get("rules") or []:
+        rep = view.representation(str(rule).partition("#")[0])
+        if rep is not None:
+            named.add(rep["table"])
+    return [
+        table
+        for table in sorted(view.representations)
+        if table in named or _cites(constraint, table)
+    ]
 
 
 def _cites(constraint: Mapping, table: str) -> bool:
