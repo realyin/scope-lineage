@@ -291,3 +291,71 @@ def pending_list(
     path: str, document: dict | None = None, semantics: dict | None = None
 ) -> CatalogAnswer:
     return pending_answer(read_pending_file(path), document, semantics)
+
+
+# ------------------------------------------------------------------ browsing
+#
+# The parts of the catalog one view of a browsing page shows (``render.catalog_browse``).
+# They are answers without a command: the command line keeps ``query``, ``context`` and
+# ``render`` for the same facts, and these exist so a server can send a page, a
+# neighbourhood or a board instead of the whole document. They have no text form: their
+# ``text()`` is the JSON. A request they cannot answer is exit 2, like a command's.
+
+
+def _json_only(result: dict) -> str:
+    return json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+
+
+def _browse(produce: Callable[[], dict], found: Callable[[dict], bool] = lambda _: True):
+    try:
+        result = produce()
+    except ValueError as error:
+        raise CatalogAnswerError(2, f"catalog browse: {error}") from error
+    return CatalogAnswer(result, 0 if found(result) else 1, _json_only)
+
+
+def browse_index(document: dict) -> CatalogAnswer:
+    """The catalog's name, counts and domains (no command; see above)."""
+    from .render.catalog_browse import browse_index as index
+
+    return _browse(lambda: index(document))
+
+
+def browse_list(document: dict, kind: str, **request) -> CatalogAnswer:
+    """One page of concepts, tables or metrics (no command); an empty page is exit 0."""
+    from .render.catalog_browse import browse_list as listing
+
+    return _browse(lambda: listing(document, kind, **request))
+
+
+def neighbourhood(document: dict, concept: str, **request) -> CatalogAnswer:
+    """A concept's one-hop neighbourhood for a graph (no command); exit 1 when no concept
+    matches."""
+    from .render.catalog_browse import concept_neighbourhood
+
+    return _browse(
+        lambda: concept_neighbourhood(document, concept, **request),
+        lambda result: result["centre"] is not None,
+    )
+
+
+def table_semantics(document: dict, semantics: dict | None, table: str) -> CatalogAnswer:
+    """One table's semantics document whole (no command); exit 1 when it has none."""
+    from .render.catalog_browse import table_semantics as one
+
+    return _browse(
+        lambda: one(document, semantics, table), lambda result: result["document"] is not None
+    )
+
+
+def questions(
+    document: dict, semantics: dict | None, pending_text: str | None = None, **request
+) -> CatalogAnswer:
+    """The board of registered questions (no command): the semantics documents' and, with
+    ``pending_text`` (a pending file's text), the ``catalog pending list`` items."""
+    from .render.catalog_browse import questions_board
+
+    report = None
+    if pending_text is not None:
+        report = pending_answer(pending_text, document, semantics).result
+    return _browse(lambda: questions_board(document, semantics, report, **request))
