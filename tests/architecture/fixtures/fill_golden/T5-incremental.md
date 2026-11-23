@@ -185,7 +185,10 @@ c. **度量**：你建的每个 `category: measure` 属性，单位以 digest �
    "status": "drafted", "source": "sql", "evidence": ["<库.表>.<列>"]}`。逐键这样定：
    - `on` 是表的一行所对应的概念；`aggregation` 是**跨行**怎么汇总（加总、计数……）。列的派生里的 sum / count 是这张表在写入时
      已经做过的行内汇总（例如把一行之下的多条明细加成一个数），它说明这一列是度量，不决定 `aggregation`；可加的度量跨行一般是 `sum`。
-     `additivity` 也按跨行判断。
+     `additivity` 也按跨行判断。先对照两样：这一列的派生是按哪些键汇总出来的（「按 <键> 汇总 / 聚合 …」），表的一行由哪些键决定
+     （digest 的 Row 与 Grain）。汇总键比一行的键少时，同一个汇总值会在多行上重复，跨行直接相加会重复计数：这个指标的
+     `additivity` 不写 `additive`（一般写 `non_additive`，`measure` 指向的属性同样写），`notes` 写明「按 <汇总键> 每组取一行后再加」，
+     `dimensions` 里不放比汇总键细、会让同一个值重复出现的维度。
    - `measure`：`sum`、`avg`、`min`、`max` 必须写，指向 `on` 概念上的度量属性。这个属性**由你在这一步建好**（带 `additivity`，单位照上面写），
      片段再把列绑上去；不要留空等片段补。只数实例个数的 `count` / `count_distinct` 不写 `measure`。
    - `dimensions`：业务会按什么拆开看这个数。`on` 自己的属性写 `attr:` id（例如发生时间、状态）；按另一个对象拆（例如按事件的

@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Changed: template T5 checks a measure's summary keys against the row before calling it
+  additive.** When a column's derivation sums by fewer keys than the table's row, the same value
+  repeats across rows: the metric (and its measure attribute) is not written `additive`, its `notes`
+  say which keys to take one row per before adding, and dimensions that would repeat the value stay
+  out. No check enforces it. The answering workflow (`catalog-answers.md`) says which partition to read
+  follows the pack's 「取数」 paragraph.
 - **Fixed: a join column in `catalog context` lists only the JOINs about it, once.** The corpus
   evidence is per relation, and a foreign-identifier column naming no `relation` realises every
   parallel relation between the two concepts, so one JOIN was printed once a relation, and a
