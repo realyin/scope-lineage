@@ -419,7 +419,10 @@ class CatalogHandler(BaseHTTPRequestHandler):
 
     def _health(self, query: str) -> None:
         _Params(query, set())
-        self._send_json(200, self.server.state.health())
+        health = self.server.state.health()
+        if health.get("problem"):
+            health["problem"] = self.server.state.public_text(health["problem"])
+        self._send_json(200, health)
 
     def _search(self, query: str) -> None:
         params = _Params(query, {"text", "kind", "limit"})
@@ -626,9 +629,11 @@ class CatalogHandler(BaseHTTPRequestHandler):
     def _send_error(self, error: RequestError, headers: dict | None = None) -> None:
         # A refused request may leave an unread body on the socket: never reuse it.
         self.close_connection = True
-        payload = {"kind": error.kind, "message": error.message}
+        # The core names a file by its full path; over HTTP only its name leaves.
+        message = self.server.state.public_text(error.message)
+        payload = {"kind": error.kind, "message": message}
         if error.exit_code is not None:
-            payload = {"kind": error.kind, "exit_code": error.exit_code, "message": error.message}
+            payload = {"kind": error.kind, "exit_code": error.exit_code, "message": message}
         headers = dict(headers or {})
         if error.exit_code is not None:
             headers[EXIT_HEADER] = str(error.exit_code)

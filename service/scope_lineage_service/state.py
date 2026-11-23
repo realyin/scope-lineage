@@ -167,6 +167,24 @@ class CatalogState:
             )
         return answers.questions(current.document, current.semantics, text, **request)
 
+    def public_text(self, text: str) -> str:
+        """``text`` with every spelling of the three inputs' paths -- as given, absolute,
+        resolved -- cut to the file or directory name, so a file under the semantics
+        directory reads ``<dir name>/<file>``. The HTTP server passes every error message
+        it sends through this; the core's messages, and the command line, keep full paths.
+        """
+        spellings: dict[str, str] = {}
+        for path in (self.ontology_path, self.semantics_path, self.pending_path):
+            if path is None:
+                continue
+            name = _name(path)
+            for form in (str(path), os.path.abspath(path), str(path.resolve())):
+                if form and form != name:
+                    spellings[form] = name
+        for form in sorted(spellings, key=len, reverse=True):
+            text = text.replace(form, spellings[form])
+        return text
+
     def _require_pending(self) -> Path:
         if self.pending_path is None:
             raise PendingNotConfigured()

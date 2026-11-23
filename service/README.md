@@ -38,6 +38,9 @@ scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE] \
 the files load now. It names the ontology file, the table-semantics directory and the pending file by
 their last path component only (`ontology.path`, `semantics.path`, `pending.path`), never the
 directories they live in, so a server bound off loopback does not reveal the operator's layout.
+The same holds for error text: an input that breaks after start (removed, invalid, unreadable) is
+reported in `/health`'s `problem` and in every error body with those paths cut to their names; the
+command line keeps full paths.
 
 | Method | Path | Parameters | Same as |
 | --- | --- | --- | --- |

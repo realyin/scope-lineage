@@ -4,7 +4,9 @@
 - **Changed: the service's `/health` no longer reports where its files live.** `ontology.path`,
   `semantics.path` and `pending.path` carry only the file or directory name, not the absolute path,
   so a server reachable off loopback does not reveal the operator's directory layout. Every other field
-  is unchanged.
+  is unchanged. Error text sent over HTTP -- `/health`'s `problem` and every error body -- has the
+  paths of the three inputs (and of files under the semantics directory) cut to their names too; the
+  command line's messages keep full paths.
 - **New: relation evidence counts each column's JOINs (`by_column`).** `catalog build --lineage`
   adds `by_column` (`db.table.column` → n) to a relation's `source_joins` (the foreign key each JOIN
   fills) and to its `joins` when it has any (the catalog column on either side), and keeps one sample
