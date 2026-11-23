@@ -6,7 +6,9 @@ every sample of every relation it might realise -- a column naming no ``relation
 credited to each parallel relation between the same two concepts, so one JOIN came out once
 a relation, and a relation's samples about other tables' columns came out under this one.
 The pack now keeps the samples that involve this column, and one entry for the same
-evidence however many relations carry it (``relations`` names them).
+evidence however many relations carry it (``relations`` names them). Its count is the
+column's own from the build's ``by_column``; a document built before that, whose samples
+were cut short, says which JOINs are not recorded instead of dropping them.
 
 ``--brief`` lists every sample that involves a catalog table, and folds those whose two
 tables are both outside the catalog into one counting line (``seen_outside_catalog``).
@@ -107,14 +109,84 @@ def test_a_join_between_catalog_tables_on_another_column_is_not_listed(document:
     assert between["count"] == 1
 
 
-def test_evidence_wholly_about_this_column_keeps_its_count(document: dict) -> None:
-    """Nearest neighbour: every sample is this column's, so the relation's count stands."""
-    same = _sample(f"{REPAYMENT}.loan_no", SOURCE_SAMPLE.replace("ods_repay_txn_di", "ods_repay_adj_di"))
-    join = _loan_join(_source_samples(document, same, count=5))
+def _old_build(document: dict) -> dict:
+    """The document as a build before per-column counts wrote it."""
+    changed = copy.deepcopy(document)
+    for entry in changed["evidence"]["relations"].values():
+        for joins in entry.values():
+            joins.pop("by_column", None)
+    return changed
+
+
+def test_complete_samples_without_column_counts_read_as_before(document: dict) -> None:
+    """Every JOIN of the relation is sampled, so the samples are the whole record."""
+    old = _old_build(document)
+    assert _loan_join(old)["seen"] == _loan_join(document)["seen"]
+    other = _sample(f"{LOAN}.orig_loan_no", "demo_ods.ods_loan_contract_df.orig_no = demo_ods.x.no")
+    join = _loan_join(_source_samples(old, other, count=2))
     (inside,) = [seen for seen in join["seen"] if seen["where"] == "inside_producing_task"]
-    assert inside["count"] == 5
-    assert len(inside["on"]) == 2
-    assert "relations" not in inside
+    assert inside == {
+        "relation": RELATION, "where": "inside_producing_task", "count": 1, "on": [SOURCE_SAMPLE],
+    }
+
+
+def test_truncated_samples_none_of_them_this_columns_say_so(document: dict) -> None:
+    """An older build kept three samples of five, all about another column: whether this
+    column is among the other two is not recorded, and the pack says that, not nothing."""
+    other = _sample(f"{LOAN}.orig_loan_no", "demo_ods.a.k = demo_ods.b.k")
+    changed = _old_build(document)
+    joins = changed["evidence"]["relations"][RELATION]["source_joins"]
+    joins["samples"] = [other, other, other]
+    joins["count"] = 5
+    (inside,) = [s for s in _loan_join(changed)["seen"] if s["where"] == "inside_producing_task"]
+    assert inside["count"] == 0 and inside["on"] == []
+    assert inside["unsampled"] == 2 and inside["relation_count"] == 5
+    text = _text(changed)
+    assert (
+        "  - 产出任务内部见过 5 次连接，留下的样例都是别的列的，其余 2 次是否涉及本列没有记录"
+        "（重新 build 可知）"
+    ) in text
+    assert "（重新 build 可知）" in _text(changed, brief=True)
+
+
+def test_truncated_samples_some_of_them_this_columns_count_what_is_known(document: dict) -> None:
+    same = _sample(f"{REPAYMENT}.loan_no", SOURCE_SAMPLE.replace("ods_repay_txn_di", "ods_repay_adj_di"))
+    join = _loan_join(_source_samples(_old_build(document), same, count=5))
+    (inside,) = [seen for seen in join["seen"] if seen["where"] == "inside_producing_task"]
+    assert inside["count"] == 2 and len(inside["on"]) == 2
+    assert inside["unsampled"] == 3
+    assert "；另有 3 次没留样例，是否涉及本列没有记录（重新 build 可知）" in _text(
+        _source_samples(_old_build(document), same, count=5)
+    )
+
+
+def test_column_counts_give_the_exact_count_even_without_a_sample(document: dict) -> None:
+    other = _sample(f"{LOAN}.orig_loan_no", "demo_ods.a.k = demo_ods.b.k")
+    changed = copy.deepcopy(document)
+    joins = changed["evidence"]["relations"][RELATION]["source_joins"]
+    joins.update(count=10, samples=[other, other, other], by_column={
+        f"{LOAN}.orig_loan_no": 3, f"{REPAYMENT}.loan_no": 7,
+    })
+    (inside,) = [s for s in _loan_join(changed)["seen"] if s["where"] == "inside_producing_task"]
+    assert inside == {"relation": RELATION, "where": "inside_producing_task", "count": 7, "on": []}
+    assert "  - 语料中见过 7 次（产出任务内部），没有留下样例\n" in _text(changed)
+
+
+def test_column_counts_with_a_sample_count_this_column_only(document: dict) -> None:
+    other = _sample(f"{LOAN}.orig_loan_no", "demo_ods.a.k = demo_ods.b.k")
+    changed = _source_samples(document, other, count=6)
+    changed["evidence"]["relations"][RELATION]["source_joins"]["by_column"] = {
+        f"{LOAN}.orig_loan_no": 2, f"{REPAYMENT}.loan_no": 4,
+    }
+    (inside,) = [s for s in _loan_join(changed)["seen"] if s["where"] == "inside_producing_task"]
+    assert inside["count"] == 4 and inside["on"] == [SOURCE_SAMPLE]
+    assert "unsampled" not in inside
+
+
+def test_a_column_the_counts_do_not_name_gets_no_line(document: dict) -> None:
+    changed = copy.deepcopy(document)
+    changed["evidence"]["relations"][RELATION]["source_joins"]["by_column"] = {f"{LOAN}.x": 1}
+    assert [s["where"] for s in _loan_join(changed)["seen"]] == ["between_catalog_tables"]
 
 
 def test_the_demo_self_reference_no_longer_borrows_the_key_columns_joins(document: dict) -> None:

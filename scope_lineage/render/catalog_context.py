@@ -770,8 +770,15 @@ def _seen(view: CatalogView, rep: Mapping, binding: Mapping, other) -> list[dict
     naming them all); and a relation's samples were listed under each column realising
     it, whichever column they filled (now only those that involve this one: a JOIN inside
     a producing task by the column it fills, a JOIN between catalog tables by its two
-    sides). ``count`` is the relation's when every sample is this column's, else the
-    number of samples that are.
+    sides).
+
+    ``count`` is this column's: from the build's ``by_column`` when it is there (a column
+    it does not name has no entry; one whose JOINs kept no sample gets an entry with no
+    ``on``). A document built before ``by_column`` existed only has the relation's samples:
+    when they are all its JOINs, ``count`` is how many are this column's; when the build
+    cut them short, the JOINs left unsampled are ``unsampled`` -- whether they are this
+    column's is not recorded -- and when no kept sample is this column's the entry says so
+    (``count`` 0, ``relation_count``) rather than disappearing.
     """
     column = f"{rep['table']}.{binding['column']}".casefold()
     seen: list[dict] = []
@@ -786,20 +793,42 @@ def _seen(view: CatalogView, rep: Mapping, binding: Mapping, other) -> list[dict
         ):
             if not joins or not joins.get("count"):
                 continue
-            samples = joins.get("samples") or []
-            mine = [sample for sample in samples if _involves(sample, column)]
-            if samples and not mine:
+            entry = _column_joins(joins, column)
+            if entry is None:
                 continue
-            count = joins["count"] if len(mine) == len(samples) else len(mine)
-            on = list(dict.fromkeys(sample["on"] for sample in mine))
-            same = next(
-                (s for s in seen if (s["where"], s["count"], s["on"]) == (where, count, on)), None
-            )
+            same = next((s for s in seen if _same_evidence(s, where, entry)), None)
             if same is not None:
                 same.setdefault("relations", [same["relation"]]).append(relation["id"])
                 continue
-            seen.append({"relation": relation["id"], "where": where, "count": count, "on": on})
+            seen.append({"relation": relation["id"], "where": where, **entry})
     return seen
+
+
+def _column_joins(joins: Mapping, column: str) -> Optional[dict]:
+    """``{count, on[, unsampled, relation_count]}`` of one relation's JOINs for one
+    column (``_seen``), or None when they are not this column's."""
+    samples = joins.get("samples") or []
+    mine = [sample for sample in samples if _involves(sample, column)]
+    on = list(dict.fromkeys(sample["on"] for sample in mine))
+    if "by_column" in joins:
+        count = next(
+            (n for name, n in joins["by_column"].items() if str(name).casefold() == column), 0
+        )
+        return {"count": count, "on": on} if count else None
+    unsampled = joins["count"] - len(samples)
+    if samples and unsampled <= 0:
+        return {"count": len(mine), "on": on} if mine else None
+    if not samples:
+        return {"count": joins["count"], "on": []}
+    entry = {"count": len(mine), "on": on, "unsampled": unsampled}
+    if not mine:
+        entry["relation_count"] = joins["count"]
+    return entry
+
+
+def _same_evidence(seen: Mapping, where: str, entry: Mapping) -> bool:
+    keys = ("count", "on", "unsampled", "relation_count")
+    return seen["where"] == where and all(seen.get(k) == entry.get(k) for k in keys)
 
 
 def _involves(sample: Mapping, column: str) -> bool:
@@ -1323,13 +1352,30 @@ def _join_lines(table: str, join: Mapping) -> list[str]:
         lines.append(f"  - 取值：{join['derivation']}")
     places = {"between_catalog_tables": "目录表之间", "inside_producing_task": "产出任务内部"}
     for seen in join["seen"]:
-        lines.append(f"  - 语料中见过 {seen['count']} 次（{places[seen['where']]}）：{'；'.join(seen['on'])}")
+        lines.append(_seen_line(seen, places[seen["where"]]))
     if join.get("seen_outside_catalog"):
         lines.append(
             f"  - 另有 {join['seen_outside_catalog']} 条产出任务内部的连接证据两边的表都不在目录里，"
             "去掉 --brief 可看"
         )
     return lines
+
+
+def _seen_line(seen: Mapping, place: str) -> str:
+    """One relation's JOINs under a join column: the count and samples, a count with no
+    sample, or -- from a build that kept no count per column -- what is not recorded."""
+    unknown = "是否涉及本列没有记录（重新 build 可知）"
+    if not seen["count"] and seen.get("unsampled"):
+        return (
+            f"  - {place}见过 {seen['relation_count']} 次连接，留下的样例都是别的列的，"
+            f"其余 {seen['unsampled']} 次{unknown}"
+        )
+    if not seen["on"]:
+        return f"  - 语料中见过 {seen['count']} 次（{place}），没有留下样例"
+    line = f"  - 语料中见过 {seen['count']} 次（{place}）：{'；'.join(seen['on'])}"
+    if seen.get("unsampled"):
+        line += f"；另有 {seen['unsampled']} 次没留样例，{unknown}"
+    return line
 
 
 def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:

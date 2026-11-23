@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **New: relation evidence counts each column's JOINs (`by_column`).** `catalog build --lineage`
+  adds `by_column` (`db.table.column` → n) to a relation's `source_joins` (the foreign key each JOIN
+  fills) and to its `joins` when it has any (the catalog column on either side), and keeps one sample
+  per column while the limit of three allows. `catalog context` takes a join column's count from it,
+  and a column whose JOINs kept no sample gets a count-only line. A document built before this, whose
+  samples were cut short, no longer drops a column none of whose kept samples is its own: the pack
+  says how many JOINs were not sampled and that whether they are the column's is not recorded
+  (`unsampled`, `relation_count`); rebuild to know. Additive: the schema accepts `by_column`, and older
+  documents still read.
 - **Changed: template T5 checks a measure's summary keys against the row before calling it
   additive.** When a column's derivation sums by fewer keys than the table's row, the same value
   repeats across rows: the metric (and its measure attribute) is not written `additive`, its `notes`

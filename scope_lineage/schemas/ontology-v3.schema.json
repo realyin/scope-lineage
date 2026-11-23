@@ -1394,6 +1394,11 @@
                         "on"
                       ]
                     }
+                  },
+                  "by_column": {
+                    "description": "How many of the JOINs fill each foreign key column, db.table.column -> count; the samples keep one JOIN per column while the limit allows",
+                    "type": "object",
+                    "additionalProperties": {"type": "integer", "minimum": 1}
                   }
                 }
               },
@@ -1419,6 +1424,11 @@
                         "on"
                       ]
                     }
+                  },
+                  "by_column": {
+                    "description": "How many of the JOINs involve each catalog column on either side, db.table.column -> count; absent when there is no JOIN",
+                    "type": "object",
+                    "additionalProperties": {"type": "integer", "minimum": 1}
                   }
                 }
               }

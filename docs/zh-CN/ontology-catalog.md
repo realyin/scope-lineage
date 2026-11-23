@@ -696,8 +696,8 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
 | `bindings["库.表.列"]` | `declared_only` | `--tables` | 元数据里有这一列，语料里没有任何任务碰过它 |
 | `code_sets["code:..."]` | `table` / `missing_columns` | `--tables` | 码值集 `lookup` 所指的表有表卡、表卡却没声明其中某些列时：哪些列（只在有这样的列时出现；`build` 同时在 stderr 打一行 `lookup_column_missing` 警告） |
-| `relations["rel:..."]` | `joins` | `--lineage` | 连接两个概念表现表、且两侧连接列绑定到同一个它们的标识符的 JOIN：`count` 与至多三个 `samples` |
-| `relations["rel:..."]` | `source_joins` | `--lineage` | 生产任务内的 JOIN：写某一端表现表的语句里、为填这张表的外键列而做的 JOIN，`count` 与至多三个 `samples`（多一个 `column`：被填的外键列）；与 `joins` 分开计，只在有这样的 JOIN 时出现 |
+| `relations["rel:..."]` | `joins` | `--lineage` | 连接两个概念表现表、且两侧连接列绑定到同一个它们的标识符的 JOIN：`count` 与至多三个 `samples`；`by_column`（`count` 大于 0 时）：其中涉及两侧每个目录列的各有几次，`库.表.列` → 次数；样例在名额内每列至少留一条 |
+| `relations["rel:..."]` | `source_joins` | `--lineage` | 生产任务内的 JOIN：写某一端表现表的语句里、为填这张表的外键列而做的 JOIN，`count` 与至多三个 `samples`（多一个 `column`：被填的外键列），以及 `by_column`：每个外键列被填了几次，`库.表.列` → 次数，样例在名额内每列至少留一条；与 `joins` 分开计，只在有这样的 JOIN 时出现 |
 
 ```json
 {
@@ -724,11 +724,11 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
   },
   "relations": {
     "rel:borrower_owes_loan": {
-      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}]}
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}], "by_column": {"demo_dwd.dwd_lending_borrower_df.customer_id": 1, "demo_dwd.dwd_lending_loan_df.customer_id": 1}}
     },
     "rel:repayment.loan": {
-      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}]},
-      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}]}
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}], "by_column": {"demo_dwd.dwd_lending_loan_df.loan_no": 1, "demo_dwd.dwd_lending_repayment_di.loan_no": 1}},
+      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}], "by_column": {"demo_dwd.dwd_lending_repayment_di.loan_no": 1}}
     }
   }
 }
@@ -982,7 +982,7 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 | 选项 | 给出什么 |
 | --- | --- |
 | `--concept`（id、去掉前缀的 id、名称、同义词或术语；或指标的 id、去掉 `metric:` 的 id、名称或术语） | 定义、标识符、表现表、它和它的属性、标识符、关系上的约束、指标的完整定义（度量与绑定列、聚合、过滤、时间窗、维度、可加性、单位、所引约束的原文）；没有概念对上的词再按指标找，给出指标所在的概念，这个指标排在第一条，`via_metric`（`{id, name}`）写明由哪个指标找来 |
-| `--table`（`库.表`） | 目录侧：承载的概念、粒度列与来源、时间形态与刷新（文本的「刷新」一行后面加上表语义写的周期，「表语义写的周期」）、带角色的时间列、记录范围、每个外部标识符列能连到哪张表的哪一列（`joins`，带语料里见过的 JOIN 及其位置：只留涉及这一列的样例 JOIN——产出任务内部的按它填的列判断，目录表之间的按 JOIN 两边判断——，同一份证据不管几条关系都带着只出一条，`relations` 列出这些关系；样例全是这一列的，`count` 是关系的次数，否则是涉及这一列的样例数）、约束、概念上的指标名、证据与目录的矛盾；表语义侧（`semantics`）：是什么、一行是什么、怎么取数、范围及其引用的规则（带 SQL）、适用与不适用、注意事项、待确认问题、读这张表的下游任务与表、每列一行的字段一览 |
+| `--table`（`库.表`） | 目录侧：承载的概念、粒度列与来源、时间形态与刷新（文本的「刷新」一行后面加上表语义写的周期，「表语义写的周期」）、带角色的时间列、记录范围、每个外部标识符列能连到哪张表的哪一列（`joins`，带语料里见过的 JOIN 及其位置：只留涉及这一列的样例 JOIN——产出任务内部的按它填的列判断，目录表之间的按 JOIN 两边判断——，同一份证据不管几条关系都带着只出一条，`relations` 列出这些关系；`count` 取 build 写的 `by_column` 里这一列的次数，没留下样例的列只写次数；`by_column` 出现之前 build 的文档，样例齐全时数这一列的样例，样例被截断时写明有几次没留样例（`unsampled`）、是否涉及本列没有记录——本列一个样例都没有时，一行写出关系的次数（`relation_count`）——重新 build 可知）、约束、概念上的指标名、证据与目录的矛盾；表语义侧（`semantics`）：是什么、一行是什么、怎么取数、范围及其引用的规则（带 SQL）、适用与不适用、注意事项、待确认问题、读这张表的下游任务与表、每列一行的字段一览 |
 | `--column`（`库.表.列`） | 目录侧的绑定（指向什么、定义、绑定到属性的列带属性的 `type`——标识符、技术列、未映射列没有类型，不打印——、单位、码值、取值方式、时间角色、血缘表达式）；表语义侧这一列的含义、加工、分支、码值、空值含义、注意；以及点名这一列的表级注意与待确认问题 |
 | `--columns`（`列[,列...]`） | 和 `--column` 一样，但只写列名、逗号分隔，列属于 `--table` 点名的表；要求至少一个 `--table`。只有一个 `--table` 时每个列名都算它的。有几个时，光写列名的归到每张有这一列的请求表（目录在这张表上绑定了它，或这张表的表语义文档写了它；不分大小写），`表.列` 钉在同名的那张请求表上，`库.表.列` 照写；已请求过的不再重复 |
 | `--brief` | 简版 `--table` 包：目录事实、是什么、一行是什么、怎么取数、范围、适用、不适用、注意、待确认问题、被引用规则的文字都留着；字段只列名字、按类别分组（条目只留 `column` 和 `category`），被引用的规则不带 SQL，下游只写它写入的表（不写表时写任务名）；关联列下两边的表都不在目录里的样例 JOIN 收成一句计数（`seen_outside_catalog`，「另有 n 条产出任务内部的连接证据两边的表都不在目录里」），涉及目录表的 JOIN 一律列出；同一个包里已有其表的字段，不再重复表级注意，改为指向表块 |

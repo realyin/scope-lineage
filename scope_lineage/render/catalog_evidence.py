@@ -29,7 +29,10 @@ changed and a reader can always tell a claim from its evidence:
   used downstream; ``source_joins`` says how the producing task looked the key up. It
   needs a table at the written end only, and a column naming its ``relation`` is
   attributed to that relation alone. Whether a table *represents* a concept is never
-  guessed from the identifiers it happens to spell.
+  guessed from the identifiers it happens to spell. Both carry ``by_column``, how many of
+  their JOINs involve each column (``joins``: the catalog column on either side;
+  ``source_joins``: the foreign key filled), and their samples keep one JOIN per column
+  while the limit of three allows.
 
 Nothing here parses a contract document: the statements and their profiles come from
 ``semantic_profile`` and ``ontology.write_statements``, the JOIN key pairs from
@@ -474,18 +477,63 @@ def _relation_joins(
 
 
 def _count_joins(catalog: _Catalog, ends: tuple, keys: set, statements: tuple, match) -> dict:
-    count, samples = 0, []
+    """``{count, samples, by_column}``: ``by_column`` counts each JOIN under the catalog
+    column on either side of it (once for a column met on both sides); none without a
+    JOIN."""
+    hits = []
     for statement in statements:
         for join in statement.joins:
             on = match(catalog, join, ends, keys)
-            if on is None:
-                continue
-            count += 1
-            if len(samples) < JOIN_SAMPLE_LIMIT:
-                samples.append(
+            if on is not None:
+                hits.append(
                     {"task": statement.task, "statement_id": statement.statement_id, "on": on}
                 )
-    return {"count": count, "samples": samples}
+    if not hits:
+        return {"count": 0, "samples": []}
+    return {
+        "count": len(hits),
+        "samples": sample_per_column(hits, _sides),
+        "by_column": _by_column(hits, _sides),
+    }
+
+
+def _sides(hit: Mapping) -> list[str]:
+    """The ``db.table.column`` on each side of a sample's ``a.t.c = b.t.c``, once each."""
+    return list(dict.fromkeys(side.strip() for side in str(hit["on"]).split(" = ")))
+
+
+def _hit_column(hit: Mapping) -> list[str]:
+    return [hit["column"]]
+
+
+def _by_column(hits: list, columns) -> dict:
+    """``{db.table.column: how many of the hits involve it}``, in name order."""
+    counts: dict[str, int] = {}
+    for hit in hits:
+        for column in columns(hit):
+            counts[column] = counts.get(column, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def sample_per_column(hits: list, columns, limit: int = JOIN_SAMPLE_LIMIT) -> list:
+    """At most ``limit`` of ``hits``, in their order: first the earliest hit of each column
+    no chosen hit involves yet, then the earliest of the rest -- so every column with a
+    JOIN keeps a sample while the limit allows. ``columns(hit)`` names a hit's columns."""
+    chosen: list[int] = []
+    covered: set = set()
+    for index, hit in enumerate(hits):
+        if len(chosen) == limit:
+            break
+        names = set(columns(hit))
+        if names - covered:
+            chosen.append(index)
+            covered |= names
+    for index in range(len(hits)):
+        if len(chosen) == limit:
+            break
+        if index not in chosen:
+            chosen.append(index)
+    return [hits[index] for index in sorted(chosen)]
 
 
 def _identifying_pair(
@@ -563,8 +611,12 @@ def _source_joins(catalog: _Catalog, writers: Mapping) -> dict:
                                 "on": hit[1],
                             }
         if hits:
-            samples = [hits[key] for key in sorted(hits)][:JOIN_SAMPLE_LIMIT]
-            found[relation["id"]] = {"count": len(hits), "samples": samples}
+            ordered = [hits[key] for key in sorted(hits)]
+            found[relation["id"]] = {
+                "count": len(hits),
+                "samples": sample_per_column(ordered, _hit_column),
+                "by_column": _by_column(ordered, _hit_column),
+            }
     return found
 
 
