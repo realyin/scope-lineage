@@ -47,11 +47,11 @@ scope-lineage catalog query <O> table <库.表>
 scope-lineage catalog context <O> --semantics <S> --table <库.表> --columns <列,列,...> --brief --focus
 ```
 
-两张及以上的表写进**同一次**调用（`--columns` 只认一张表，所以列改用 `--column 库.表.列`，每列一个）：
+两张及以上的表写进**同一次**调用（光写列名的归到每张有它的表，只要一张的写 `表.列`）：
 
 ```bash
 scope-lineage catalog context <O> --semantics <S> --table <库.表A> --table <库.表B> \
-  --column <库.表A.列> --column <库.表B.列> --brief --focus
+  --columns <列,表B.列,...> --brief --focus
 ```
 
 输出末尾每对表有一节 `# 关联 A ↔ B`：关联用「骨架的 ON 用这一对」的列对；每侧写着「每个关联键一行」还是「对上多行」，后者对另一侧的列
@@ -59,10 +59,10 @@ SUM / COUNT 会重复计数；「要过滤」列出的列必须进条件；写�
 SQL 骨架照抄后再改。这一节写「目录没有支持这两张表直接关联的列对」时，不要自己找列来连：有「一跳的桥」就把桥表加进 `--table`
 重跑这一次调用（只重跑一次）；没有桥就按第 4 步留占位。
 
-第 1 步挑到了 `[指标]`（它的 `在：` 是概念），或表包「目录」里列出了概念上的指标名而问题要算的正是它，再跑一次读「指标」一节：
+第 1 步挑到了 `[指标]`，或表包「目录」里列出了概念上的指标名而问题要算的正是它，再跑一次读「指标」一节（所问的排第一条）：
 
 ```bash
-scope-lineage catalog context <O> --concept <概念 id>
+scope-lineage catalog context <O> --concept <metric:id>
 ```
 
 包里必须读完的：每张表的「目录」（粒度、时间形态、分区怎么读、范围、约束、证据与目录矛盾）、「怎么读」（一行是什么、取数、范围）、

@@ -335,6 +335,59 @@ def test_a_concept_nothing_names_is_reported_missing(document: dict, semantics: 
     assert pack["missing"] == [{"kind": "concept", "term": "没有这个概念"}]
 
 
+def _with_two_metrics(document: dict) -> dict:
+    changed = _with_metric(document)
+    changed["metrics"].insert(0, {
+        "id": "metric:count_repaid", "name": "还款笔数", "definition": "数还款的笔数。",
+        "on": "concept:repayment", "aggregation": "count", "constraints": [], "dimensions": [],
+        "status": "drafted", "source": "sql", "evidence": [],
+    })
+    return changed
+
+
+@pytest.mark.parametrize("term", ["metric:repaid_amount", "repaid_amount", "还款金额"])
+def test_a_metric_leads_to_its_concept_with_the_asked_metric_first(
+    document: dict, semantics: dict, term: str
+) -> None:
+    pack = context_pack(_with_two_metrics(document), semantics, concepts=[term])
+    (concept,) = pack["concepts"]
+    assert concept["id"] == "concept:repayment"
+    assert concept["via_metric"] == {"id": "metric:repaid_amount", "name": "还款金额"}
+    assert [m["id"] for m in concept["metrics"]] == ["metric:repaid_amount", "metric:count_repaid"]
+    assert pack["missing"] == []
+
+
+def test_a_concept_reached_by_name_keeps_its_metric_order(document: dict, semantics: dict) -> None:
+    (concept,) = context_pack(
+        _with_two_metrics(document), semantics, concepts=["concept:repayment"]
+    )["concepts"]
+    assert "via_metric" not in concept
+    assert [m["id"] for m in concept["metrics"]] == ["metric:count_repaid", "metric:repaid_amount"]
+
+
+def test_the_text_says_which_metric_led_to_the_concept(document: dict, semantics: dict) -> None:
+    text = render_context_text(
+        context_pack(_with_two_metrics(document), semantics, concepts=["metric:repaid_amount"])
+    )
+    assert "- 由指标 还款金额（metric:repaid_amount）找到：它是下面「指标」的第一条" in text
+    assert "- （所问）还款金额（metric:repaid_amount）：" in text
+    assert text.index("还款金额（metric:repaid_amount）：") < text.index("还款笔数（metric:count_repaid）：")
+
+
+def test_a_metric_on_no_concept_is_reported_missing(document: dict, semantics: dict) -> None:
+    changed = _with_metric(document)
+    changed["metrics"][0]["on"] = "concept:gone"
+    pack = context_pack(changed, semantics, concepts=["metric:repaid_amount"])
+    assert pack["concepts"] == []
+    assert pack["missing"] == [{
+        "kind": "concept", "term": "metric:repaid_amount",
+        "metric": {"id": "metric:repaid_amount", "name": "还款金额"},
+    }]
+    assert "未找到：概念 metric:repaid_amount（指标 还款金额 没有挂在目录里的概念上）" in (
+        render_context_text(pack)
+    )
+
+
 # --------------------------------------------------------------------- size
 
 
@@ -639,13 +692,107 @@ def test_the_command_takes_a_comma_list_of_columns_of_one_table(capsys) -> None:
     ]
 
 
-@pytest.mark.parametrize("tables", [[], [DEMO_TABLE, REPAYMENT]])
-def test_the_command_exits_2_for_columns_without_exactly_one_table(capsys, tables) -> None:
-    argv = ["catalog", "context", str(ONTOLOGY), "--columns", "gender_cd"]
-    for table in tables:
-        argv += ["--table", table]
-    assert main(argv) == 2
+def test_the_command_exits_2_for_columns_without_a_table(capsys) -> None:
+    assert main(["catalog", "context", str(ONTOLOGY), "--columns", "gender_cd"]) == 2
     assert "--columns" in capsys.readouterr().err
+
+
+# ------------------------------------------------------ columns of several tables
+#
+# A bare name goes to every requested table that has the column -- a column the catalog
+# binds on the table, or one its semantics document describes; ``table.col`` and
+# ``db.table.col`` pin one table. One requested table keeps the old behaviour: every bare
+# name is that table's.
+
+
+def test_a_bare_column_goes_to_every_requested_table_that_has_it(
+    document: dict, semantics: dict
+) -> None:
+    pack = context_pack(
+        document, semantics, tables=[LOAN, REPAYMENT],
+        table_columns=["loan_no", "repay_amt", "principal_amt"],
+    )
+    assert pack["query"]["columns"] == [
+        f"{LOAN}.loan_no", f"{REPAYMENT}.loan_no", f"{REPAYMENT}.repay_amt", f"{LOAN}.principal_amt",
+    ]
+    assert [(c["table"], c["column"]) for c in pack["columns"]] == [
+        (LOAN, "loan_no"), (REPAYMENT, "loan_no"), (REPAYMENT, "repay_amt"), (LOAN, "principal_amt"),
+    ]
+    assert pack["missing"] == []
+
+
+def test_a_bare_column_no_requested_table_has_is_missing_once_naming_the_tables(
+    document: dict, semantics: dict
+) -> None:
+    pack = context_pack(
+        document, semantics, tables=[LOAN, REPAYMENT, "demo_dwd.nope"], table_columns=["nope_col"],
+    )
+    assert pack["query"]["columns"] == []
+    assert pack["missing"] == [
+        {"kind": "table", "term": "demo_dwd.nope"},
+        {"kind": "column", "term": "nope_col", "tables": [LOAN, REPAYMENT]},
+    ]
+    assert f"未找到：字段 nope_col（{LOAN}、{REPAYMENT} 都没有这一列）" in render_context_text(pack)
+
+
+def test_a_table_prefix_pins_a_column_to_one_table(document: dict, semantics: dict) -> None:
+    pack = context_pack(
+        document, semantics, tables=[LOAN, REPAYMENT],
+        table_columns=["dwd_lending_loan_df.customer_id", f"{REPAYMENT}.repay_time", "dwd_nope.x"],
+    )
+    assert pack["query"]["columns"] == [f"{LOAN}.customer_id", f"{REPAYMENT}.repay_time"]
+    assert pack["missing"] == [{"kind": "column", "term": "dwd_nope.x", "tables": [LOAN, REPAYMENT]}]
+
+
+def test_bare_columns_ignore_case_and_are_asked_once(document: dict, semantics: dict) -> None:
+    pack = context_pack(
+        document, semantics, tables=[LOAN, REPAYMENT],
+        columns=[f"{REPAYMENT}.loan_no"],
+        table_columns=["LOAN_NO", "loan_no", "dwd_lending_loan_df.Loan_No"],
+    )
+    assert pack["query"]["columns"] == [f"{REPAYMENT}.loan_no", f"{LOAN}.LOAN_NO"]
+    assert [(c["table"], c["column"]) for c in pack["columns"]] == [
+        (REPAYMENT, "loan_no"), (LOAN, "loan_no"),
+    ]
+
+
+def test_a_column_only_the_semantics_document_describes_counts_as_the_tables(
+    document: dict, semantics: dict
+) -> None:
+    changed = copy.deepcopy(semantics)
+    changed[DEMO_TABLE]["columns"].append({"column": "remark_txt", "meaning": "备注"})
+    pack = context_pack(document, changed, tables=[DEMO_TABLE, LOAN], table_columns=["remark_txt"])
+    assert pack["query"]["columns"] == [f"{DEMO_TABLE}.remark_txt"]
+    assert pack["columns"][0]["semantics"]["meaning"] == "备注"
+
+
+def test_one_table_takes_every_bare_column_as_before(document: dict, semantics: dict) -> None:
+    pack = context_pack(document, semantics, tables=[LOAN], table_columns=["loan_no", "nope_col"])
+    assert pack["query"]["columns"] == [f"{LOAN}.loan_no", f"{LOAN}.nope_col"]
+    assert pack["missing"] == [{"kind": "column", "term": f"{LOAN}.nope_col"}]
+
+
+def test_focus_narrows_each_table_to_its_share_of_the_bare_columns(
+    document: dict, semantics: dict
+) -> None:
+    pack = context_pack(
+        document, _focus_semantics(semantics), tables=[DEMO_TABLE, LOAN],
+        table_columns=["gender_cd", "loan_no"], focus=True,
+    )
+    assert _table(pack, DEMO_TABLE)["semantics"]["focus"]["columns"] == ["gender_cd"]
+
+
+def test_the_command_takes_bare_columns_for_several_tables(capsys) -> None:
+    code = main([
+        "catalog", "context", str(ONTOLOGY), "--table", LOAN, "--table", REPAYMENT,
+        "--columns", "loan_no,repay_amt", "--focus", "--json",
+    ])
+    assert code == 0
+    pack = json.loads(capsys.readouterr().out)
+    assert pack["query"]["columns"] == [
+        f"{LOAN}.loan_no", f"{REPAYMENT}.loan_no", f"{REPAYMENT}.repay_amt",
+    ]
+    assert len(pack["links"]) == 1
 
 
 def test_the_command_exits_2_for_focus_without_columns(capsys) -> None:
