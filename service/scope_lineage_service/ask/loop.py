@@ -15,6 +15,11 @@ plain data: ``{"content": [blocks as dicts], "stop_reason", "stop_details", "usa
 at most twice in a row), and ``ModelError`` for anything else the provider or the SDK
 reports.
 
+Each request's ``max_tokens`` is the per-turn limit, what is left of the question's output
+cap, and the model's own ``max_tokens`` when it has one (privately hosted models often take
+far fewer per request). A turn may say ``usage_estimated`` (an endpoint that reported no
+usage); the turn event and the question's total then say so.
+
 Stop reasons: ``tool_use`` runs the calls (in order, all results back in one user
 message, a failed call as ``is_error``); ``end_turn`` is the answer; ``pause_turn`` sends
 the turn back to be continued; ``max_tokens`` and ``refusal`` stop the question without

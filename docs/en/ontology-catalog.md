@@ -1363,7 +1363,9 @@ Started with `--ask`, the page also gets an ask panel: a model on the server ans
 skill's `catalog-answers.md` walk, with the answers above as its only tools, and the page shows the steps, the
 SQL, the basis of each condition and each 待确认 placeholder (a definition typed beside one is appended to the
 pending file). It never runs SQL; it costs money and sends catalog text to the model provider, so it is off
-by default. See [service/README.md](../../service/README.md).
+by default. `--ask-models FILE` lists several models -- Anthropic, or any endpoint speaking the OpenAI Chat
+Completions API, such as a privately hosted model -- and the asker picks one per question; keys come from
+environment variables the file names. See [service/README.md](../../service/README.md).
 
 ## Drafting: `catalog digest` and `catalog merge`
 

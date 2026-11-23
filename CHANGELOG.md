@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **New: several models on the ask panel (`scope-lineage-service http --ask --ask-models FILE`).** A JSON
+  file lists models -- `anthropic` (the official API, or a gateway speaking the Messages API through a
+  per-model `base_url`, with the refusal fallback, prompt caching, streamed tool input, adaptive thinking and
+  effort each switchable off for gateways that reject them) or `openai-compatible` (any endpoint speaking the
+  OpenAI Chat Completions API with tool calls, such as a privately hosted model; new optional
+  `[ask-openai]` extra on the official `openai` SDK). The asker picks the model per question on the page
+  (unavailable ones shown disabled with the reason; the last choice remembered in the browser; each answer
+  labelled with its model); a follow-up may switch. Keys come from environment variables the file names
+  (`api_key_env`); a file that looks like it holds a secret is refused, and plain `http://` to another
+  machine needs `allow_insecure_http`. A model whose SDK or key is missing is listed as unavailable instead
+  of stopping the server. Every request respects the model's own `max_tokens`; the caps apply to every
+  model. `GET /api/ask/status` adds `models` and `default` (never URLs or variable names), `POST /api/ask`
+  takes `model`, and the events name the model that answered. On the OpenAI-compatible path there is no
+  prompt caching or refusal fallback, missing usage is estimated, and answer quality with weaker models is
+  unverified. Without the file, `--ask-model`/`--ask-effort` behave as before.
 - **New: an opt-in ask panel on the browse page (`scope-lineage-service http --ask`).** A person types a
   data question; a model on the server -- never in the browser -- answers it by the skill's own walk
   (`catalog-answers.md`, packaged as an exact copy that a test holds to the skill file) with the catalog

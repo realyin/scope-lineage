@@ -1179,7 +1179,8 @@ HTTP 服务还在 `/` 提供一个只读的浏览页面（浏览器打开 `http:
 
 以 `--ask` 启动时，页面还多一个问数面板：服务器上的模型按技能的 `catalog-answers.md` 步骤回答数据问题，只能用上面这些回答作工具；页面显示每一步、
 SQL、每个条件的依据和每个待确认占位（在占位旁填写的定义会追加到待确认文件）。它从不执行 SQL；它会产生费用，并把目录文字发给模型提供方，所以默认关闭。
-详见 [service/README.md](../../service/README.md)。
+`--ask-models FILE` 可以列出多个模型（Anthropic，或任何讲 OpenAI Chat Completions API 的端点，比如私有部署的模型），提问的人每题自选；
+密钥从文件里点名的环境变量读取，文件本身不放密钥。详见 [service/README.md](../../service/README.md)。
 
 ## 起草：`catalog digest` 与 `catalog merge`
 
