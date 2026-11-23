@@ -560,7 +560,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | 规则 | 含义 |
 | --- | --- |
 | `state_attribute_without_states` | 概念有 `state` 类属性且有码值集（按「属性」一节的规则），却没有 `states` |
-| `measure_without_unit` | `measure` 类属性没有 `unit` |
+| `measure_without_unit` | `measure` 类属性没有 `unit`，`notes` 也没写「待 owner 确认：单位」（材料没给单位时起草者写的那句话；写了的不报） |
 | `zipper_without_validity` | `zipper` 表现没有 `time_role: valid_from` 的绑定，或没有 `valid_to` 的绑定 |
 | `participation_without_event` | 手写的 `participation` 关系两端都不是事件 |
 | `generalization_cycle` | `generalization` 关系绕成环（每个环报一次，从环里 id 最小的概念报） |
@@ -772,7 +772,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 
 ```bash
 scope-lineage catalog render out/ontology.json --out out/pages \
-  [--semantics out/pages/semantics]
+  [--semantics out/pages/semantics] [--docs <documents>]
 ```
 
 `render` 只读构建出的文档，从不回读目录文件夹，所以页面展示的就是构建结果（含证据）。标题用中文，
@@ -795,9 +795,40 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   --semantics out/pages/semantics
 ```
 
+`--docs` 指向表语义文档目录（`<db.table>.json`，即 `catalog context --semantics` 收的那种目录；不是 `--semantics`
+收的页面目录）。给了它，`index.md` 还会按这些文档计数；不给时下面这些数都不显示。两个选项互不相干：`--semantics`
+只管链接，`--docs` 只管计数。
+
+`index.md` 开头是「用之前先看」：一句固定说明，本页只说明目录在结构上有什么、缺什么，答得对不对要靠验收；
+一句固定说明，问数用的是构建出的目录文件加表语义文档目录；然后是治理缺口汇总。给了 `--docs` 时汇总多两行，
+其后再跟一节「按表看」：
+
+| 行 | 怎么算 |
+| --- | --- |
+| 唯一键有血缘证据的表 | 血缘证明了粒度的表（`grain_proof.confidence` 为 `proven`）占全部表；以及其中表语义文档说不唯一（`summary.row.unique` 为 `no`）的张数。只在构建时带了 `--lineage` 才显示 |
+| 单位有材料依据的度量属性 | 所绑的列里至少一列在所在表的表语义文档里有 `unit` 的度量属性，占能判断的度量属性；所绑的列没有一列被文档描述的属性没法判断，单独计数 |
+
+「按表看」每张目录表一行，按表名排列，不按别的排（不打分，不按问题多少排）。给了 `--semantics` 时表名链到
+它的表语义页。
+
+| 列 | 取值 |
+| --- | --- |
+| 表 | 表名 |
+| 概念 | 它表现的概念，带链接 |
+| 唯一键的证据 | 已证明（血缘证明了粒度）或 无；只在有 `--lineage` 证据时显示 |
+| 表语义的说法 | 文档的 `summary.row.unique`：唯一 / 不唯一 / 未知；只在有 `--lineage` 证据时显示 |
+| 度量列 | 绑定到度量属性的列（按目录算） |
+| 其中单位无材料依据 | 其中所属属性没有材料依据的列，给个数和占比 |
+| 未绑定列 | 本表绑定到 `unmapped` 的列，与缺口汇总同一来源 |
+| 注意事项 | 文档 `summary.watch` 的条数，及其中 `kind` 为 `conflict` 的条数 |
+
+单位按属性判断，与 `catalog context --semantics` 标注单位（`material_unit`）用的是同一条规则、同一个函数：
+取数包里被标成「材料未给」的列，正好就是「其中单位无材料依据」里数到的列。表语义文档只覆盖部分表时，
+没有文档的表在依赖文档的格子显示 `—`，该节下面写明覆盖了几张表，汇总里「说不唯一」的张数只数覆盖到的表并写明。
+
 | 文件 | 内容 |
 | --- | --- |
-| `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、码值集（及码值所在的表）、治理缺口汇总、记录范围汇总 |
+| `index.md` | 先是用之前先看（治理缺口汇总；给了 `--docs` 时多两行和一张按表的表），然后按域列出概念（名称、种类、定义、表现表数、状态）、标识符、码值集（及码值所在的表）、记录范围汇总 |
 | `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`）：先是一页纸概览，再是附录七节 |
 | `identifiers.md` | 每个标识符的完整说明，及绑定到它的列 |
 | `code_sets.md` | 每个码值集：取值，或去哪张表、按什么条件查（`lookup`）；用它的属性（按「属性」一节的规则）；按 `code_sets` 查它的列（行名「查它的列」）、各列怎么查（按顺序，或按来源各查各的：`code_sets_by`）、各列存什么（`holds`） |
@@ -972,6 +1003,13 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 表是怎么做出来的，不是怎么查；下游留着，因为「改了它会影响谁」是对着表问的。没有表语义文档的表，`semantics` 是 `{"present": false}`，文本写「本表没有
 表语义文档」——读者要能分清「没有要注意的」和「没人写下来」。只在表语义里有、目录没绑定的列照样能用
 `--column` 查到，`catalog` 一项为空。
+
+**度量的单位对照材料。** 带 `--semantics` 时，`measure` 类属性的单位——列的绑定上的，以及以它为度量的指标上的（`--concept`
+给概念或指标）——要和表语义对照。按属性判断：它所绑的列里只要有一列在其表语义文档里有 `unit`，单位就算有依据，照原样打印。
+否则绑定或指标多一个 `material_unit`：有单位时是 `{"given": false}`，打印 `单位：<单位>（材料未给，目录所填未经确认）`（目录填的，
+没人确认过）；没有单位时也是 `{"given": false}`，打印 `单位：材料未给`；目录没有单位、材料却给了的，是
+`{"given": true, "units": [...]}`，打印 `单位：<单位>（目录未填）`。所绑的列没有一列有表语义文档说明的属性不作判断。
+`doc_format` 仍是 `catalog-context/1`。不带 `--semantics` 时不对照，没确认过的单位读起来和确认过的一样：取指标时也带上 `--semantics`。
 
 ```text
 # 表 demo_dwd.dwd_party_customer_info_df

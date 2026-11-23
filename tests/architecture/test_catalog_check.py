@@ -253,6 +253,176 @@ def test_a_measure_without_a_unit_is_reported(tmp_path):
     assert _check(_save(tmp_path, ontology)).returncode == 0
 
 
+# ---- units: what the material gives, what is left to the owner ----
+
+LEFT_TO_OWNER = "待 owner 确认：单位"
+
+
+def _measure(ontology: dict, **fields) -> dict:
+    amount = _concept(ontology, "concept:task")["attributes"][0]
+    amount["category"] = "measure"
+    amount.update(fields)
+    return amount
+
+
+def _unit_digest(unit: str | None = None) -> dict:
+    """A digest with no rules whose task table lists the amount column, with ``unit``."""
+    column = {"column": "amount", "meaning": "金额"}
+    if unit:
+        column["unit"] = unit
+    return {"doc_format": "catalog-digest/1", "tables": [
+        {"table": "demo_dwd.task_det", "measure_columns": [column], "technical_columns": ["dt"], "rules": []},
+        {"table": "demo_dwd.record_det", "rules": []},
+    ]}
+
+
+def _check_units(tmp_path: Path, ontology: dict, digest: dict | None = None) -> subprocess.CompletedProcess:
+    extra = ["--digest", str(_save_digest(tmp_path, digest))] if digest is not None else []
+    return _check_with(_save(tmp_path, ontology), *extra)
+
+
+def _section(result: subprocess.CompletedProcess, opening: str) -> list[str]:
+    """The indented items under the for-the-reader line that starts with ``opening``."""
+    lines = result.stdout.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith(opening)), None)
+    if start is None:
+        return []
+    items = []
+    for line in lines[start + 1:]:
+        if not line.startswith("  "):
+            break
+        items.append(line.strip())
+    return items
+
+
+NO_UNIT = "供人看（不计入）：1 个度量属性没有单位"
+UNSUPPORTED = "供人看（不计入）：1 个度量属性有 unit"
+
+
+def test_a_measure_whose_unit_is_left_to_the_owner_is_listed_for_the_reader_not_reported(tmp_path):
+    ontology = _complete()
+    _measure(ontology, notes=f"列注释没写单位；{LEFT_TO_OWNER}")
+    result = _check_units(tmp_path, ontology)
+    assert result.returncode == 0, result.stdout
+    assert _lines(result, "measure_without_unit") == []
+    assert result.stdout.splitlines()[-1] == "0 finding(s)"
+    assert any("attr:task.amount" in item for item in _section(result, NO_UNIT))
+    assert "RESULT.md" in next(line for line in result.stdout.splitlines() if line.startswith(NO_UNIT))
+
+
+def test_a_measure_with_no_unit_and_no_sentence_is_still_reported(tmp_path):
+    ontology = _complete()
+    _measure(ontology, notes="待 owner 确认：是否含税")
+    for digest in (None, _unit_digest(), _unit_digest("元")):
+        result = _check_units(tmp_path, ontology, digest)
+        assert result.returncode == 1
+        assert _lines(result, "measure_without_unit") == ["measure_without_unit  attr:task.amount：度量属性没有 unit"]
+        assert result.stdout.splitlines()[-1] == "1 finding(s)", result.stdout
+        assert _section(result, NO_UNIT) == []
+
+
+def test_a_metric_over_a_measure_left_to_the_owner_is_not_reported_for_its_unit(tmp_path):
+    ontology = _complete()
+    _measure(ontology, notes=LEFT_TO_OWNER, additivity="additive")
+    ontology["metrics"] = [{"id": "metric:task_amount", "on": "concept:task", "aggregation": "sum",
+                            "measure": "attr:task.amount", "additivity": "additive"}]
+    result = _check_units(tmp_path, ontology)
+    assert result.returncode == 0, result.stdout
+    # still reported for what it lacks besides the unit
+    del ontology["metrics"][0]["additivity"]
+    line = _lines(_check_units(tmp_path, ontology), "metric_incomplete")[0]
+    assert "additivity" in line and "unit" not in line
+
+
+def test_a_metric_with_no_unit_over_a_measure_that_has_one_is_still_reported(tmp_path):
+    ontology = _complete()
+    _measure(ontology, unit="元", notes=LEFT_TO_OWNER)
+    ontology["metrics"] = [{"id": "metric:task_amount", "on": "concept:task", "aggregation": "sum",
+                            "measure": "attr:task.amount", "additivity": "additive"}]
+    line = _lines(_check_units(tmp_path, ontology), "metric_incomplete")[0]
+    assert "unit" in line
+
+
+def test_the_sentence_where_the_digest_gives_a_unit_is_reported(tmp_path):
+    """Writing only the sentence must not clear a unit the material does give."""
+    ontology = _complete()
+    _measure(ontology, notes=LEFT_TO_OWNER)
+    result = _check_units(tmp_path, ontology, _unit_digest("元"))
+    assert result.returncode == 1
+    (line,) = _lines(result, "unit_in_digest")
+    assert "attr:task.amount" in line and "demo_dwd.task_det.amount" in line and "元" in line
+    assert _section(result, NO_UNIT) == []
+    # a unit written beside the sentence does not clear it either
+    _measure(ontology, unit="元")
+    assert len(_lines(_check_units(tmp_path, ontology, _unit_digest("元")), "unit_in_digest")) == 1
+
+
+def test_a_supported_unit_replaced_by_the_sentence_is_told_apart_from_one_the_material_lacks(tmp_path):
+    """Before, both read only as a missing unit; now the first is a finding, the second is
+    listed for the reader."""
+    ontology = _complete()
+    _measure(ontology, notes=LEFT_TO_OWNER)
+    supported = _check_units(tmp_path, ontology, _unit_digest("元"))
+    lacking = _check_units(tmp_path, ontology, _unit_digest())
+    assert len(_lines(supported, "unit_in_digest")) == 1 and supported.returncode == 1
+    assert _lines(lacking, "unit_in_digest") == [] and lacking.returncode == 0, lacking.stdout
+    assert any("attr:task.amount" in item for item in _section(lacking, NO_UNIT))
+
+
+def test_a_unit_no_bound_column_has_in_the_digest_is_listed_for_the_reader(tmp_path):
+    ontology = _complete()
+    _measure(ontology, unit="元")
+    result = _check_units(tmp_path, ontology, _unit_digest())
+    assert result.returncode == 0, result.stdout
+    (item,) = _section(result, UNSUPPORTED)
+    assert "attr:task.amount" in item and "元" in item
+    assert "RESULT.md" in next(line for line in result.stdout.splitlines() if line.startswith(UNSUPPORTED))
+
+
+def test_a_unit_the_digest_supports_is_not_listed(tmp_path):
+    ontology = _complete()
+    _measure(ontology, unit="元")
+    result = _check_units(tmp_path, ontology, _unit_digest("元"))
+    assert result.returncode == 0 and _section(result, UNSUPPORTED) == [], result.stdout
+    # one bound column with a unit in the digest is enough for the attribute
+    _bindings(ontology, "demo_dwd.record_det").append({"column": "amt", "to": "attribute", "ref": "attr:task.amount"})
+    digest = _unit_digest("元")
+    digest["tables"][1]["measure_columns"] = [{"column": "amt", "meaning": "金额"}]
+    result = _check_units(tmp_path, ontology, digest)
+    assert result.returncode == 0 and _section(result, UNSUPPORTED) == [], result.stdout
+
+
+def test_the_sentence_is_the_one_the_templates_prescribe_and_validate_reads():
+    """The script, ``catalog validate`` and the two drafting templates must agree on the
+    sentence, or a measure drafted by the rule is reported anyway."""
+    from scope_lineage.catalog.soft_checks import UNIT_LEFT_TO_OWNER
+
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert f'UNIT_LEFT_TO_OWNER = "{LEFT_TO_OWNER}"' in script
+    assert UNIT_LEFT_TO_OWNER == LEFT_TO_OWNER
+    templates = REPO / "skills" / "scope-lineage-ontology" / "references" / "templates"
+    for name in ("T5.md", "T6.md"):
+        text = templates.joinpath(name).read_text(encoding="utf-8")
+        assert f"「{LEFT_TO_OWNER}」" in text, name
+        assert "暂填" not in text.replace("不要按列注释、列名或常识暂填", ""), name
+
+
+def test_the_answering_workflow_asks_for_a_metric_with_the_semantics():
+    """Without ``--semantics`` a metric's unit is never compared with the material."""
+    workflow = (REPO / "skills" / "scope-lineage" / "workflows" / "catalog-answers.md").read_text(encoding="utf-8")
+    commands = [line for line in workflow.splitlines() if "catalog context <O>" in line and "--concept" in line]
+    assert commands and all("--semantics <S>" in line for line in commands)
+    assert "材料未给" in workflow
+
+
+def test_without_a_digest_no_unit_is_compared_with_the_material(tmp_path):
+    ontology = _complete()
+    _measure(ontology, unit="元", notes=LEFT_TO_OWNER)
+    result = _check_units(tmp_path, ontology)
+    assert result.returncode == 0, result.stdout
+    assert "供人看" not in result.stdout
+
+
 def test_a_code_column_naming_another_concept_bound_as_a_plain_attribute_is_reported(tmp_path):
     ontology = _complete()
     bindings = _bindings(ontology, "demo_dwd.task_det")

@@ -1,6 +1,48 @@
 # Changelog
 
 ## Unreleased
+- **Changed: `catalog render`'s `index.md` opens with what to look at before using the catalog.**
+  The governance gap summary moves from the end of the page to before the concept listing, under
+  「用之前先看」, after two fixed sentences: the page states what the catalog has and lacks
+  structurally (whether answers are right is a matter of acceptance testing), and question answering
+  uses the built catalog file together with the table-semantics documents. The rest of the page,
+  and every other page, is unchanged.
+- **New: `catalog render --docs <dir>`** takes the directory of table-semantics documents (the one
+  `catalog context --semantics` takes; `--semantics` keeps meaning the rendered table pages, used for
+  links). With it the summary gains two rows -- tables whose unique key lineage proved, and how many
+  of those their document calls not unique (only for a catalog built with `--lineage`); measure
+  attributes whose unit the material supports -- and a section 「按表看」 lists every table in name
+  order: concept, key evidence and what the document says about uniqueness (with lineage evidence
+  only), measure columns and how many of them have no unit in the material, unmapped columns, and
+  watch items with how many contradict the material. A table no document covers shows `—` in the
+  cells that need one, and the totals say how many tables they count. Without `--docs` nothing is
+  added. Runbook step S10g passes `--docs`.
+- **Changed (internal): the rule deciding whether the material supports a measure's unit lives in
+  `render/catalog_units.py`** and tells supported, not supported and cannot be judged apart; the
+  context pack and the index both use it, and the context pack's output is unchanged.
+- **Changed: a measure whose unit the material does not give gets no unit, instead of a provisional
+  one.** The catalog drafting templates (T5, T6 in skill `scope-lineage-ontology`) used to tell the
+  drafter to fill in a unit from the column comment when the digest gave none, so a guessed unit read
+  like a confirmed one. Now the unit comes from the digest; when no column an attribute is bound to has
+  one, the drafter writes no `unit` and the sentence 「待 owner 确认：单位」 in `notes`, and a metric
+  over such a measure has no unit either. `catalog validate` no longer warns `measure_without_unit`
+  for a measure carrying that sentence (one with neither is warned as before), so the
+  `attribute_unit` coverage of a catalog drafted this way is lower. `catalog_check.py` follows:
+  such a measure, and a metric over it, are no longer findings; they are listed for the owner with a
+  count, beside a new list (with `--digest`) of measures whose unit no bound column has in the
+  digest; a new finding `unit_in_digest` reports a measure carrying the sentence while the digest
+  does give a unit for a column bound to it -- an existing catalog may gain findings from it. The
+  runbook steps S10c, S10d and S10g say who reworks what and that the orchestrator copies both lists
+  into `RESULT.md`'s pending-confirmation summary.
+- **New: `catalog context` marks a measure's unit the table semantics do not give.** With
+  `--semantics`, a `measure` attribute's unit on a column's binding, and a metric's unit over that
+  measure (`--concept` with a concept or a metric), are compared with the table semantics per
+  attribute: a unit no bound column has in the material is printed with
+  「（材料未给，目录所填未经确认）」, no unit with 「单位：材料未给」, and a unit only the material has
+  with 「（目录未填）」; the JSON gains `material_unit` (`doc_format` unchanged). Without `--semantics`
+  the pack is unchanged. The same answer reaches `cli_catalog_answers.context` and the service. The
+  answering workflow (`catalog-answers.md`) now fetches a metric with `--semantics` and treats a unit
+  marked 「材料未给」 as an assumption or a pending item, not a conclusion.
 - **New: a read-only browse page for a built catalog, served by `scope-lineage-service http` at
   `/`.** Domains, concepts, metrics and tables with hash links; a concept's neighbourhood drawn as an
   SVG relations graph with each relation's join conditions; a table's catalog facts beside its
