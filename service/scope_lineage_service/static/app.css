@@ -140,6 +140,41 @@ ul.plain li { padding: 0.15rem 0; }
 .graph-box .node a:focus rect, .graph-box .node a:hover rect { stroke: var(--accent); }
 .graph-box .arrow { fill: var(--edge); }
 
+/* The ask panel. A name wraps to its own line whole and is cut only when it alone is wider
+   than the line (break-word, as in table cells); model text keeps its line breaks. */
+.ask code { overflow-wrap: break-word; }
+.ask-form { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0 1rem; }
+.ask-form textarea {
+  font: inherit; color: var(--text); background: var(--panel); width: 100%; max-width: 100%;
+  border: 1px solid var(--line); border-radius: 4px; padding: 0.4rem 0.5rem; resize: vertical;
+}
+.ask-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.ask-buttons [role="status"] { margin: 0; }
+.ask-model { display: inline-flex; align-items: center; gap: 0.3rem; min-width: 0; max-width: 100%; }
+.ask-model select { min-width: 0; max-width: 18rem; }
+.ask-notice { background: var(--accent-soft); padding: 0.5rem 0.75rem; border-radius: 4px; }
+.fake-banner {
+  background: var(--warn-soft); color: var(--warn); border: 2px dashed var(--warn);
+  padding: 0.6rem 0.8rem; border-radius: 6px; margin: 0.5rem 0; font-weight: 600;
+}
+.ask-run {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.2rem 0.9rem 0.6rem; margin: 0.8rem 0;
+}
+.ask-run > h2 { border-bottom: none; margin-top: 0.6rem; overflow-wrap: anywhere; }
+.ask-steps { padding-left: 1.4rem; margin: 0.4rem 0; }
+.ask-steps > li { margin: 0.45rem 0; }
+.ask-step-title { overflow-wrap: break-word; }
+.ask-note { white-space: pre-wrap; color: var(--muted); }
+.ask-answer { border-top: 1px solid var(--line); margin-top: 0.6rem; }
+.ask-answer .ask-note { color: var(--text); }
+pre.sql { white-space: pre-wrap; overflow-wrap: break-word; }
+.ask-idents p { margin: 0.2rem 0; }
+.ask-holes > li { padding: 0.4rem 0; border-bottom: 1px solid var(--line); }
+.ask-fill { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.3rem; }
+.ask-fill input { flex: 1 1 14rem; min-width: 0; }
+.ask-end { margin-top: 0.6rem; }
+.ask-end p { margin: 0.2rem 0; }
 /* a wide table's columns: what only some columns have sits on a line of its own under
    the column, not in a column of mostly empty cells */
 tr.column-extra td { border-top: none; color: var(--muted); font-size: 0.92em; padding-top: 0; }
@@ -167,6 +202,7 @@ td.num { text-align: right; white-space: nowrap; }
 
 @media (max-width: 40rem) {
   .main { padding: 0.75rem; }
+  .ask-run { padding: 0.2rem 0.6rem 0.5rem; }
   .search { margin-left: 0; max-width: none; }
   .kv { grid-template-columns: minmax(0, 1fr); }
   .kv dt { margin-top: 0.3rem; }

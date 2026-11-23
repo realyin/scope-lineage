@@ -28,6 +28,15 @@ catalog text placed in the page cannot load or run anything. The page calls the 
 endpoints (``/api/browse``, ``/api/list``, ``/api/neighbourhood``, ``/api/semantics``,
 ``/api/units``, ``/api/questions``), which answer what ``cli_catalog_answers`` answers a view at a time;
 they have no command of their own and answer JSON only.
+
+The ask endpoints (``/api/ask...``) exist only when the server was started with ``--ask``
+(otherwise 404 ``not_configured``, like the pending endpoints without ``--pending``): a
+question is answered by a model on this server through the catalog tools
+(``ask.service``), never in the browser. Every POST must come from this page's own
+origin: an ``Origin`` header, when sent, must name exactly this server's host and port,
+and a ``Sec-Fetch-Site`` header, when sent, must say ``same-origin`` -- so no other site
+open in the browser, not even another port on this machine, can make the server spend
+money or write the pending file. The ask POSTs take ``application/json`` only.
 """
 
 from __future__ import annotations
@@ -54,6 +63,7 @@ from scope_lineage.render.catalog_query import QUERY_KINDS
 from scope_lineage.render.catalog_search import SEARCH_KINDS
 
 from . import __version__
+from .ask.service import AskError
 from .state import CatalogState, PendingNotConfigured
 
 EXIT_HEADER = "X-Scope-Lineage-Exit-Code"
@@ -73,7 +83,16 @@ STATIC_FILES = {
     "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
     "/views.js": ("views.js", "text/javascript; charset=utf-8"),
     "/graph.js": ("graph.js", "text/javascript; charset=utf-8"),
+    "/ask.js": ("ask.js", "text/javascript; charset=utf-8"),
+    "/askview.js": ("askview.js", "text/javascript; charset=utf-8"),
 }
+ASK_NOT_CONFIGURED = (
+    "this server was started without --ask: asking calls a model through the Anthropic API, "
+    "costs money and sends catalog text to the model provider; start the server with --ask "
+    "to enable it"
+)
+ASK_FIELDS = {"question": str, "conversation": str, "model": str}
+DEFAULT_WAIT = 20
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
     "connect-src 'self'; font-src 'none'; object-src 'none'; base-uri 'none'; "
@@ -180,6 +199,49 @@ ENDPOINTS = [
             ),
         },
         "cli": "catalog pending add PENDING --question Q (--missing M | --from-sql FILE) ...",
+    },
+    {
+        "method": "GET", "path": "/api/ask/status", "ask": True,
+        "description": "Whether asking works now (and why not), the models a question may "
+                       "use (id, label, provider kind, available and why not, the default), "
+                       "caps and conversation limits. Never a model's URL or key. JSON only.",
+        "params": {},
+    },
+    {
+        "method": "POST", "path": "/api/ask", "ask": True,
+        "description": (
+            "Ask a data question: a model on this server answers it through the catalog tools "
+            "(search, context, query, check-sql, pending add), following the skill's walk. 202 "
+            "with the conversation and run ids; poll /api/ask/events. Never runs SQL. Costs "
+            "money and sends catalog text to the model provider. 409 while the conversation "
+            "is still answering."
+        ),
+        "params": {
+            "body": "application/json: question (required); conversation (an id from an "
+                    "earlier answer: a follow-up carrying its brief); model (a model id from "
+                    "/api/ask/status, default the server's default; 400 unknown, 409 unavailable)",
+        },
+    },
+    {
+        "method": "GET", "path": "/api/ask/events", "ask": True,
+        "description": "A run's events after number after, waiting up to wait seconds for the "
+                       "next one; done when the run has finished. JSON only.",
+        "params": {
+            "conversation": "required: the conversation id",
+            "run": "required: the run id",
+            "after": "the last event number seen (default 0)",
+            "wait": f"seconds to wait for an event, 0 to 25 (default {DEFAULT_WAIT})",
+        },
+    },
+    {
+        "method": "POST", "path": "/api/ask/cancel", "ask": True,
+        "description": "Stop the conversation's running question.",
+        "params": {"body": "application/json: conversation (required)"},
+    },
+    {
+        "method": "GET", "path": "/api/ask/conversation", "ask": True,
+        "description": "A conversation's questions and the brief the next one carries. JSON only.",
+        "params": {"conversation": "required: the conversation id"},
     },
     {
         "method": "GET", "path": "/",
@@ -333,7 +395,7 @@ class CatalogHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 30  # a client that stops sending does not hold a thread for ever
 
-    # The server instance carries: state, max_body, allowed_hosts, quiet.
+    # The server instance carries: state, max_body, allowed_hosts, quiet, ask.
 
     def log_message(self, format, *args):
         if not self.server.quiet:
@@ -352,6 +414,8 @@ class CatalogHandler(BaseHTTPRequestHandler):
             self.close_connection = True  # a GET body is never read
         try:
             self._check_host()
+            if method == "POST":
+                self._check_same_origin()
             path, _, query = self.path.partition("?")
             routes = self._routes()
             if path not in routes:
@@ -369,6 +433,8 @@ class CatalogHandler(BaseHTTPRequestHandler):
             self._send_error(error, headers)
         except PendingNotConfigured as error:
             self._send_error(RequestError(404, "not_configured", error.message))
+        except AskError as error:
+            self._send_error(RequestError(error.status, error.kind, error.message))
 
     def _routes(self) -> dict:
         routes = {
@@ -387,6 +453,12 @@ class CatalogHandler(BaseHTTPRequestHandler):
             "/api/semantics": {"GET": self._semantics},
             "/api/units": {"GET": self._units},
             "/api/questions": {"GET": self._questions},
+            # Answered 404 not_configured when the server was started without --ask.
+            "/api/ask/status": {"GET": self._ask_status},
+            "/api/ask": {"POST": self._ask},
+            "/api/ask/events": {"GET": self._ask_events},
+            "/api/ask/cancel": {"POST": self._ask_cancel},
+            "/api/ask/conversation": {"GET": self._ask_conversation},
         }
         return routes
 
@@ -401,19 +473,33 @@ class CatalogHandler(BaseHTTPRequestHandler):
             if not netloc or _host_of(netloc) not in allowed:
                 raise RequestError(403, "forbidden_origin", f"Origin {origin!r} is not served here")
 
+    def _check_same_origin(self) -> None:
+        """A POST comes from this server's own page, or from no browser page at all."""
+        site = self.headers.get("Sec-Fetch-Site")
+        if site is not None and site.strip().lower() not in ("same-origin", "none"):
+            raise RequestError(403, "forbidden_origin",
+                               f"a POST from another site (Sec-Fetch-Site: {site}) is refused")
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            host = (self.headers.get("Host") or "").strip().lower()
+            if not host or urlsplit(origin.strip()).netloc.lower() != host:
+                raise RequestError(403, "forbidden_origin",
+                                   f"a POST from another origin ({origin!r}) is refused")
+
     # ------------------------------------------------------------------ endpoints
 
     def _endpoints(self, query: str) -> None:
         _Params(query, set())
         configured = self.server.state.pending_path is not None
+        asking = self.server.ask is not None
         listing = [
-            {key: value for key, value in item.items() if key != "pending"}
+            {key: value for key, value in item.items() if key not in ("pending", "ask")}
             for item in ENDPOINTS
-            if configured or not item.get("pending")
+            if (configured or not item.get("pending")) and (asking or not item.get("ask"))
         ]
         self._send_json(200, {
             "service": "scope-lineage-service", "version": __version__,
-            "read_only": True, "executes_sql": False,
+            "read_only": True, "executes_sql": False, "asks_a_model": asking,
             "exit_code_header": EXIT_HEADER, "endpoints": listing,
         })
 
@@ -564,6 +650,68 @@ class CatalogHandler(BaseHTTPRequestHandler):
         )
         self._answer(lambda: self.server.state.questions(**request), "json", nothing_found=200)
 
+    # ------------------------------------------------------------------ ask
+
+    def _asking(self):
+        if self.server.ask is None:
+            raise RequestError(404, "not_configured", ASK_NOT_CONFIGURED)
+        return self.server.ask
+
+    def _ask_status(self, query: str) -> None:
+        _Params(query, set()).json_only()
+        self._send_json(200, self._asking().status())
+
+    def _ask(self, query: str) -> None:
+        _Params(query, set())
+        service = self._asking()
+        payload = self._json_request(ASK_FIELDS)
+        if not isinstance(payload.get("question"), str):
+            raise _bad("question is required")
+        conversation, run = service.ask(payload["question"], payload.get("conversation"),
+                                        payload.get("model"))
+        self._send_json(202, {"conversation": conversation.id, "run": run.id,
+                              "follow_up": bool(run.brief), "model": run.model_id})
+
+    def _ask_events(self, query: str) -> None:
+        params = _Params(query, {"conversation", "run", "after", "wait"})
+        params.json_only()
+        service = self._asking()
+        conversation = params.one("conversation", required=True)
+        run = params.one("run", required=True)
+        after, wait = params.integer("after", 0), params.integer("wait", DEFAULT_WAIT)
+        if after < 0 or not 0 <= wait <= 25:
+            raise _bad("after takes an integer >= 0 and wait one from 0 to 25")
+        self._send_json(200, service.events(conversation, run, after, wait))
+
+    def _ask_cancel(self, query: str) -> None:
+        _Params(query, set())
+        service = self._asking()
+        payload = self._json_request({"conversation": str})
+        if not isinstance(payload.get("conversation"), str):
+            raise _bad("conversation is required")
+        self._send_json(200, service.cancel(payload["conversation"]))
+
+    def _ask_conversation(self, query: str) -> None:
+        params = _Params(query, {"conversation"})
+        params.json_only()
+        service = self._asking()
+        self._send_json(200, service.conversation(params.one("conversation", required=True)))
+
+    def _json_request(self, fields: dict) -> dict:
+        """A JSON object body holding only ``fields`` (name -> type; null means absent)."""
+        body, content_type = self._read_body()
+        if content_type != "application/json":
+            raise RequestError(415, "unsupported_media_type",
+                               f"POST {self.path.partition('?')[0]} takes application/json")
+        payload = self._json_object(body)
+        unknown = sorted(set(payload) - set(fields))
+        if unknown:
+            raise _bad(f"unknown field(s): {', '.join(unknown)}")
+        for name, value in payload.items():
+            if value is not None and not isinstance(value, fields[name]):
+                raise _bad(f"{name} takes a string")
+        return {key: value for key, value in payload.items() if value is not None}
+
     # ------------------------------------------------------------------ helpers
 
     def _answer(self, produce, fmt: str, nothing_found: int) -> None:
@@ -666,8 +814,10 @@ def _static_bytes(name: str) -> bytes:
 class CatalogHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, state: CatalogState, *, max_body: int, allowed_hosts, quiet):
+    def __init__(self, address, state: CatalogState, *, max_body: int, allowed_hosts, quiet,
+                 ask=None):
         self.state = state
+        self.ask = ask
         self.max_body = max_body
         self.allowed_hosts = frozenset(allowed_hosts)
         self.quiet = quiet
@@ -682,9 +832,11 @@ def make_server(
     max_body: int = DEFAULT_MAX_BODY,
     allow_hosts=(),
     quiet: bool = False,
+    ask=None,
 ) -> CatalogHTTPServer:
-    """A server bound to ``host:port`` (port 0: any free port); call ``serve_forever``."""
+    """A server bound to ``host:port`` (port 0: any free port); call ``serve_forever``.
+    ``ask`` is an ``ask.service.AskService``, or None for no ask endpoints."""
     allowed = set(LOOPBACK) | {_host_of(host)} | {_host_of(item) for item in allow_hosts}
     return CatalogHTTPServer(
-        (host, port), state, max_body=max_body, allowed_hosts=allowed, quiet=quiet
+        (host, port), state, max_body=max_body, allowed_hosts=allowed, quiet=quiet, ask=ask
     )

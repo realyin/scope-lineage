@@ -99,6 +99,8 @@ def test_the_page_is_served_at_the_root_with_a_strict_policy(server) -> None:
         ("/dom.js", "text/javascript; charset=utf-8"),
         ("/graph.js", "text/javascript; charset=utf-8"),
         ("/views.js", "text/javascript; charset=utf-8"),
+        ("/ask.js", "text/javascript; charset=utf-8"),
+        ("/askview.js", "text/javascript; charset=utf-8"),
     ],
 )
 def test_each_static_file_has_its_content_type(server, path, content_type) -> None:

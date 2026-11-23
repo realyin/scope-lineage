@@ -1,7 +1,7 @@
 [project]
 name = "scope-lineage-service"
 version = "0.1.0"
-description = "Read-only HTTP and MCP servers for the scope-lineage catalog answer commands"
+description = "HTTP and MCP servers for the scope-lineage catalog answer commands, with an optional ask panel"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -12,6 +12,14 @@ license = "Apache-2.0"
 dependencies = ["scope-lineage>=0.15", "mcp>=2.3,<3"]
 
 [project.optional-dependencies]
+# The ask panel (`http --ask`): a model answers data questions on the server through the
+# catalog tools. Imported lazily; without it every other endpoint, the MCP server and the
+# browse page work, and asking reports that the package is missing.
+ask = ["anthropic>=1.7,<2"]
+# OpenAI-compatible endpoints in an --ask-models file (privately hosted models and other
+# vendors speaking the Chat Completions API): the official openai SDK, imported lazily
+# like the one above; without it such a model is listed as unavailable.
+ask-openai = ["openai>=1.40,<3"]
 dev = ["pytest>=7", "ruff>=0.6"]
 
 [project.scripts]
@@ -27,4 +35,6 @@ include = ["scope_lineage_service*"]
 
 [tool.setuptools.package-data]
 # The browse page: plain HTML, CSS and JavaScript served by the HTTP server, no build step.
-scope_lineage_service = ["static/*.html", "static/*.css", "static/*.js"]
+# ask/*.md: exact copies of the skill's walk, the ask panel's instructions (a test holds
+# them to skills/scope-lineage/).
+scope_lineage_service = ["static/*.html", "static/*.css", "static/*.js", "ask/*.md"]
