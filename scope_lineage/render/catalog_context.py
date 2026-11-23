@@ -43,8 +43,11 @@ unconfirmed, and a measure with no unit says whether the material gives one
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Optional
+
+from ..catalog.soft_checks import UNIT_LEFT_TO_OWNER
 
 from .catalog_gaps import conflict_text
 from .catalog_joins import (
@@ -414,7 +417,28 @@ def _metric(view: CatalogView, metric: Mapping, material: Optional[Mapping] = No
         {"id": c, "expression": (by_id.get(c) or {}).get("expression")}
         for c in metric.get("constraints") or []
     ]
+    notes = shown_notes(metric.get("notes"), answer.get("material_unit"))
+    if notes:
+        answer["notes"] = notes
     return answer
+
+
+_CLAUSE_END = re.compile(r"(?<=[。；;])")
+
+
+def shown_notes(notes, mark: Optional[Mapping]) -> Optional[str]:
+    """An item's ``notes`` as the answer prints them, or None when there is nothing to say.
+
+    Where the answer already says the material gives no unit (``material_unit`` with
+    ``given: false``), the sentence leaving the unit to the owner says the same and is left
+    out; every other sentence is kept as written."""
+    text = "；".join(str(note) for note in notes) if isinstance(notes, list) else str(notes or "")
+    if mark is not None and not mark.get("given"):
+        text = "".join(
+            clause for clause in _CLAUSE_END.split(text)
+            if clause.strip().rstrip("。；; ") != UNIT_LEFT_TO_OWNER
+        )
+    return text.strip() or None
 
 
 # -------------------------------------------------------------------- links
@@ -1024,6 +1048,9 @@ def _binding(
             mark = unit_mark(view, attribute, attribute.get("unit"), material)
             if mark is not None:
                 answer["material_unit"] = mark
+            notes = shown_notes(attribute.get("notes"), mark)
+            if notes:
+                answer["notes"] = notes
             values = [
                 {"code_set": code_set["id"], "values": [
                     _pick(value, ("value", "meaning", "retired", "unconfirmed"))
@@ -1141,6 +1168,8 @@ def _metric_lines(metric: Mapping, asked: bool = False) -> list[str]:
         lines.append("  - 维度：" + "、".join(d["name"] for d in metric["dimensions"]))
     for constraint in metric["constraints"]:
         lines.append(f"  - 约束 {constraint['id']}：{constraint.get('expression') or ''}")
+    if metric.get("notes"):
+        lines.append(f"  - 备注：{metric['notes']}")
     return lines
 
 
@@ -1471,6 +1500,7 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
         for key, label in (
             ("definition", "定义"), ("type", "类型"), ("unit", "单位"), ("derivation", "取值"),
             ("time_role", "时间角色"), ("via", "经由"), ("expression", "表达式"),
+            ("notes", "备注"),
         ):
             if key == "unit":
                 lines += [f"  - {line}" for line in _unit_line(catalog)]

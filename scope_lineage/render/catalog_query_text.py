@@ -238,6 +238,9 @@ def _attribute(match: Mapping) -> list[str]:
         lines += _codes_line(f"码值（{code_set['name']} {code_set['id']}）", code_set)
     if match.get("derivation"):
         lines.append(f"  口径：{match['derivation']}")
+    if match.get("notes"):
+        notes = match["notes"]
+        lines.append(f"  备注：{'；'.join(notes) if isinstance(notes, list) else notes}")
     return lines + [f"  - {c['table']}.{_column_text(c, show_type=False)}" for c in match["columns"]]
 
 

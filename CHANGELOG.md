@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **New: a metric's and an attribute's `notes` reach the asking agent.** `catalog context` gives a
+  metric entry (in a `--concept` pack) its `notes`, and a column's full answer the bound attribute's
+  `notes` (`catalog.notes`), each printed as 「备注：…」; `catalog query attribute` gives the attribute's
+  (`notes`, 「备注：…」). `--brief` keeps them. Where the answer already marks the unit as not given by
+  the material (`material_unit` with `given: false`), the sentence 「待 owner 确认：单位」 is left out of the
+  printed notes; every other sentence is kept as written. An item with no notes answers byte for byte
+  as before.
 - **Changed: T5, T6 and the fragment prompt record a measure repeated within its table's grain in
   `notes`, not in `additivity`.** When the digest gives a measure's column `joined in through … on <keys>`
   and the keys do not cover the table's grain, the measure attribute's `notes` (and a metric's over it)

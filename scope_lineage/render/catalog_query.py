@@ -363,7 +363,7 @@ def _attribute_matches(view: CatalogView, term: str) -> list[dict]:
 
 
 def _attribute_answer(view: CatalogView, attribute: dict, matched_by: str) -> dict:
-    keys = ("definition", "category", "type", "unit", "derivation", "status")
+    keys = ("definition", "category", "type", "unit", "derivation", "status", "notes")
     answer = {
         "id": attribute["id"],
         "matched_by": matched_by,
