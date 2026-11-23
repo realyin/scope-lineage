@@ -925,6 +925,8 @@ def _binding(
             attribute = view.attributes[ref][0]
             if attribute.get("definition"):
                 answer["definition"] = attribute["definition"]
+            if attribute.get("type"):
+                answer["type"] = attribute["type"]
             if attribute.get("unit"):
                 answer["unit"] = attribute["unit"]
             mark = unit_mark(view, attribute, attribute.get("unit"), material)
@@ -1353,7 +1355,7 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
         bound = f"{ref['name']}（{ref['id']}）" if ref else ""
         lines.append(f"- 目录：{catalog['to']} {bound}".rstrip())
         for key, label in (
-            ("definition", "定义"), ("unit", "单位"), ("derivation", "取值"),
+            ("definition", "定义"), ("type", "类型"), ("unit", "单位"), ("derivation", "取值"),
             ("time_role", "时间角色"), ("via", "经由"), ("expression", "表达式"),
         ):
             if key == "unit":

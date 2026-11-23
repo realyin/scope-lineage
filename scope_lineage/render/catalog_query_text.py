@@ -156,7 +156,9 @@ def _table(match: Mapping) -> list[str]:
     return lines
 
 
-def _column_text(column: Mapping) -> str:
+def _column_text(column: Mapping, show_type: bool = True) -> str:
+    """One column's line; ``show_type=False`` where the attribute's line above already
+    gives its type (``query attribute``)."""
     text = f"{column['column']} → {BINDING_TEXT[column['to']]}"
     if column.get("ref"):
         text += f" {column['ref_name']} {column['ref']}"
@@ -171,6 +173,8 @@ def _column_text(column: Mapping) -> str:
     if column.get("code_map"):
         text += "（码值 " + ", ".join(f"{k}→{v}" for k, v in column["code_map"].items()) + "）"
     text += translation_text([c["name"] for c in column.get("code_sets") or []], column) or ""
+    if show_type and column.get("type"):
+        text += f"；类型 {column['type']}"
     evidence = column.get("evidence") or {}
     if column.get("derivation"):
         text += f"；口径 {column['derivation']}"
@@ -234,7 +238,7 @@ def _attribute(match: Mapping) -> list[str]:
         lines += _codes_line(f"码值（{code_set['name']} {code_set['id']}）", code_set)
     if match.get("derivation"):
         lines.append(f"  口径：{match['derivation']}")
-    return lines + [f"  - {c['table']}.{_column_text(c)}" for c in match["columns"]]
+    return lines + [f"  - {c['table']}.{_column_text(c, show_type=False)}" for c in match["columns"]]
 
 
 def _codes_line(label: str, code_set: Mapping) -> list[str]:

@@ -281,7 +281,7 @@ def test_a_code_column_answers_as_before(document: dict) -> None:
     head = text.splitlines()[0]
     assert head == (
         f"{WAIVER_TABLE}.reason_cd → 属性 豁免原因 {ATTRIBUTE}（概念 豁免）"
-        "（码值：先查 豁免原因，查不到查 豁免渠道）"
+        "（码值：先查 豁免原因，查不到查 豁免渠道）；类型 string"
     )
 
 

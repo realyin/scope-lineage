@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- **New: a column bound to an attribute shows the attribute's type.** The context pack's column
+  answer (`catalog.type`, printed 「类型：…」), `catalog query table`'s column list and `catalog query
+  column` (`type`, printed 「；类型 …」) give the catalog attribute's `type` for a column bound as
+  `attribute` or `foreign_attribute`. Identifier, technical and unmapped columns have no type in the
+  catalog and print nothing extra. `catalog query attribute` keeps the type in its first line only.
 - **Fixed: a literal `unknown` schedule cycle no longer hides the cron.** Some task exports write
   `unknown` as `schedule_cycle`; the evidence `catalog build` attaches (`refresh`) and the table card's
   更新频率 took it as the value. Both now read `table_cards.refresh_cadence`: a missing or `unknown`

@@ -225,10 +225,13 @@ def _value_keys(code_set: dict, binding: dict) -> dict:
 
 
 def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
-    """One bound column: what it binds to, its code map, derivation and evidence."""
+    """One bound column: what it binds to (with the attribute's ``type`` for a column bound
+    to an attribute), its code map, derivation and evidence."""
     answer = {"column": binding["column"], "to": binding["to"]}
     if binding.get("ref"):
         answer.update(ref=binding["ref"], ref_name=view.name(binding["ref"]))
+        if binding["ref"] in view.attributes and view.attributes[binding["ref"]][0].get("type"):
+            answer["type"] = view.attributes[binding["ref"]][0]["type"]
     if binding["to"] == "foreign_attribute":
         answer.update(via=binding["via"], concept=_owner(view, binding["ref"]))
         if view.other_instance_concept(rep, binding):
