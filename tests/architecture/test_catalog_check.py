@@ -672,6 +672,13 @@ def test_keys_leaving_a_grain_column_out_are_reported(tmp_path):
     assert "推断" in line and "safe" in line
 
 
+def test_the_remedy_is_a_note_naming_each_table_or_a_skip_line(tmp_path):
+    (line,) = _repeats(tmp_path, _repeat_catalog(), _repeat_digest())
+    assert "notes" in line and "按 <键> 每组取一行后再加" in line
+    assert "attr:task.amount repeats skip: <理由>" in line
+    assert "不再写 additive" not in line and "additivity 不为此改" in line
+
+
 def test_keys_covering_the_grain_are_not_reported(tmp_path):
     assert _repeats(tmp_path, _repeat_catalog(), _repeat_digest(keys=("line_no", "task_id"))) == []
 

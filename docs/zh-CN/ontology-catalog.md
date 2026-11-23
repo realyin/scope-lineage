@@ -1349,7 +1349,11 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
   按这条语句自己判定的放大状态（`safe` / `risk` / `unknown`，不读表卡片，可能比材料包保守）。只记第一层聚合之上的
   JOIN（聚合之下的被聚合折叠）；连接键有一个对不到本表的列就不写这一项；几条语句写同一列时各写各的，并带
   `source`（`<任务>/<语句>`）。不比较、不按 `fan_out` 过滤：键没盖住这张表的行粒度时，同键的多行带同一个值，比较由
-  `catalog_check.py` 做。md 写 `joined in through <rule> on <键> (fan-out: <状态>)`；
+  `catalog_check.py` 做。md 写 `joined in through <rule> on <键> (fan-out: <状态>)`。起草时，键没盖住粒度、确实重复的，
+  在度量属性和以它为度量的指标的 `notes` 写「在 <库.表> 里同 <键> 的多行带同一个值，按 <键> 每组取一行后再加」，
+  `additivity` 不为此改——这个值在它自己的粒度上仍然可加，错在按本表的行相加；读 SQL 判断不重复的，在
+  `catalog_changes.md` 写 `<属性 id> repeats skip: <理由>`。`catalog_check.py --digest` 的 `measure_repeats_within_grain`
+  报既没这样写 `notes`、也没写 skip 行的 `additive` 度量属性；
 
 什么算：只有经 JOIN 进入（或途经被关联的子查询 / CTE）的值才有条件；条件是与字符串字面量的单个等值比较，
 写在 JOIN 的 `ON` 里、被关联子查询 / CTE 的 `WHERE` 里，或同一查询 `WHERE` 里限定被关联别名本身的位置。

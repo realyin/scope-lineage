@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- **Changed: T5, T6 and the fragment prompt record a measure repeated within its table's grain in
+  `notes`, not in `additivity`.** When the digest gives a measure's column `joined in through … on <keys>`
+  and the keys do not cover the table's grain, the measure attribute's `notes` (and a metric's over it)
+  say 「在 <库.表> 里同 <键> 的多行带同一个值，按 <键> 每组取一行后再加」, the metric keeps finer
+  dimensions of that table out, and `additivity` stays what the definitions give: the value is still
+  additive at its own grain. The line is a lead; a value the SQL shows does not repeat is closed with
+  `<attribute id> repeats skip: <reason>`. Otherwise the derivation is read as before. This replaces the
+  earlier T5 sentence that said to write `non_additive`. The `measure_repeats_within_grain` finding now
+  gives that note (or the skip line) as its remedy. The definitions of the additivity values are
+  unchanged.
 - **New: `catalog_check.py --digest` finding `measure_repeats_within_grain`.** An `additive` measure
   attribute bound to a column whose digest `joined_in` names a JOIN whose keys leave a grain column of
   that table out is reported: rows sharing the key carry the same value, so adding across rows counts

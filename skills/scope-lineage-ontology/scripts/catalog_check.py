@@ -439,8 +439,9 @@ def _repeat_findings(ontology: dict, digest: dict, changes: str) -> list[str]:
         uses = ("；以它为度量的 sum + additive 指标：" + "、".join(f"{m}（sum）" for m in metrics)) if metrics else ""
         findings.append(
             f"measure_repeats_within_grain  {attribute['id']}：{said}——同键的多行带同一个值{uses}。"
-            "确认跨行相加是否重复计数：是就不再写 additive，并在 notes 写出每张表按哪些键取一行后再加；"
-            f"不重复就在 catalog_changes.md 写一行 `{attribute['id']} repeats skip: <理由>`"
+            "读 SQL 确认：重复的，在属性（和这些指标）的 notes 为每张列出的表写「在 <库.表> 里同 <键> 的多行带同一个值，"
+            "按 <键> 每组取一行后再加」（additivity 不为此改）；"
+            f"不重复的，在 catalog_changes.md 写一行 `{attribute['id']} repeats skip: <理由>`"
         )
     return findings
 

@@ -1597,6 +1597,12 @@ binding's `holds` are written from, so the drafter need not go back to the SQL f
   (`<task>/<statement>`). Nothing is compared or filtered by `fan_out`: keys that do not cover
   the table's row grain mean rows sharing the key carry the same value, and `catalog_check.py`
   makes that comparison. The md says `joined in through <rule> on <keys> (fan-out: <status>)`.
+  When drafting, a value that does repeat gets, in the `notes` of its measure attribute and of
+  each metric over it, 「在 <库.表> 里同 <键> 的多行带同一个值，按 <键> 每组取一行后再加」; its
+  `additivity` is not changed for this -- the value is still additive at its own grain, what is
+  wrong is summing it over this table's rows. One the SQL shows does not repeat gets
+  `<attribute id> repeats skip: <reason>` in `catalog_changes.md`. `catalog_check.py --digest`
+  reports, as `measure_repeats_within_grain`, an `additive` measure attribute with neither.
 
 What counts: only a value that enters through a JOIN (or passes through a joined
 subquery / CTE) has conditions; a condition is a single equality with a string literal, in
