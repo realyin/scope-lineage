@@ -19,8 +19,9 @@ Two options shorten a table's pack for an agent that asks many questions. ``brie
 every item that decides how to query -- the catalog facts, what a row is, how to read it,
 scope, not-for, watch items, open questions, the text of the cited rules -- and shortens the
 parts that are long and do not: each column is named with its category but not described,
-a cited rule loses its SQL, and a downstream reader is named by the table it writes (its
-task only when it writes none). ``focus`` narrows a table's watch items, open questions and
+a cited rule loses its SQL, a downstream reader is named by the table it writes (its
+task only when it writes none), and a join column's sample JOINs between two tables both
+outside the catalog are counted rather than listed. ``focus`` narrows a table's watch items, open questions and
 cited rules to the requested columns of that table: an item names a column by a
 ``column:<name>`` reference (``refs`` of a watch item, ``about`` of a question), and one that
 names no column is about the whole table and always stays. A rule carries no column
@@ -702,7 +703,7 @@ def _table(
             if b.get("time_role")
         ],
         **({"partition": _partition(rep)} if partition_reading(rep) else {}),
-        "joins": _joins(view, rep),
+        "joins": _joins(view, rep, brief=brief),
     }
     answer["constraints"], unbound = _table_constraints(view, rep)
     if unbound:
@@ -720,8 +721,11 @@ def _table(
     return answer
 
 
-def _joins(view: CatalogView, rep: Mapping) -> list[dict]:
-    """One entry per foreign-key column: the identifier it holds and where that key lives."""
+def _joins(view: CatalogView, rep: Mapping, *, brief: bool = False) -> list[dict]:
+    """One entry per foreign-key column: the identifier it holds and where that key lives.
+
+    ``brief`` folds the JOINs whose two tables are both outside the catalog into a count
+    (``seen_outside_catalog``); a JOIN involving a catalog table is always listed."""
     found = []
     for binding in rep["bindings"]:
         if binding["to"] != "foreign_identifier" or not binding.get("ref"):
@@ -741,6 +745,10 @@ def _joins(view: CatalogView, rep: Mapping) -> list[dict]:
             "to": sorted(targets, key=lambda t: (t["table"], t["column"])),
             "seen": _seen(view, rep, binding, other),
         }
+        if brief:
+            outside = _fold_outside(view, join)
+            if outside:
+                join["seen_outside_catalog"] = outside
         if binding.get("derivation"):
             join["derivation"] = binding["derivation"]
         found.append(join)
@@ -748,8 +756,20 @@ def _joins(view: CatalogView, rep: Mapping) -> list[dict]:
 
 
 def _seen(view: CatalogView, rep: Mapping, binding: Mapping, other) -> list[dict]:
-    """The JOINs the corpus showed for the relations this column realises."""
-    seen = []
+    """The JOINs the corpus showed for the relations this column realises, kept to the
+    samples that involve this column, one entry for the same evidence.
+
+    The evidence is per relation, so two things went wrong when it was copied under every
+    column: a column naming no ``relation`` realises every parallel relation between the
+    two concepts, and each of them carried the same JOINs (now one entry, ``relations``
+    naming them all); and a relation's samples were listed under each column realising
+    it, whichever column they filled (now only those that involve this one: a JOIN inside
+    a producing task by the column it fills, a JOIN between catalog tables by its two
+    sides). ``count`` is the relation's when every sample is this column's, else the
+    number of samples that are.
+    """
+    column = f"{rep['table']}.{binding['column']}".casefold()
+    seen: list[dict] = []
     for relation in view.relations_of(rep["concept"]):
         if other not in (relation["from"], relation["to"]):
             continue
@@ -759,14 +779,52 @@ def _seen(view: CatalogView, rep: Mapping, binding: Mapping, other) -> list[dict
             ("between_catalog_tables", view.relation_joins(relation["id"])),
             ("inside_producing_task", view.relation_source_joins(relation["id"])),
         ):
-            if joins and joins.get("count"):
-                seen.append({
-                    "relation": relation["id"],
-                    "where": where,
-                    "count": joins["count"],
-                    "on": [sample["on"] for sample in joins.get("samples") or []],
-                })
+            if not joins or not joins.get("count"):
+                continue
+            samples = joins.get("samples") or []
+            mine = [sample for sample in samples if _involves(sample, column)]
+            if samples and not mine:
+                continue
+            count = joins["count"] if len(mine) == len(samples) else len(mine)
+            on = list(dict.fromkeys(sample["on"] for sample in mine))
+            same = next(
+                (s for s in seen if (s["where"], s["count"], s["on"]) == (where, count, on)), None
+            )
+            if same is not None:
+                same.setdefault("relations", [same["relation"]]).append(relation["id"])
+                continue
+            seen.append({"relation": relation["id"], "where": where, "count": count, "on": on})
     return seen
+
+
+def _involves(sample: Mapping, column: str) -> bool:
+    """Whether a sample JOIN is about ``db.table.column`` (lower case): the column a
+    JOIN inside a producing task fills, else one side of the JOIN's ``a = b``."""
+    if sample.get("column"):
+        return str(sample["column"]).casefold() == column
+    return column in {side.strip().casefold() for side in str(sample.get("on") or "").split(" = ")}
+
+
+def _fold_outside(view: CatalogView, join: dict) -> int:
+    """For ``--brief``: take out of ``join["seen"]`` the samples whose two tables are both
+    outside the catalog, an entry left with none dropped, and return how many there were."""
+    folded = 0
+    kept = []
+    for seen in join["seen"]:
+        inside = [on for on in seen["on"] if _names_catalog_table(view, on)]
+        folded += len(seen["on"]) - len(inside)
+        if inside or not seen["on"]:
+            kept.append({**seen, "on": inside})
+    join["seen"] = kept
+    return folded
+
+
+def _names_catalog_table(view: CatalogView, on: str) -> bool:
+    """Whether either side of ``a.t.c = b.t.c`` is a column of a catalog table."""
+    return any(
+        view.representation(side.strip().rpartition(".")[0]) is not None
+        for side in str(on).split(" = ")
+    )
 
 
 def _semantics(
@@ -1261,6 +1319,11 @@ def _join_lines(table: str, join: Mapping) -> list[str]:
     places = {"between_catalog_tables": "目录表之间", "inside_producing_task": "产出任务内部"}
     for seen in join["seen"]:
         lines.append(f"  - 语料中见过 {seen['count']} 次（{places[seen['where']]}）：{'；'.join(seen['on'])}")
+    if join.get("seen_outside_catalog"):
+        lines.append(
+            f"  - 另有 {join['seen_outside_catalog']} 条产出任务内部的连接证据两边的表都不在目录里，"
+            "去掉 --brief 可看"
+        )
     return lines
 
 

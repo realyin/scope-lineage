@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- **Fixed: a join column in `catalog context` lists only the JOINs about it, once.** The corpus
+  evidence is per relation, and a foreign-identifier column naming no `relation` realises every
+  parallel relation between the two concepts, so one JOIN was printed once a relation, and a
+  relation's samples were printed under every column realising it whichever column they filled.
+  `joins[].seen` now keeps the samples that involve the column (a JOIN inside a producing task by the
+  column it fills, one between catalog tables by its two sides) and one entry for the same evidence
+  (`relations` names the relations carrying it); `count` is the relation's when every sample is the
+  column's, else the number that are. With `--brief`, samples whose two tables are both outside the
+  catalog are folded into one count (`seen_outside_catalog`); a JOIN involving a catalog table is
+  always listed.
 - **New: a column bound to an attribute shows the attribute's type.** The context pack's column
   answer (`catalog.type`, printed 「类型：…」), `catalog query table`'s column list and `catalog query
   column` (`type`, printed 「；类型 …」) give the catalog attribute's `type` for a column bound as
