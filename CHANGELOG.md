@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- **New: `catalog_check.py --digest` finding `measure_repeats_within_grain`.** An `additive` measure
+  attribute bound to a column whose digest `joined_in` names a JOIN whose keys leave a grain column of
+  that table out is reported: rows sharing the key carry the same value, so adding across rows counts
+  it again. One finding per attribute lists each such table, column, JOIN, keys, grain (declared,
+  inferred or proven) and fan-out status, and names the `sum` + `additive` metrics over it; an empty
+  grain is not compared, and a table where the keys cover the grain is not listed. Cleared when the
+  attribute is no longer `additive`, when its `notes` name every listed table, or by
+  `<attribute id> repeats skip: <reason>` in `catalog_changes.md`. S10g, S10c and SKILL.md list it.
 - **New: `catalog digest --lineage` says which JOINs a measure's value is brought in through
   (`joined_in`).** Each measure column gains a list of `{rule, keys, fan_out}`: the JOIN whose right side
   the value enters through (its logic block id, the numbering `lookups[].rule` uses), its left join

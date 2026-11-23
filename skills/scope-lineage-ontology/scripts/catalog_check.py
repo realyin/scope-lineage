@@ -43,7 +43,19 @@ these kinds of omission:
                                      table in ``digest.json`` that no constraint names in its
                                      ``rules`` (``db.table#rN``) and that ``catalog_changes.md``
                                      (``--changes``) does not name either -- each such rule wants
-                                     a constraint or a line ``db.table#rN skip: <reason>``.
+                                     a constraint or a line ``db.table#rN skip: <reason>``;
+  measure_repeats_within_grain       (with ``--digest``) an ``additive`` measure attribute bound
+                                     to a column whose digest ``joined_in`` names a JOIN whose
+                                     keys do not cover that table's grain (a grain column is not
+                                     among the keys): rows sharing the key carry the same value,
+                                     and adding across rows counts it again. One finding per
+                                     attribute, listing each such table, column, JOIN, keys,
+                                     grain (and whether it is declared, inferred or proven) and
+                                     fan-out status, and the ``sum`` + ``additive`` metrics over
+                                     it; an empty grain is not compared. Cleared when the
+                                     attribute is no longer ``additive``, when its ``notes`` name
+                                     every listed table (by ``db.table`` or the table name), or
+                                     by ``<attribute id> repeats skip: <reason>``.
 
 Each finding is something to look at, not proof of an error: fix it (back to S10c / S10d)
 or write in ``catalog_changes.md`` why it stays.
@@ -112,6 +124,7 @@ def check(
     findings += _metric_findings(ontology)
     if digest is not None:
         findings += _rule_findings(ontology, digest, changes)
+        findings += _repeat_findings(ontology, digest, changes)
     return findings
 
 
@@ -363,6 +376,82 @@ def _rule_findings(ontology: dict, digest: dict, changes: str) -> list[str]:
                     f"catalog_changes.md 也没写 skip 理由"
                 )
     return findings
+
+
+GRAIN_SOURCE_TEXT = {"declared": "声明", "inferred": "推断", "proven": "证实"}
+
+
+def _digest_joins(digest: dict) -> dict:
+    """``(db.table, column) -> (joined_in, grain columns, grain source)`` (names lower case)
+    for every digest column that carries ``joined_in``."""
+    found: dict = {}
+    for table in digest.get("tables") or []:
+        name = str(table.get("table") or "").lower()
+        grain = table.get("grain") if isinstance(table.get("grain"), dict) else {}
+        columns = [str(column).lower() for column in grain.get("columns") or []]
+        for key, value in table.items():
+            if not key.endswith("_columns") or not isinstance(value, list):
+                continue
+            for column in value:
+                if isinstance(column, dict) and column.get("column") and column.get("joined_in"):
+                    found[(name, str(column["column"]).lower())] = (
+                        column["joined_in"], columns, str(grain.get("source") or ""),
+                    )
+    return found
+
+
+def _repeat_findings(ontology: dict, digest: dict, changes: str) -> list[str]:
+    """``measure_repeats_within_grain``: an ``additive`` measure whose value, on some table,
+    is joined in by keys that leave a grain column out (module docstring)."""
+    skipped = {m.lower() for m in re.findall(r"([\w:.]+)`?\s+repeats\s+skip", changes)}
+    joins = _digest_joins(digest)
+    bound = _bound_columns(ontology)
+    findings = []
+    for attribute in _measures(ontology):
+        if attribute.get("additivity") != "additive" or attribute["id"].lower() in skipped:
+            continue
+        places = []
+        for table, column in bound.get(attribute["id"]) or []:
+            fact = joins.get((table.lower(), column.lower()))
+            if fact is None or not fact[1]:
+                continue
+            hops, grain, source = fact
+            open_hops = [
+                hop for hop in hops
+                if not set(grain) <= {str(key).lower() for key in hop.get("keys") or []}
+            ]
+            if open_hops:
+                places.append((table, column, open_hops, grain, source))
+        if not places or _notes_name_all(attribute, [table for table, *_ in places]):
+            continue
+        metrics = [
+            metric["id"] for metric in ontology.get("metrics") or []
+            if metric.get("measure") == attribute["id"] and metric.get("aggregation") == "sum"
+            and metric.get("additivity") == "additive"
+        ]
+        said = "；".join(
+            f"{table}.{column} 经 " + "、".join(
+                f"{hop.get('rule')} 按 {'、'.join(hop.get('keys') or [])} 连接带入（fan-out {hop.get('fan_out')}）"
+                for hop in hops
+            ) + f"，键没盖住行粒度（{'、'.join(grain)}，粒度{GRAIN_SOURCE_TEXT.get(source, source or '来源未说明')}）"
+            for table, column, hops, grain, source in places
+        )
+        uses = ("；以它为度量的 sum + additive 指标：" + "、".join(f"{m}（sum）" for m in metrics)) if metrics else ""
+        findings.append(
+            f"measure_repeats_within_grain  {attribute['id']}：{said}——同键的多行带同一个值{uses}。"
+            "确认跨行相加是否重复计数：是就不再写 additive，并在 notes 写出每张表按哪些键取一行后再加；"
+            f"不重复就在 catalog_changes.md 写一行 `{attribute['id']} repeats skip: <理由>`"
+        )
+    return findings
+
+
+def _notes_name_all(attribute: dict, tables: list[str]) -> bool:
+    """Whether the attribute's ``notes`` name every table, by ``db.table`` or its table name."""
+    notes = attribute.get("notes")
+    if isinstance(notes, list):
+        notes = "；".join(str(note) for note in notes)
+    text = str(notes or "").lower()
+    return all(table.lower().rpartition(".")[2] in text for table in tables)
 
 
 def _concept_stems(concepts: dict, identifiers: list[dict]) -> dict:

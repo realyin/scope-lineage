@@ -118,7 +118,7 @@ description: >-
 | 概念名是 `cust`、`acct` 这类英文词根，或 `nan` | 同上 | 回到 S0 |
 | 有 `docs/` 没有 `reviews/` | 漏了独立审读 | 回到 S6 |
 | 进度脚本的当前步和你以为的不一样 | 以脚本为准 | 从脚本说的那一步的前提检查开始 |
-| `catalog_check.txt` 有 `empty_concept`、`missing_participant`、`unabsorbed_rule`、`state_without_states`、`metric_incomplete`、`unit_in_digest` 等 | 目录漏做 | 手册 S10g 的返工 |
+| `catalog_check.txt` 有 `empty_concept`、`missing_participant`、`unabsorbed_rule`、`state_without_states`、`metric_incomplete`、`unit_in_digest`、`measure_repeats_within_grain` 等 | 目录漏做 | 手册 S10g 的返工 |
 
 ## 8. 交付
 
