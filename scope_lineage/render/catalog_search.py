@@ -28,12 +28,12 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Optional
 
 from .catalog_view import CatalogView, catalog_table_name
 
-__all__ = ["SEARCH_KINDS", "named_objects", "render_search_text", "search_catalog"]
+__all__ = ["SEARCH_KINDS", "named_finder", "named_objects", "render_search_text", "search_catalog"]
 
 SEARCH_KINDS = ("concept", "metric", "attribute", "identifier", "code_set", "table")
 KIND_TEXT = {
@@ -124,19 +124,36 @@ def named_objects(document: Mapping, texts: Iterable[str]) -> list[dict]:
     can tell whether the catalog now carries a word, not what resembles it. Each object
     once, ``{kind, id, name, matched_in}``, in the order ``search`` builds its items.
     """
-    wanted = {_same_text(text) for text in texts if _same_text(text)}
-    found = []
-    for item in _items(CatalogView(document), {}):
-        matched = [
-            label
-            for label in _NAMING
-            if any(_same_text(value) in wanted for value in item["fields"].get(label) or [])
-        ]
-        if matched:
-            found.append(
-                {"kind": item["kind"], "id": item["id"], "name": item["name"], "matched_in": matched}
-            )
-    return found
+    return named_finder(document)(texts)
+
+
+def named_finder(document: Mapping) -> Callable[[Iterable[str]], list[dict]]:
+    """``named_objects`` for one document, its objects read once: for many lookups (a
+    pending report checks every item) without reading the catalog again for each."""
+    named = [
+        (
+            item,
+            {
+                label: {_same_text(value) for value in item["fields"].get(label) or []}
+                for label in _NAMING
+            },
+        )
+        for item in _items(CatalogView(document), {})
+    ]
+
+    def find(texts: Iterable[str]) -> list[dict]:
+        wanted = {_same_text(text) for text in texts if _same_text(text)}
+        found = []
+        for item, names in named:
+            matched = [label for label in _NAMING if names[label] & wanted]
+            if matched:
+                found.append(
+                    {"kind": item["kind"], "id": item["id"], "name": item["name"],
+                     "matched_in": matched}
+                )
+        return found
+
+    return find
 
 
 def _same_text(text) -> str:

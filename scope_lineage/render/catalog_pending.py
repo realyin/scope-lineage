@@ -28,7 +28,7 @@ import unicodedata
 from collections.abc import Iterable, Mapping
 from typing import Optional
 
-from .catalog_search import named_objects
+from .catalog_search import named_finder
 from .catalog_sql_check import placeholders_of
 from .catalog_view import catalog_table_name
 
@@ -184,7 +184,8 @@ def pending_report(
         {catalog_table_name(name).lower(): doc for name, doc in semantics.items()}
         if semantics is not None else None
     )
-    items = [_item(group, document, documents) for group in groups.values()]
+    find = named_finder(document) if document is not None else None
+    items = [_item(group, find, documents) for group in groups.values()]
     items.sort(key=lambda item: (-item["hits"], item["lines"][0]))
     return {
         "doc_format": LIST_FORMAT,
@@ -195,7 +196,7 @@ def pending_report(
     }
 
 
-def _item(group: list[Mapping], document, documents) -> dict:
+def _item(group: list[Mapping], find, documents) -> dict:
     dates = sorted(entry["date"] for entry in group)
     columns = _unique(c for entry in group for c in entry.get("columns") or [])
     terms = _unique(entry["term"].strip() for entry in group if entry.get("term"))
@@ -214,8 +215,8 @@ def _item(group: list[Mapping], document, documents) -> dict:
     }
     if documents is not None:
         item["recorded_questions"] = _recorded_questions(columns, documents)
-    if document is not None:
-        item["in_catalog"] = named_objects(document, [item["missing"], *terms])
+    if find is not None:
+        item["in_catalog"] = find([item["missing"], *terms])
     return item
 
 
