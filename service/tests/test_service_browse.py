@@ -156,6 +156,24 @@ def test_the_page_runs_no_inline_code_and_writes_no_markup_from_data() -> None:
                 assert unsafe not in code, f"{name} uses {unsafe}"
 
 
+def test_the_width_rules_of_the_wide_lists_are_in_the_stylesheet() -> None:
+    """Short columns never wrap their cells, a table name is capped and wraps at the <wbr>
+    the page puts after "." and "_", prose and lineage keep a minimum width. Whether a
+    browser then fits the list in its box is not checked here."""
+    css = re.sub(r"\s+", " ", (_static_dir() / "app.css").read_text(encoding="utf-8"))
+    for rule in (
+        "td.short, td.short code { white-space: nowrap; }",
+        "th.short { white-space: normal; min-width: 4em; }",
+        "td.col-name a.name { display: inline-block; max-width: 17em;",
+        "td.col-prose { min-width: 10em; }",
+        "th.col-expr, td.col-expr { min-width: 16em; }",
+    ):
+        assert rule in css, rule
+    views = (_static_dir() / "views.js").read_text(encoding="utf-8")
+    assert "breakableName(rep.table)" in views
+    assert "TABLE_LIST_CLASSES.concat(columns.map(() => \"short\"))" in views
+
+
 # ------------------------------------------------------------------ endpoints
 
 

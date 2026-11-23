@@ -5,7 +5,7 @@ import {
   BINDING_TEXT, CATEGORY_TEXT, CONSTRAINT_KIND_TEXT, GRAIN_SOURCE_TEXT, KIND_TEXT,
   QUESTION_STATUS_TEXT, RELATION_KIND_TEXT, REP_KIND_TEXT, STATUS_TEXT, STRENGTH_TEXT,
   TABLE_STATUS_TEXT, TIME_TEXT,
-  answer, api, badge, code, conceptLink, fold, grid, h, href, joined, kv, link, pager,
+  answer, api, badge, breakableName, code, conceptLink, fold, grid, h, href, joined, kv, link, pager,
   section, tableLink, text, word,
 } from "./dom.js";
 import { EDGE_LABELS_UP_TO, drawGraph, relationTitle } from "./graph.js";
@@ -326,6 +326,9 @@ function partitionText(item) {
 }
 
 const GRID_COLUMNS = ["列", "绑定", "指向", "血缘", ""];
+// width classes (app.css): name and binding never wrap, the target keeps a minimum width,
+// the lineage expression keeps its own so a narrow screen scrolls instead of squeezing
+export const GRID_CLASSES = ["short", "short", "col-prose", "col-expr", "short"];
 
 /** The code values a bound column carries, as text: its own map, then each code set. */
 export function codeTexts(column) {
@@ -379,10 +382,11 @@ function columnsGrid(match, unitAnswer) {
       unit && unit.text ? h("span", { class: "unit" }, `单位：${unit.text}`) : null];
     const more = h("button", { type: "button" }, "详情");
     const row = h("tr", {},
-      h("td", {}, code(column.column)), h("td", {}, word(BINDING_TEXT, column.to)),
-      h("td", {}, column.ref_name || column.concept || column.via || (unit && unit.text) ? target : "—"),
-      h("td", {}, column.evidence && column.evidence.expression ? code(column.evidence.expression, true) : "—"),
-      h("td", {}, more));
+      h("td", { class: GRID_CLASSES[0] }, code(column.column)),
+      h("td", { class: GRID_CLASSES[1] }, word(BINDING_TEXT, column.to)),
+      h("td", { class: GRID_CLASSES[2] }, column.ref_name || column.concept || column.via || (unit && unit.text) ? target : "—"),
+      h("td", { class: GRID_CLASSES[3] }, column.evidence && column.evidence.expression ? code(column.evidence.expression, true) : "—"),
+      h("td", { class: GRID_CLASSES[4] }, more));
     // code values and 口径 only on the columns that have them, on a line under the column
     const extra = [];
     const codes = codeTexts(column);
@@ -397,7 +401,7 @@ function columnsGrid(match, unitAnswer) {
     if (extraRow) body.append(extraRow);
     return { row, extraRow };
   });
-  const head = h("tr", {}, GRID_COLUMNS.map((n) => h("th", { scope: "col" }, n)));
+  const head = h("tr", {}, GRID_COLUMNS.map((n, i) => h("th", { scope: "col", class: GRID_CLASSES[i] }, n)));
   const table = h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, head), body));
   if (match.columns.length <= 12) return table;
   // a wide table: a filter over the columns
@@ -598,6 +602,10 @@ export const TABLE_SORT_CHOICES = [
   ["-watch_conflicts", "与材料矛盾的注意事项，多的在前"], ["watch_conflicts", "与材料矛盾的注意事项，少的在前"],
 ];
 
+// width classes of the table list's columns (app.css): the name wraps at "." and "_" up to
+// a cap, short columns never wrap, the description keeps a minimum width
+export const TABLE_LIST_CLASSES = ["col-name", "short", "short", "short", "short", "col-prose"];
+
 export async function tables(_, params) {
   const filters = {
     text: params.get("text"), domain: params.get("domain"), concept: params.get("concept"),
@@ -608,7 +616,8 @@ export async function tables(_, params) {
   const byTable = page.by_table || null;
   const columns = byTable ? byTable.columns : [];
   const rows = page.items.map((rep) => [
-    tableLink(rep.table), conceptLink(rep.concept), word(REP_KIND_TEXT, rep.kind),
+    h("a", { href: href("table", rep.table), class: "name" }, breakableName(rep.table)),
+    conceptLink(rep.concept), word(REP_KIND_TEXT, rep.kind),
     word(TIME_TEXT, rep.time), String(rep.columns), text(rep.about),
     ...columns.map((column) => rep.by_table.cells[column.key]),
   ]);
@@ -624,7 +633,8 @@ export async function tables(_, params) {
       "与取数包标注单位用的是同一条规则。默认按表名排列；按某一列排序时，没有表语义的表排在最后。")
       : h("p", { class: "muted" }, "服务启动时没有给表语义目录（--semantics），这里没有「按表看」的几列。"),
     byTable && byTable.note ? h("p", { class: "muted" }, byTable.note) : null,
-    grid(["表", "概念", "种类", "时间形态", "绑定列", "说明", ...columns.map((column) => column.label)], rows),
+    grid(["表", "概念", "种类", "时间形态", "绑定列", "说明", ...columns.map((column) => column.label)], rows,
+      TABLE_LIST_CLASSES.concat(columns.map(() => "short"))),
     pager(page, (next) => go("tables", null, { ...filters, offset: next })),
   ];
 }

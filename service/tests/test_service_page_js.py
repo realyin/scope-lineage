@@ -248,6 +248,26 @@ def test_the_binding_choices_count_each_kind() -> None:
     assert counts == [["identifier", 1], ["attribute", 3], ["technical", 1], ["unmapped", 1]]
 
 
+def test_a_table_name_may_wrap_only_after_a_dot_or_an_underscore() -> None:
+    segments = _run(
+        "import { nameSegments } from 'STATIC/dom.js';\n"
+        "console.log(JSON.stringify([nameSegments('demo_dwd.dwd_lending_loan_df'),"
+        " nameSegments('plain')]));"
+    )
+    assert segments == [["demo_", "dwd.", "dwd_", "lending_", "loan_", "df"], ["plain"]]
+
+
+def test_the_wide_lists_give_every_column_a_width_class() -> None:
+    classes = _run(
+        "import { GRID_CLASSES, TABLE_LIST_CLASSES } from 'STATIC/views.js';\n"
+        "console.log(JSON.stringify([TABLE_LIST_CLASSES, GRID_CLASSES]));"
+    )
+    # table list: 表, 概念, 种类, 时间形态, 绑定列, 说明 (the by-table columns are short too)
+    assert classes[0] == ["col-name", "short", "short", "short", "short", "col-prose"]
+    # a table's columns: 列, 绑定, 指向, 血缘, the detail button
+    assert classes[1] == ["short", "short", "col-prose", "col-expr", "short"]
+
+
 def test_the_table_sorts_offered_are_the_ones_the_server_takes() -> None:
     from scope_lineage.render.catalog_browse import TABLE_SORTS
 
