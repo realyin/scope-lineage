@@ -268,7 +268,7 @@ def _run_packet(args: argparse.Namespace) -> int:
     if isinstance(loaded, int):
         return loaded
     cards = _load_corpus_document(args.tables, "--tables", TABLES_DOC_FORMAT)
-    tasks = _task_records(args.tasks)
+    tasks = _task_records(args.tasks, _templates_parsed(loaded.documents))
     # The confirmed comments, applied in memory the way `describe --metadata-patch`
     # applies them: the lineage on disk is never rewritten.
     for item in loaded.documents:
@@ -358,13 +358,38 @@ def _write_packets(out: Path, packets: list[dict]) -> None:
         (directory / "packet.md").write_text(render_packet_markdown(packet), encoding="utf-8")
 
 
-def _task_records(directory: str):
+def _templates_parsed(documents) -> dict[str, dict[str, int]]:
+    """``{task name or source file: bound parameters}`` of every task ``parse`` read from its
+    template -- what each lineage's ``task_template_sql_used`` warning says. A task absent
+    here was parsed from its run instance."""
+    from .scope.task_template import bound_parameters
+
+    found: dict[str, dict[str, int]] = {}
+    for item in documents:
+        bound = bound_parameters((item.diagnostics or {}).get("warnings"))
+        if bound is None:
+            continue
+        document = item.document
+        source = (document.get("task_meta") or {}).get("source_file")
+        for key in (document.get("task_id"), f"file:{source}" if source else None):
+            if key:
+                found.setdefault(str(key), bound)
+    return found
+
+
+def _task_records(directory: str, templates: dict[str, dict[str, int]] | None = None):
     """``{name, source_file, sql}`` per task JSON under ``directory``, or the exit code.
 
     Read with ``parse``'s own task reader, so a task is found under the name ``parse``
     gave it; the SQL's comments are masked the way ``parse`` masks them by default.
+
+    ``templates`` (:func:`_templates_parsed`) names the tasks whose lineage was read from
+    the template. For those the SQL is the template with the same table-name parameters
+    bound -- the text the lineage came from -- and the record carries
+    ``scheduling_parameters``; every other task gets its run instance, as before.
     """
     from .cli import _load_task_input
+    from .scope.task_template import substitute_parameters
 
     root = Path(directory)
     if not root.is_dir():
@@ -377,10 +402,24 @@ def _task_records(directory: str):
         except (OSError, ValueError) as error:
             print(f"{path}: not a task JSON, skipped ({error})", file=sys.stderr)
             continue
+        source_file = path.relative_to(root).as_posix()
+        bound = (templates or {}).get(item.task_name)
+        if bound is None:
+            bound = (templates or {}).get(f"file:{source_file}")
+        record = {"name": item.task_name, "source_file": source_file}
+        if bound is None or item.template_sql is None:
+            records.append({**record, "sql": redact_comments_in_sql(item.sql)})
+            continue
+        values = {name: item.parameters[name] for name in bound if name in item.parameters}
+        sql, _ = substitute_parameters(item.template_sql, values)
         records.append({
-            "name": item.task_name,
-            "source_file": path.relative_to(root).as_posix(),
-            "sql": redact_comments_in_sql(item.sql),
+            **record,
+            "sql": redact_comments_in_sql(sql),
+            "scheduling_parameters": {
+                "definitions": dict(item.parameters),
+                "descriptions": dict(item.parameter_descriptions),
+                "bound": dict(bound),
+            },
         })
     return records
 

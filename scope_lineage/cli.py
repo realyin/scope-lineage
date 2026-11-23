@@ -9,7 +9,7 @@ import sys
 import traceback
 from collections import Counter
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
@@ -33,6 +33,7 @@ from .metadata.schema_metadata import MetadataFileError, load_schema, load_schem
 from .metadata.target_table_metadata import load_target_table_metadata
 from .scope.expansion_budget import EXPANSION_MAX_SUBSTITUTIONS
 from .scope.task_lineage import parse_task_lineage
+from .scope.task_template import parse_task_template
 
 
 def _package_version() -> str:
@@ -108,6 +109,15 @@ def main(argv: list[str] | None = None) -> int:
     parse_cmd.add_argument(
         "--task-name",
         help="Override the task name for --sql-file or --task-file",
+    )
+    parse_cmd.add_argument(
+        "--instance-sql",
+        action="store_true",
+        help=(
+            "Parse a task JSON's run instance (meta.sql) even when it carries its "
+            "scheduling template (meta.task_sql). By default the template is parsed and "
+            "only its table-name parameters are bound from meta.task_parameters"
+        ),
     )
     parse_cmd.add_argument("--out", required=True, help="Output directory")
     parse_cmd.add_argument(
@@ -981,6 +991,11 @@ class _TaskInput:
     # The exported task object's `meta`, plus the file it was read from. None for a
     # `.sql` input, which is why a `.sql` document carries no `task_meta` key (WI-2.2).
     task_meta: dict | None = None
+    # `meta.task_sql`, the script as the scheduler stores it, when the task JSON has one;
+    # `parameters` / `parameter_descriptions` are `meta.task_parameters`, read only then.
+    template_sql: str | None = None
+    parameters: dict = field(default_factory=dict)
+    parameter_descriptions: dict = field(default_factory=dict)
 
 
 @contextmanager
@@ -1088,8 +1103,7 @@ def _parse_task_inputs_v2(
     for source_path, input_root in source_files:
         try:
             task = _load_task_input(source_path, input_root, args.task_name)
-            result = parse_task_lineage(
-                task.sql,
+            options = dict(
                 task_name=task.task_name,
                 schema=schema,
                 target_metadata=target_metadata,
@@ -1100,6 +1114,10 @@ def _parse_task_inputs_v2(
                 redact_comments=not bool(getattr(args, "no_redact_comments", False)),
                 expansion_limit=getattr(args, "expansion_limit", None),
             )
+            if task.template_sql is not None and not getattr(args, "instance_sql", False):
+                result, _ = parse_task_template(task.template_sql, task.parameters, **options)
+            else:
+                result = parse_task_lineage(task.sql, **options)
             if metadata_patch:
                 apply_metadata_patch_to_statements(
                     [
@@ -1551,6 +1569,9 @@ def _load_task_input(
         or _clean_value(payload.get("task_id"))
         or source_path.stem
     )
+    template, parameters, descriptions = (
+        _task_template(meta) if isinstance(meta, dict) else (None, {}, {})
+    )
     return _TaskInput(
         source_path=source_path,
         relative_parent=relative_parent,
@@ -1560,7 +1581,78 @@ def _load_task_input(
         # The file the metadata came from travels with it: a task document read out of a
         # batch directory is otherwise unattributable to its input.
         task_meta={**payload, "source_file": source_label},
+        template_sql=template,
+        parameters=parameters,
+        parameter_descriptions=descriptions,
     )
+
+
+# The keys a parameter-list item may name its parameter and its definition by; the
+# second of each pair is how some scheduler exports spell them.
+_PARAMETER_NAME_KEYS = ("name", "paramKey")
+_PARAMETER_VALUE_KEYS = ("value", "paramValue")
+
+
+def _task_template(meta: dict) -> tuple[str | None, dict, dict]:
+    """``(meta.task_sql, {name: definition}, {name: description})`` of a task JSON.
+
+    Without a non-empty ``task_sql`` nothing else is read, so a task JSON that carries no
+    template parses as it always did. ``task_parameters`` is an object ``{name:
+    definition}`` or a list of ``{"name", "value"}`` items (``paramKey`` / ``paramValue``
+    accepted for the two keys), each with an optional ``description``. Anything else, or one
+    name given two definitions, is an input error rather than a silent fallback.
+    """
+    template = meta.get("task_sql")
+    if template is None or (isinstance(template, str) and not template.strip()):
+        return None, {}, {}
+    if not isinstance(template, str):
+        raise ValueError("task JSON meta.task_sql must be a string")
+    raw = meta.get("task_parameters")
+    if raw is None:
+        return template, {}, {}
+    if isinstance(raw, dict):
+        items = [{"name": name, "value": value} for name, value in raw.items()]
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        raise ValueError(
+            "task JSON meta.task_parameters must be an object {name: definition} or a list "
+            "of {\"name\", \"value\"} items"
+        )
+    parameters: dict[str, str] = {}
+    descriptions: dict[str, str] = {}
+    for index, item in enumerate(items):
+        name, value, description = _parameter_item(item, index)
+        if name in parameters and parameters[name] != value:
+            raise ValueError(
+                f"task JSON meta.task_parameters gives parameter {name!r} two definitions: "
+                f"{parameters[name]!r} and {value!r}"
+            )
+        parameters[name] = value
+        if description and name not in descriptions:
+            descriptions[name] = description
+    return template, parameters, descriptions
+
+
+def _parameter_item(item, index: int) -> tuple[str, str, str | None]:
+    """``(name, definition, description)`` of one parameter-list item, or an input error."""
+    where = f"task JSON meta.task_parameters[{index}]"
+    if not isinstance(item, dict):
+        raise ValueError(f"{where} must be an object with a name and a value")
+    names = [item[key] for key in _PARAMETER_NAME_KEYS if key in item]
+    values = [item[key] for key in _PARAMETER_VALUE_KEYS if key in item]
+    name = names[0] if names else None
+    if not isinstance(name, str) or not name.strip() or any(other != name for other in names):
+        raise ValueError(f"{where} must name its parameter with one non-empty string "
+                         "(name or paramKey)")
+    value = values[0] if values else None
+    if not isinstance(value, str) or any(other != value for other in values):
+        raise ValueError(f"{where} must give parameter {name!r} one string definition "
+                         "(value or paramValue)")
+    description = item.get("description")
+    if description is not None and not isinstance(description, str):
+        raise ValueError(f"{where} description must be a string")
+    return name.strip(), value, (description or "").strip() or None
 
 
 def _task_dependencies(document: dict, source_label: str) -> dict:

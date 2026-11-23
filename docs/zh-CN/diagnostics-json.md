@@ -104,6 +104,7 @@ scope_lineage/schemas/diagnostics.schema.json
 | `merge_branch_not_representable` | 该写入来自 `WHEN NOT MATCHED BY SOURCE`——Spark 三种 WHEN 子句中的第三种，契约 1.0 的 `merge_branch` 枚举只命名两种。 | 读 `merge_branch_qualifier` 取子句种类；不要把 `merge_branch` 的缺席理解为「这不是一条 MERGE 写入」（语句种类见顶层 `stmt_kind`）。 |
 | `identifiers_quoted_for_parse` | 列名与 SQL 关键字撞名（如 `not`、`like`、`out`、`using`）且原文未加引号，工具为完成解析给这些标识符补了反引号；`msg` 列出补引号的全部标识符。 | 无需处理，血缘正常。建议在源 SQL 中给这些列名加引号，避免依赖工具修补。 |
 | `parameter_names_quoted_for_parse` | 表名的一部分里嵌着调度参数（`db.src_${region}`、`db.${p}_src`），sqlglot 无法把它读成一个名字；工具为完成解析把整段加了反引号（`` db.`src_${region}` ``），表 id 因此保留参数原样，按下文「表名里还留着调度参数」报告。`msg` 列出补引号的全部名字。只在名字位置（带点的名字，或紧跟 `FROM` / `JOIN` / `TABLE` / `INTO` / `VIEW`）改写，值里的 `${...}` 不动。 | 无需处理此条；按 `input_incomplete` 提供参数已替换的 SQL 重跑。 |
+| `task_template_sql_used` | 任务 JSON 带调度模板（`meta.task_sql`），`parse` 读的是模板而不是运行实例（`meta.sql`）。表名里的参数，参数表（`meta.task_parameters`）给了标识符的值、代入后每张表都还在且语法没有变差的，按记号代入（字符串和注释里的同名参数不动）；`bound_parameters` 是 `{参数名: 代入处数}`，`msg` 同样写出，一个都没代入时为空对象。没代入的参数照下文「表名里还留着调度参数」报告。`semantic packet --tasks` 按这一条决定材料包读模板还是实例。 | 无需处理。参数在表名之外还裸用（不在字符串里）时也会被代入，代入处数比表名里的多时，到 SQL 里核对。要读实例，用 `parse --instance-sql`。 |
 | `multi_table_insert_split` | 只在任务文档里出现。sqlglot 解析不了 Hive 的 FROM 开头多表写入（`FROM src INSERT ... SELECT ... INSERT ... SELECT ...`），工具在解析前把它改写成每个目标一条 `INSERT ... SELECT <投影> FROM <共享 FROM> <该分支的子句>`；`statement_id` 是其中第一条，`msg` 列出目标表。语句编号、`table_state_graph` 和行号都按拆开后的语句计；脚本行数不变。 | 无需处理，每个目标都有自己的血缘。对照源脚本数语句时，按每个目标一条计。 |
 | `session_scoped_relations_present` | 本脚本产出了只存活于会话、不落存储的关系（`TEMP VIEW` / `GLOBAL TEMP VIEW` / `CACHE [LAZY] TABLE`），`msg` 列出全部关系名。 | 按 catalog 对账前，先把这些关系从 `final_table_states` 和表级覆盖统计里排除；字段血缘本身有效，两跳各自保留。 |
 | `filter_in_join_on_clause` | JOIN ON 中包含常量比较等行过滤。 | 影响逻辑解释时区分 join key 与 condition filter。 |
@@ -171,7 +172,7 @@ warning 不是固定封闭枚举；机器处理应对已知类型设策略，对
 
 参数嵌在名字中间（`FROM db.src_${region}`）同样适用：表 id 是 `db.src_${region}`，`warnings[]` 另有一条 `parameter_names_quoted_for_parse` 说明为解析补了引号。
 
-处理办法是提供参数已替换好的 SQL 重跑。值里的参数（`dt = '${dt}'`）不是表名，不受影响。
+处理办法是提供参数已替换好的 SQL 重跑，或在任务 JSON 里给出调度模板和参数表（`meta.task_sql`、`meta.task_parameters`，见 [input-formats.md](input-formats.md)），由 `parse` 代入表名里的参数。值里的参数（`dt = '${dt}'`）不是表名，不受影响。
 
 如果不做这层区分，一次缺失全部源表元数据的运行可能产生大量字段级缺口，而 `blocking_reasons`
 只写 `lineage_fact_gap`；下游报告就会把输入缺失误读为解析能力不足。补齐元数据后这些缺口会消失。

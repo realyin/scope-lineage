@@ -238,7 +238,7 @@ def _count_read(table, item, rules, meta, flags, tally) -> bool:
     used = [c for c in item.get("used_columns") or [] if c.get("usages")]
     declared = found.get("columns") or item.get("declared_columns") or item.get("used_columns") or []
     columns = facts.time_columns(declared, [str(c.get("name")) for c in used], partition_columns)
-    read = facts.read_facts(table, rules, columns)
+    read = facts.read_facts(table, rules, columns, partition_known=facts.partition_known(found))
     kind = read["partition_read"]
     if kind == "none":
         partitioned = bool(partition_columns or found.get("partitioned")) if found else bool(

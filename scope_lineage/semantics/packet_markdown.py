@@ -161,6 +161,7 @@ def _tasks(tasks: list[dict], table: str = "") -> list[str]:
             f"- 登记的上游任务：{_names(task['upstream_tasks'])}{_unmatched(task)}；"
             f"登记的下游任务：{_names(task['downstream_tasks'])}",
             *_run_dates(task),
+            *_scheduling_parameters(task),
             f"- 写入语句：{_names(task['statements'])}；来源文件：{_text(task['source_file'])}",
             *_header_facts(task.get("header_facts") or {}),
             *_added_columns(task.get("header_facts") or {}, table),
@@ -190,6 +191,28 @@ def _run_dates(task: dict) -> list[str]:
             f"{_code(item['literal'])} ×{item['count']}（{_offset(item['days_from_expect_date'])}）"
             for item in literals))
     return ["；".join(parts)]
+
+
+def _scheduling_parameters(task: dict) -> list[str]:
+    """The template's parameters, each definition quoted as given; nothing read into it."""
+    given = task.get("scheduling_parameters")
+    if not given:
+        return []
+
+    def said(item: dict) -> str:
+        slot = _code("${" + item["name"] + "}")
+        if item.get("definition") is None:
+            text = f"{slot}（参数表未给定义）"
+        else:
+            text = f"{slot} = {_code(item['definition'])}"
+        if item.get("description"):
+            text += f"（说明：{_text(item['description'])}）"
+        return f"{text} ×{item['count']}"
+
+    parts = ["；".join(said(item) for item in given["in_sql"])] if given["in_sql"] else []
+    if given["bound"]:
+        parts.append("已代入表名的参数：" + "；".join(said(item) for item in given["bound"]))
+    return ["- 调度参数（定义照参数表原样）：" + "；".join(parts)]
 
 
 def _offset(days: int) -> str:
@@ -410,6 +433,7 @@ _DATE_SHAPES = {
     "cutoff": "固定起止（截取历史）",
     "period": "批次所在年/季/月",
     "snapshot_pick": "按规则取某一天的快照",
+    "parameter_equality": "等于调度参数：取参数指定的那一份，该输入是否分区未知",
 }
 
 

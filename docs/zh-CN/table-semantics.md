@@ -140,7 +140,12 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 `null_check`。其余（`=`、`>=`、`>`、BETWEEN、认不出的形状）再按它比的是什么分：和批次（这个输入的分区值、
 运行参数 `${…}`、当前日期）按天比较的是 `window`；取批次所在年、季、月的是 `period`；等于一个按规则算出的
 日期（批次上的 CASE、子查询取的最新值）的是 `snapshot_pick`（取输入某一天的快照）；只和固定字面量比的是
-`cutoff`（截取历史）。输入分区列上的条件是读分区，不算业务日期过滤，即使它在 IN 子查询或 OR 里。只有 `window` 算按批次日逐日筛选，检查 9 只对它怀疑 `snapshot`。
+`cutoff`（截取历史）。元数据对这个输入是否分区什么也没说（不知道分区列、也没有分区标记）时，整个条件就是一列
+等于一个调度参数（`dt = '${dt}'`，参数带不带引号、写在哪一边都算；`IN (…)`、带运算的、不等号都不算）的，先于上面
+的分法判成 `parameter_equality`（等于调度参数）：它取参数指定的那一份，该输入有没有分区、参数指哪一天，工具都
+不知道。输入分区列上的条件是读分区，不算业务日期过滤，即使它在 IN 子查询或 OR 里。只有 `window` 算按批次日逐日
+筛选，检查 9 只对它怀疑 `snapshot`；`parameter_equality` 和其余形状一样不算（只认旧取值的读者会把不认识的形状
+当成 `window`，要按新取值更新）。
 
 过滤是否在取分区，逐个合取项判断，因为血缘自己的标记是对整个 `WHERE` 子句的列名规则（`dt = x AND status = 0`
 两半都不会被标记）。每条过滤规则带 `partition_filter` 与它依据的 `partition_basis`：
@@ -194,6 +199,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | --- | --- | --- |
 | `tasks[]` | `expect_date` | 任务元数据里的期望运行日期 |
 | `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论 |
+| `tasks[]` | `scheduling_parameters` | 只在 `parse` 读的是任务调度模板（`meta.task_sql`，见 [input-formats.md](input-formats.md)）时出现：`{in_sql, bound}`。`in_sql` 是 SQL 里（注释除外：代码、字符串、加引号的名字里）仍有的每个 `${name}`，`definition` 照 `meta.task_parameters` 原样（参数表没给时为 `null`，即「参数表未给定义」）、`count`，使用者给了 `description` 的带上；`bound` 是 `parse` 代入表名的每个参数和代入了几处。只留在注释里的参数两边都不列。`packet.md` 在「期望日期」一行之后用一行「调度参数」写出；定义是什么意思由调度平台决定，材料包不解读。读运行实例时没有这个键，第 2 节与以前相同 |
 | `tasks[]` | `upstream_unmatched` | 登记的上游任务里，按任务名对不上本任务（所有语句）读取的任何表的那些。任务名等于 `表`、`库_表` 或以 `_库_表` 结尾算对上；这是名称启发式，只说「对不上」，不说「没读」 |
 | `tasks[]` | `writes` | 脚本写入不止一条时出现：任务每条写入语句的 `{statement_id, statement_index, table}`，按脚本顺序（含写中间表的语句）。`packet.md` 据此在 SQL 块里每条写入语句前加一行 `-- [stmt:NNN] 写 <表>`；语句原文里找不到该表名时不加 |
 | `inputs[]` | `via` | 同一任务里写目标表之前、经中间表喂给目标语句（可传递）的写入语句读的表，也列为输入：`[{task, statement_id, writes}]` 说明是哪条语句读它、写进哪张中间表。分区读取、日期过滤与列用法照直接输入一样给出；角色不合并（那是中间表的角色）。`packet.md` 在「在本表的作用」行后写「经同任务中间语句读入：`stmt:NNN` 写 `<表>`」 |

@@ -298,6 +298,44 @@ def test_numeric_columns_are_kept_before_more_frequent_others():
     assert "另有 1 条未列出" in text
 
 
+def _window_filtered(tmp_path, read_condition: str, *, source_known: bool) -> int:
+    """``window_filtered`` of one write reading ``ods.o_src_di`` under ``read_condition``."""
+    def column(name, index, partition=0):
+        return {"columnName": name, "columnType": "string", "columnComment": name,
+                "columnIndex": index, "isPartition": partition}
+
+    tables = [{"table_name": "dwd.o_out_di", "table_desc": "out", "is_partition": 1,
+               "schema": [column("id", 0), column("dt", 1, partition=1)]}]
+    if source_known:
+        tables.append({"table_name": "ods.o_src_di", "table_desc": "src", "is_partition": 1,
+                       "schema": [column("id", 0), column("biz_date", 1),
+                                  column("status", 2), column("dt", 3, partition=1)]})
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "w.json").write_text(json.dumps({"meta": {"task_name": "w", "sql": (
+        "INSERT OVERWRITE TABLE dwd.o_out_di PARTITION (dt = '${dt}') "
+        f"SELECT s.id FROM ods.o_src_di s WHERE {read_condition} AND s.status = 1")}}),
+        encoding="utf-8")
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps({"tables": tables}), encoding="utf-8")
+    assert main(["parse", "--input-dir", str(tasks), "--schema", str(schema),
+                 "--out", str(tmp_path / "lineage")]) == 0
+    assert main(["domain-profile", "evidence", "--lineage", str(tmp_path / "lineage"),
+                 "--schema", str(schema), "--out", str(tmp_path / "evidence")]) == 0
+    evidence = json.loads((tmp_path / "evidence" / "evidence.json").read_text(encoding="utf-8"))
+    return suffix(evidence, "di")["writes"]["window_filtered"]
+
+
+def test_a_parameter_equality_on_an_input_without_metadata_is_no_window_filter(tmp_path):
+    """Without metadata the tool cannot tell ``s.dt = '${dt}'`` reads a partition; it is a
+    ``parameter_equality``, not a business-date window, so it filters no write."""
+    assert _window_filtered(tmp_path, "s.dt = '${dt}'", source_known=False) == 0
+
+
+def test_a_parameter_equality_on_a_described_input_stays_a_window(tmp_path):
+    assert _window_filtered(tmp_path, "s.biz_date = '${dt}'", source_known=True) == 1
+
+
 def test_small_suffixes_without_partition_reads_fold_into_one_line(corpora, tmp_path):
     out = tmp_path / "e"
     assert main(["domain-profile", "evidence", "--lineage", str(corpora.lineage("E")),
