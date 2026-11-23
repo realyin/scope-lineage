@@ -101,6 +101,22 @@ export function parseBrief(brief) {
   };
 }
 
+/**
+ * The model the picker starts on: the remembered id when that model can answer, else the
+ * default when it can, else the first that can; null when none can.
+ */
+export function pickModel(models, remembered) {
+  const usable = (models || []).filter((model) => model.available);
+  const byId = (id) => usable.find((model) => model.id === id);
+  const fallback = usable.find((model) => model.default) || usable[0];
+  return (remembered && byId(remembered) ? byId(remembered) : fallback || { id: null }).id;
+}
+
+/** An option of the picker: the label, and why the model cannot answer when it cannot. */
+export function modelOptionText(model) {
+  return model.available ? String(model.label) : `${model.label}（不可用：${model.reason || "原因不明"}）`;
+}
+
 /** "输入 1200 · 缓存读 5000 · …" for a usage total (null: nothing yet). */
 export function usageText(usage) {
   if (!usage) return "";
@@ -111,7 +127,8 @@ export function usageText(usage) {
   ];
   if (usage.turns !== undefined) parts.push(`${usage.turns} 轮`);
   if (usage.tool_calls !== undefined) parts.push(`${usage.tool_calls} 次工具调用`);
-  return parts.join(" · ");
+  // an endpoint that reported no usage: the counts are estimated from text lengths
+  return parts.join(" · ") + (usage.estimated ? "（估算）" : "");
 }
 
 /**
@@ -122,7 +139,7 @@ export function usageText(usage) {
  */
 export function viewModel(events) {
   const vm = {
-    question: null, followUp: false, model: null, status: "running", reason: null,
+    question: null, followUp: false, model: null, modelId: null, modelLabel: null, status: "running", reason: null,
     detail: null, usage: null, elapsed: 0, steps: [], answer: null,
     candidates: [], taken: { tables: [], columns: [] }, checks: [],
   };
@@ -133,6 +150,8 @@ export function viewModel(events) {
       vm.question = event.question;
       vm.followUp = Boolean(event.follow_up);
       vm.model = event.model || null;
+      vm.modelId = event.model_id || null;
+      vm.modelLabel = event.model_label || null;
     } else if (event.type === "turn") {
       if (String(event.text || "").trim()) vm.steps.push({ kind: "note", text: event.text, turn: event.turn });
     } else if (event.type === "fallback") {

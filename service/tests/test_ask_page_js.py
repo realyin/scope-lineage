@@ -119,3 +119,48 @@ def test_usage_reads_as_one_line() -> None:
     assert _call("usageText", usage) == (
         "输入 1,200 · 缓存读 50,000 · 缓存写 5,200 · 输出 110 · 2 轮 · 1 次工具调用")
     assert _call("usageText", None) == ""
+
+
+# ------------------------------------------------------------------ several models
+
+MODELS = [
+    {"id": "first", "label": "First", "provider": "anthropic", "available": True, "reason": None,
+     "default": False, "fake": False},
+    {"id": "second", "label": "Second", "provider": "openai-compatible", "available": True,
+     "reason": None, "default": True, "fake": False},
+    {"id": "third", "label": "Third", "provider": "openai-compatible", "available": False,
+     "reason": "its API key variable (api_key_env) is not set", "default": False, "fake": False},
+]
+
+
+@pytest.mark.parametrize(
+    ("remembered", "picked"),
+    [("first", "first"), (None, "second"), ("third", "second"), ("gone", "second")],
+)
+def test_the_picker_starts_on_the_remembered_model_when_it_can_answer(remembered, picked) -> None:
+    assert _call("pickModel", MODELS, remembered) == picked
+
+
+def test_with_the_default_unavailable_the_first_usable_model_is_picked() -> None:
+    models = [dict(MODELS[2], default=True), MODELS[0]]
+
+    assert _call("pickModel", models, None) == "first"
+    assert _call("pickModel", [MODELS[2]], None) is None
+
+
+def test_the_option_text_says_why_a_model_cannot_answer() -> None:
+    assert _call("modelOptionText", MODELS[0]) == "First"
+    assert _call("modelOptionText", MODELS[2]) == "Third（不可用：its API key variable (api_key_env) is not set）"
+
+
+def test_the_view_model_names_the_model_that_answered() -> None:
+    events = [
+        {"seq": 1, "type": "started", "question": "q", "follow_up": False, "model": "example-model",
+         "model_id": "second", "model_label": "Second", "t": 0},
+        {"seq": 2, "type": "finished", "status": "done", "model_id": "second", "reason": None,
+         "detail": None, "usage": {"input_tokens": 3, "output_tokens": 4, "estimated": True}, "t": 1},
+    ]
+    vm = _call("viewModel", events)
+
+    assert vm["modelId"] == "second" and vm["modelLabel"] == "Second" and vm["model"] == "example-model"
+    assert _call("usageText", vm["usage"]).endswith("（估算）")

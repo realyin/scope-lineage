@@ -3,12 +3,32 @@
 // them as they arrive. The page never runs SQL and never changes the catalog: the only
 // write is a 待确认 definition the reader types, sent to the pending file through
 // POST /api/pending when the server has one. Model text and catalog text are untrusted:
-// they only ever become text nodes.
+// they only ever become text nodes. When the server lists several models, a picker lets
+// the reader choose the one that answers each question; the last choice is remembered in
+// this browser (localStorage, when the browser allows it).
 
 import { api, badge, code, fold, grid, h, joined, text } from "./dom.js";
 import {
-  REASON_TEXT, SEVERITY_TEXT, STATUS_TEXT, TOOL_TEXT, usageText, viewModel,
+  REASON_TEXT, SEVERITY_TEXT, STATUS_TEXT, TOOL_TEXT, modelOptionText, pickModel, usageText, viewModel,
 } from "./askview.js";
+
+const MODEL_KEY = "scope-lineage-service.ask.model";
+
+function remembered() {
+  try {
+    return window.localStorage.getItem(MODEL_KEY);
+  } catch (error) {
+    return null;
+  }
+}
+
+function remember(id) {
+  try {
+    window.localStorage.setItem(MODEL_KEY, id);
+  } catch (error) {
+    // private window or blocked storage: the picker just starts on the default next time
+  }
+}
 
 const KIND_TEXT = { concept: "概念", metric: "指标", attribute: "属性", identifier: "标识", code_set: "码值集", table: "表" };
 
@@ -82,8 +102,12 @@ class Panel {
     this.fresh = h("button", { type: "button", onclick: () => this.restart() }, "新对话");
     this.status = h("p", { class: "muted", role: "status" });
     this.stop.disabled = true;
+    this.models = info.models || [];
+    this.picker = this.models.length > 1 ? modelPicker(this.models) : null;
     const form = h("form", { class: "ask-form", onsubmit: (event) => { event.preventDefault(); this.send(); } },
-      this.question, h("div", { class: "ask-buttons" }, this.submit, this.stop, this.fresh, this.status));
+      this.question, h("div", { class: "ask-buttons" },
+        this.picker ? h("label", { class: "ask-model" }, "模型 ", this.picker) : null,
+        this.submit, this.stop, this.fresh, this.status));
     this.question.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); this.send(); }
     });
@@ -92,6 +116,9 @@ class Panel {
       info.fake ? h("div", { class: "fake-banner", role: "alert" },
         h("strong", {}, "开发用假模型。"),
         "服务以 --ask-dev-fake-model 启动：没有调用任何模型，下面的过程和答案是脚本按目录拼出来的，不是答案。")
+        : this.picker ? h("p", { class: "ask-notice" },
+          "每个问题都会在服务器上调用所选的模型，产生费用，",
+          "并把问题、工具返回的目录文字和写出的 SQL 发给那个模型的提供方。不同模型的回答质量不同。")
         : h("p", { class: "ask-notice" },
           `每个问题都会在服务器上调用模型（${text(info.model)}，effort ${text(info.effort)}），产生费用，`,
           "并把问题、工具返回的目录文字和写出的 SQL 发给模型提供方。"),
@@ -135,6 +162,7 @@ class Panel {
     this.setBusy(true);
     const payload = { question };
     if (this.conversation) payload.conversation = this.conversation;
+    if (this.picker && this.picker.value) payload.model = this.picker.value;
     const { status, body } = await postJson("/api/ask", payload);
     if (status !== 202) {
       this.setBusy(false);
@@ -186,11 +214,23 @@ class Panel {
   }
 }
 
+function modelPicker(models) {
+  const picked = pickModel(models, remembered());
+  const select = h("select", { id: "ask-model", "aria-label": "回答这个问题的模型",
+    onchange: () => remember(select.value) },
+  models.map((model) => h("option", {
+    value: model.id, disabled: !model.available, selected: model.id === picked,
+    title: model.available ? null : text(model.reason),
+  }, modelOptionText(model))));
+  return select;
+}
+
 // ------------------------------------------------------------------ one run
 
 function drawRun(box, vm, panel) {
   const head = h("h2", {}, text(vm.question),
     vm.followUp ? badge("追问") : null,
+    panel.picker && vm.modelLabel ? badge(vm.modelLabel) : null,
     panel.info.fake ? badge("假模型", "warn") : null,
     badge(STATUS_TEXT[vm.status] || vm.status, vm.status === "done" ? "ok" : vm.status === "running" ? null : "warn"));
   const parts = [head, h("ol", { class: "ask-steps" }, vm.steps.map((step) => h("li", {}, drawStep(step))))];
