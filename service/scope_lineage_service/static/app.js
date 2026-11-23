@@ -1,7 +1,7 @@
 // The browse page: hash routes (#/concept/<id>, #/table/<db.table>, ...) so every view can
 // be linked, a navigation bar, and the search box. Read-only: it only ever GETs.
 
-import { h, href } from "./dom.js";
+import { h, href, pageTitle } from "./dom.js";
 import * as views from "./views.js";
 
 // view name -> function(id, URLSearchParams) returning the nodes of <main>
@@ -67,8 +67,9 @@ async function render() {
   const { view, id, params } = parse(window.location.hash);
   const route = Object.prototype.hasOwnProperty.call(ROUTES, view) ? ROUTES[view] : null;
   drawNav(view);
-  document.title = (id ? `${id} · ` : "") + (TITLES[view] || "本体目录") + " · 本体目录";
-  if (view === "search") document.getElementById("search-text").value = params.get("text") || "";
+  // the box shows a search's words on the search view only; elsewhere it starts empty
+  document.getElementById("search-text").value = view === "search" ? params.get("text") || "" : "";
+  document.title = pageTitle(null, TITLES[view] || null, true);
   main.replaceChildren(h("p", { class: "muted" }, "正在加载……"));
   let nodes;
   try {
@@ -77,7 +78,12 @@ async function render() {
     nodes = [h("p", { class: "error" }, `出错了：${error.message}`)];
   }
   if (token !== current) return; // a later click has already replaced this view
-  main.replaceChildren(h("div", {}, nodes));
+  const content = h("div", {}, nodes);
+  main.replaceChildren(content);
+  // the title is the heading the new view shows, set once it is shown
+  const heading = content.querySelector("h1");
+  document.title = pageTitle(heading ? heading.firstChild && heading.firstChild.textContent : null,
+    TITLES[view] || null, false);
   window.scrollTo(0, 0);
 }
 

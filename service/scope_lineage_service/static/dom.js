@@ -69,8 +69,23 @@ export function text(value) {
   return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 
-export function code(value) {
-  return h("code", {}, text(value));
+const SITE = "本体目录";
+
+/**
+ * The document title: the view's heading (or, without one, the view's name) and the site
+ * name once -- a heading that already starts with the site name stands alone. While a view
+ * loads, "正在加载" leads, so a title never names the view that was left.
+ */
+export function pageTitle(heading, viewName, loading) {
+  const main = String(heading || "").trim() || String(viewName || "").trim();
+  if (loading) return main && main !== SITE ? `正在加载：${main} · ${SITE}` : `正在加载 · ${SITE}`;
+  if (!main || main === SITE) return SITE;
+  return main.startsWith(SITE) ? main : `${main} · ${SITE}`;
+}
+
+/** An identifier as code; with ``expression`` true, a code expression that may wrap. */
+export function code(value, expression = false) {
+  return h("code", { class: expression ? "expr" : null }, text(value));
 }
 
 /** A hash link: route parts are encoded, so a name cannot leave its place in the URL. */

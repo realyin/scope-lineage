@@ -44,6 +44,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 15px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  overflow-wrap: anywhere; /* prose never widens the page; table cells say otherwise below */
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -65,7 +66,7 @@ pre { background: var(--code-bg); padding: 0.6em 0.8em; border-radius: 4px; over
 
 input, select, button {
   font: inherit; color: var(--text); background: var(--panel);
-  border: 1px solid var(--line); border-radius: 4px; padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line); border-radius: 4px; padding: 0.25rem 0.5rem; max-width: 100%;
 }
 button { cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
@@ -91,7 +92,7 @@ h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0.7rem 0.9rem; }
 .card h3 { margin: 0 0 0.3rem; }
 
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 0.4rem 0; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.2rem 1rem; margin: 0.4rem 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 
@@ -99,10 +100,16 @@ h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
 table { border-collapse: collapse; width: 100%; background: var(--panel); }
 th, td { border: 1px solid var(--line); padding: 0.3rem 0.5rem; text-align: left; vertical-align: top; }
 th { background: var(--code-bg); font-weight: 600; white-space: nowrap; }
-td { overflow-wrap: anywhere; }
+/* break-word (not anywhere) keeps a name whole when the table is sized: an identifier sets
+   its column's minimum, prose wraps at spaces and between Chinese characters, and a table
+   wider than its box scrolls inside .table-wrap instead of crushing every column. */
+td { overflow-wrap: break-word; }
+td code { overflow-wrap: break-word; white-space: nowrap; }
+td code.expr, td pre { white-space: pre-wrap; }
 
 .filters { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; align-items: center; margin: 0.5rem 0 0.8rem; }
-.filters label { display: inline-flex; gap: 0.35rem; align-items: center; }
+.filters label { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; max-width: 100%; }
+.filters select { min-width: 0; }
 .pager { display: flex; gap: 0.6rem; align-items: center; margin: 0.6rem 0; flex-wrap: wrap; }
 
 details { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; margin: 0.5rem 0; }
@@ -113,22 +120,28 @@ details details { margin-left: 0; }
 ul.plain { list-style: none; padding-left: 0; margin: 0.3rem 0; }
 ul.plain li { padding: 0.15rem 0; }
 
-.graph-box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.graph-box svg { display: block; width: 100%; height: auto; }
+/* The graph is drawn at its natural size (its width/height attributes): text stays at the
+   page's size, and a box narrower than the drawing scrolls it sideways, not the page. */
+.graph-box {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  overflow-x: auto; overflow-y: hidden; max-width: 100%;
+}
+.graph-box svg { display: block; margin: 0 auto; max-width: none; }
 .graph-box .edge { stroke: var(--edge); stroke-width: 1.4; fill: none; }
 .graph-box .edge.role { stroke-dasharray: 4 3; }
 .graph-box .edge.joined { stroke: var(--accent); stroke-width: 2; }
-.graph-box .edge-label { fill: var(--muted); font-size: 11px; }
-.graph-box .node rect { fill: var(--node); stroke: var(--line); stroke-width: 1.2; }
+.graph-box .edge-label rect { fill: var(--panel); stroke: var(--line); stroke-width: 0.8; }
+.graph-box .edge-label text { fill: var(--muted); font-size: 12px; }
+.graph-box .node rect { fill: var(--node); stroke: var(--edge); stroke-width: 1.2; }
 .graph-box .node.centre rect { fill: var(--node-centre); stroke: var(--accent); stroke-width: 2; }
-.graph-box .node text { fill: var(--text); font-size: 13px; }
-.graph-box .node .sub { fill: var(--muted); font-size: 10px; }
+.graph-box .node text { fill: var(--text); font-size: 14px; }
+.graph-box .node .sub { fill: var(--muted); font-size: 11px; }
 .graph-box .node a:focus rect, .graph-box .node a:hover rect { stroke: var(--accent); }
 .graph-box .arrow { fill: var(--edge); }
 
 @media (max-width: 40rem) {
   .main { padding: 0.75rem; }
   .search { margin-left: 0; max-width: none; }
-  .kv { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: minmax(0, 1fr); }
   .kv dt { margin-top: 0.3rem; }
 }

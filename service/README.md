@@ -177,6 +177,10 @@ pending file is read on every list. The servers never answer from a copy they kn
 The tests use the repository's demo ontology and table-semantics document, need no network, and start the
 HTTP server on an ephemeral port of `127.0.0.1` and the MCP server in memory and as a stdio subprocess:
 
+The browse page's pure JavaScript functions (the graph layout, the document title) are checked by running
+the page's own modules with `node` when it is on `PATH` (`test_service_page_js.py`, skipped otherwise; no
+JavaScript package is installed).
+
 ```bash
 pip install -e ".[dev]" -e service
 python -m pytest -q service/tests

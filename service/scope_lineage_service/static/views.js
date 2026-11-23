@@ -163,11 +163,11 @@ function joinsCell(edge) {
   const parts = [];
   if (edge.joins) {
     parts.push(h("div", {}, `目录表之间 ${edge.joins.count} 次`));
-    for (const on of edge.joins.on) parts.push(h("div", {}, code(on)));
+    for (const on of edge.joins.on) parts.push(h("div", {}, code(on, true)));
   }
   if (edge.source_joins && edge.source_joins.count) {
     parts.push(h("div", {}, `生产任务内 ${edge.source_joins.count} 次`));
-    for (const on of edge.source_joins.on) parts.push(h("div", {}, code(on)));
+    for (const on of edge.source_joins.on) parts.push(h("div", {}, code(on, true)));
   }
   return parts.length ? parts : "—";
 }
@@ -275,7 +275,7 @@ function catalogPart(match, entry) {
           : "目录里没有以这个标识为主键的表",
         join.seen.length ? join.seen.map((s) => h("div", {},
           `${s.where === "inside_producing_task" ? "产出任务内部" : "目录表之间"} ${s.count} 次：`,
-          joined(s.on.map((on) => code(on)), "；"))) : "—",
+          joined(s.on.map((on) => code(on, true)), "；"))) : "—",
       ])) : h("p", { class: "muted" }, "（没有外键列）")));
   }
   // the concept's constraints (catalog context), then the rules citing this table that are
@@ -325,7 +325,7 @@ function columnsGrid(match) {
     const row = h("tr", {},
       h("td", {}, code(column.column)), h("td", {}, word(BINDING_TEXT, column.to)), h("td", {}, target),
       h("td", {}, codes.length ? codes : "—"), h("td", {}, text(column.derivation)),
-      h("td", {}, column.evidence && column.evidence.expression ? code(column.evidence.expression) : "—"),
+      h("td", {}, column.evidence && column.evidence.expression ? code(column.evidence.expression, true) : "—"),
       h("td", {}, more));
     more.addEventListener("click", () => toggleColumn(row, more, `${match.table}.${column.column}`));
     body.append(row);
