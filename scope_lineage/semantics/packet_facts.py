@@ -510,14 +510,17 @@ def partition_filter_rules(table: str, rules: list[dict]) -> list[tuple[str, dic
 
 
 def input_time_facts(
-    table: str, rules: list[dict], columns: list[dict], convention: NameConvention | None = None
+    table: str, rules: list[dict], columns: list[dict], convention: NameConvention | None = None,
+    *, partition_known: bool = True,
 ) -> dict:
     """How one input's partitions are read, and its non-partition business-date filters.
 
     ``convention`` is the caller's table-name convention; a table is a ``full`` snapshot
     -- and an equality read of one partition a ``full_snapshot`` -- only by it.
+    ``partition_known`` is False when the metadata says nothing about the input's
+    partitioning (:func:`partition_known`); see :func:`read_facts`.
     """
-    found = read_facts(table, rules, columns)
+    found = read_facts(table, rules, columns, partition_known=partition_known)
     named = _name_convention(table, convention)
     return {
         **found,
@@ -541,13 +544,27 @@ def time_columns(declared: list[dict], used: Sequence[str], partition_columns) -
     ]
 
 
-def read_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
+def partition_known(meta: dict | None) -> bool:
+    """Whether the metadata says anything about a table's partitioning: its partition
+    columns, or a partitioned flag either way. False for a table it does not know."""
+    meta = meta or {}
+    return bool(meta.get("partition_columns")) or meta.get("partitioned") is not None
+
+
+def read_facts(
+    table: str, rules: list[dict], columns: list[dict], *, partition_known: bool = True
+) -> dict:
     """How one input's partitions are read (``partition_read``, ``partition_filters``) and
     its non-partition business-date filters (``date_filters``), each with its ``shape``.
 
     ``rules`` are the statement's rules (:func:`statement_rules`) after
     :func:`mark_partition_filters`; ``columns`` is :func:`time_columns`. Shared by the
     packet's inputs and by ``domain-profile evidence``, so both read a table one way.
+
+    ``partition_known`` False -- the metadata says nothing of the input's partitioning --
+    lets a filter that is one column equal to one scheduling parameter be a
+    ``parameter_equality`` (:data:`DATE_PARAMETER_EQUALITY`): without metadata nobody can
+    say whether it reads a partition, and the parameter's day is the scheduler's.
     """
     partition = [expression for expression, _rule in partition_filter_rules(table, rules)]
     by_name = {column["name"]: column for column in columns}
@@ -561,7 +578,7 @@ def read_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
         # OR the partition rule cannot split it off, but it is no business-date filter.
         and not (by_name.get(name) or {}).get("partition")
     ]
-    _mark_date_shapes(dated, _batch_values(partition))
+    _mark_date_shapes(dated, _batch_values(partition), parameter_equality=not partition_known)
     return {
         "partition_read": _partition_read(partition),
         "partition_filters": partition,
@@ -574,8 +591,12 @@ def read_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
 # batch's rows by date; an as-of pair keeps the rows valid on one day, an upper bound alone
 # keeps all history up to a day, a NULL check looks at no date at all, a cutoff bounds by
 # a fixed literal (history from a year on), a period takes the batch's year, quarter or
-# month (this year against last).
+# month (this year against last). A parameter equality -- one column equal to one
+# scheduling parameter, on an input whose partitioning the metadata does not state --
+# takes the one slice the parameter names; whether that is a partition, and which day the
+# parameter is, the tool does not know.
 DATE_WINDOW = "window"
+DATE_PARAMETER_EQUALITY = "parameter_equality"
 DATE_CUTOFF = "cutoff"
 DATE_PERIOD = "period"
 DATE_SNAPSHOT_PICK = "snapshot_pick"
@@ -588,7 +609,19 @@ _NULL_CHECK = re.compile(r"is(not)?null$")
 _UPPER, _LOWER = ("<", "<="), (">", ">=")
 
 
-def _mark_date_shapes(dated: list[dict], batch: frozenset = frozenset()) -> None:
+_PARAMETER = r"('\$\{\w+\}'|\"\$\{\w+\}\"|\$\{\w+\})"
+_COLUMN = r"[a-z_][a-z0-9_]*"
+_PARAMETER_EQUALITY = re.compile(rf"^(?:{_COLUMN}={_PARAMETER}|{_PARAMETER}={_COLUMN})$")
+
+
+def _equals_a_parameter(expression) -> bool:
+    """``col = '${p}'``, quoted or not, either side: the whole condition, nothing computed."""
+    return bool(_PARAMETER_EQUALITY.match(normalize_sql(expression)))
+
+
+def _mark_date_shapes(
+    dated: list[dict], batch: frozenset = frozenset(), *, parameter_equality: bool = False
+) -> None:
     """Give each date filter its ``shape``.
 
     ``X <= C`` (or ``<``) with ``Y > C`` (or ``>=``) on another column, in the same
@@ -601,6 +634,9 @@ def _mark_date_shapes(dated: list[dict], batch: frozenset = frozenset()) -> None
     """
     bounds = [_bound(item["expression"]) for item in dated]
     for item, bound in zip(dated, bounds):
+        if parameter_equality and _equals_a_parameter(item["expression"]):
+            item["shape"] = DATE_PARAMETER_EQUALITY
+            continue
         if bound is None:
             null = _NULL_CHECK.search(normalize_sql(item["expression"]))
             item["shape"] = "null_check" if null else _selecting_shape(item["expression"], batch)
