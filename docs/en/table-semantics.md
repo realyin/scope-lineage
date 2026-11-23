@@ -180,10 +180,17 @@ recognised) is split by what it compares with: a day-level comparison with the b
 input's partition value, a run parameter `${…}`, the current date) is `window`; the batch's
 year, quarter or month is `period`; an equality with a day a rule computes (a CASE over the
 batch, the latest value a subquery finds) is `snapshot_pick` (one day's snapshot of the
-input); a fixed literal only is `cutoff` (history from a point on). A condition on the
+input); a fixed literal only is `cutoff` (history from a point on). When the metadata says
+nothing about whether the input is partitioned (no partition columns, no partitioned flag),
+a condition that is wholly one column equal to one scheduling parameter (`dt = '${dt}'`,
+quoted or not, on either side; not an `IN (…)` list, nothing computed, no inequality) is
+`parameter_equality` (等于调度参数) before any of the above: it takes the one slice the
+parameter names, and whether the input is partitioned, or which day the parameter is, the
+tool does not know. A condition on the
 input's partition column reads partitions and is no business-date filter, even inside an
 IN subquery or an OR. Only a `window` selects a batch's rows by date, and only a `window` makes check 9
-doubt `snapshot`.
+doubt `snapshot`; `parameter_equality` does not, like every other shape (a reader that
+knows only the older values and treats an unknown shape as `window` should be updated).
 
 Whether a filter reads partitions is decided per conjunct, because the lineage's own flag
 is a name rule over a whole `WHERE` clause (`dt = x AND status = 0` marks neither half).
@@ -263,6 +270,7 @@ when it has content:
 | --- | --- | --- |
 | `tasks[]` | `expect_date` | the expected run date from the task metadata |
 | `tasks[]` | `date_literals` | every whole-date string literal (`'YYYYMMDD'` / `'YYYY-MM-DD'`) in the SQL outside comments: `{literal, count, days_from_expect_date}`. A corpus exported from run instances carries the batch-date parameter as a literal; the offset is given, no conclusion that it is a parameter is drawn |
+| `tasks[]` | `scheduling_parameters` | present only for a task `parse` read from its scheduling template (`meta.task_sql`, see [input-formats.md](input-formats.md)): `{in_sql, bound}`. `in_sql` is each `${name}` the SQL still holds outside comments (in code, strings or quoted names), with `definition` quoted verbatim from `meta.task_parameters` (`null` when the list has none -- 参数表未给定义), `count`, and the user's own `description` when given; `bound` is each table-name parameter `parse` replaced, with how many places. A parameter left only in a comment is in neither. `packet.md` says it as one line 调度参数 after the 期望日期 line; what a definition means is the scheduler's, and the packet does not read it. With the run instance the key is absent and section 2 is as before |
 | `tasks[]` | `upstream_unmatched` | the registered upstream tasks whose name matches no table the task reads over all its statements; a task named `tbl`, `db_tbl` or ending in `_db_tbl` matches. A name heuristic: it says "does not match", not "not read" |
 | `tasks[]` | `writes` | present when the script writes more than once: `{statement_id, statement_index, table}` of every write statement of the task, in script order (intermediate tables included). `packet.md` puts a line `-- [stmt:NNN] 写 <table>` above each write statement in the SQL block; a statement whose text does not name the table gets none |
 | `inputs[]` | `via` | a table read by an earlier write of the same task that feeds the target's statements through an intermediate table (transitively) is an input too: `[{task, statement_id, writes}]` names the statement reading it and the intermediate table it writes. Its partition reads, date filters and column usages are given as for a direct input; its roles are not merged (they are the intermediate table's). `packet.md` adds 「经同任务中间语句读入：`stmt:NNN` 写 `<table>`」 to the role line |

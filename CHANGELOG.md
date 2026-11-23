@@ -1,6 +1,47 @@
 # Changelog
 
 ## Unreleased
+- **New: `parse` reads a task JSON's scheduling template and parameter list.** A task JSON may carry
+  `meta.task_sql` (the script with its `${name}` parameters) and `meta.task_parameters` (an object
+  `{name: definition}`, or a list of `{"name", "value"}` items with `paramKey` / `paramValue` accepted
+  and an optional `description`) beside the run instance `meta.sql`. With a non-empty `task_sql`,
+  `parse` reads it. Only a parameter the parser finds in a table id is bound, when its value is a plain
+  identifier: replaced on the token stream (never in a string or a comment; inside backticks too),
+  parsed again, and kept only when every such table is still there under the bound name and the syntax
+  status got no worse -- otherwise undone and reported as `input_incomplete`, as before. A parameter
+  used bare elsewhere as well is replaced there too. New `warnings[]` type `task_template_sql_used`
+  with `bound_parameters` (`{name: places}`). `parse --instance-sql` reads `meta.sql` as before. A
+  `task_sql` that is not a string, a malformed parameter list, or one name with two definitions is an
+  input error. A task JSON without `task_sql`, or without `meta`, parses exactly as before.
+- **New: packets of a template-read task list its scheduling parameters.** `semantic packet --tasks`
+  takes the SQL a task's lineage was built from, decided by that lineage's `task_template_sql_used`
+  warning (none: the run instance, as before). Section 2 gets a line 调度参数 after 期望日期: each
+  parameter the SQL still holds outside comments with its definition verbatim, its count and the
+  user's description, the bound table-name parameters apart, and 参数表未给定义 for one the list lacks;
+  `packet.json` carries it as `tasks[].scheduling_parameters`. With the run instance section 2 is
+  byte-identical.
+- **New: date-filter shape `parameter_equality` (等于调度参数).** On an input whose partitioning the
+  metadata does not state, a filter that is wholly one column equal to one scheduling parameter
+  (quoted or not, either side; not `IN`, nothing computed, no inequality) is no longer a `window`:
+  without metadata the tool cannot tell it reads a partition, and the parameter's day is the
+  scheduler's. Check 9 and `domain-profile evidence`'s window-filtered writes do not count it; inputs
+  the metadata describes keep their shapes. `read_facts` / `input_time_facts` take
+  `partition_known`.
+- **Changed: prompts `table-semantics-prompt@13` and `table-semantics-review@12`.** A packet that lists
+  scheduling parameters is written from them: dates as parameters, definitions quoted as given (a
+  user's description used when there is one, otherwise 「按任务平台对该参数的定义」), no run's date and
+  no 「推断」; a literal without a parameter is a fixed value noted under `watch`; rule `sql` keeps
+  `${…}`; a parameter without a definition is named, not guessed. Template T8 and runbook S1 say a
+  task JSON may carry the template.
+- **Compatibility, for task JSON carrying the two fields** (none of this applies without them):
+  `lineage.json` keeps its fields but their values change -- normalized SQL, expression text and
+  `target_partition_spec` values read as parameter text where the instance had dates; `glossary.json`
+  no longer records a run's date as a column value, and lists more `parameters`; every packet digest
+  of such a task changes, so its existing documents read `packet_stale` and are rewritten;
+  `packet.json`'s `date_filters[].shape` has one more value, which a reader knowing only the older
+  values would take for `window`; a lineage parsed before this release has no disclosure, so
+  `semantic packet` packs the instance until the task is parsed again; `task_meta` stays a whitelist,
+  so neither field reaches it.
 - **New (service): the browse page shows 「用之前先看」 and 「按表看」.** The home view shows the summary
   `index.md` opens with (same rows, same numbers, same two sentences; the table-semantics rows only when the
   server has `--semantics`), and the table list carries the by-table columns with the same definitions and
