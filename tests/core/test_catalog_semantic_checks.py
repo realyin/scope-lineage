@@ -108,6 +108,33 @@ def test_a_measure_without_a_unit(tmp_path: Path) -> None:
     assert warning.at == "attr:loan.principal"
 
 
+def _unit_left_to_the_owner(notes: str):
+    def change(data: dict) -> None:
+        principal = item(_loan(data)["attributes"], "attr:loan.principal")
+        principal.pop("unit")
+        principal["notes"] = notes
+    return change
+
+
+def test_a_measure_whose_unit_is_left_to_the_owner_is_not_warned(tmp_path: Path) -> None:
+    """The material gave no unit: the drafter writes no unit and the prescribed sentence."""
+    root = copy_demo(tmp_path)
+    mutate(root, "concepts/lending.yaml",
+           _unit_left_to_the_owner("来源列注释没写；待 owner 确认：单位"))
+
+    assert _warnings(root, "measure_without_unit") == []
+
+
+def test_a_measure_with_notes_about_something_else_is_still_warned(tmp_path: Path) -> None:
+    root = copy_demo(tmp_path)
+    mutate(root, "concepts/lending.yaml",
+           _unit_left_to_the_owner("待 owner 确认：是否含手续费"))
+
+    [warning] = _warnings(root, "measure_without_unit")
+
+    assert warning.at == "attr:loan.principal"
+
+
 def test_a_zipper_table_needs_both_validity_columns(tmp_path: Path) -> None:
     root = copy_demo(tmp_path)
     mutate(root, "mapping/lending.yaml", lambda d: item(

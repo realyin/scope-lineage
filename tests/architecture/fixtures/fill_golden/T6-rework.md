@@ -16,8 +16,9 @@
 2. 分配：`/RUN/catalog_plan.md` 的「通用约定」「码值来源表」「组 main」「跨组属性」「已建在目录里的共用码值集」五节。
 3. 目录里已有的码值集、属性直接引用，不要用同一个 id 写不同的内容。
    **义务清单**（逐条做，回复里报数）：
-   - 你新建的每个 `category: measure` 属性都写 `unit` 和 `additivity`（`additive` / `semi_additive` / `non_additive`，含义同 T5）；
-     单位材料没写的，按列注释暂填并在 `notes` 写「待 owner 确认：单位」。
+   - 你新建的每个 `category: measure` 属性都写 `additivity`（`additive` / `semi_additive` / `non_additive`，含义同 T5）。
+     单位以 digest 为准：它所绑的列在 digest 里有单位的照写 `unit`；都没有的**不写 `unit`**，只在 `notes` 写「待 owner 确认：单位」，
+     不要按列注释、列名或常识暂填。
    - 状态列（`category: state`）有码值的：绑到**本表自己的概念**上（事件表的状态列绑在那个 `event` 概念的属性上，不绑到事件
      发生在其身上的 entity 上）。目录里该概念已有这个属性就直接绑定，没有的照常建。只有 `entity` 概念才有 `states`：entity 的
      这个属性在目录里没有对应的 `states` 时，在回复的「需要编排者处理」里列出「<概念> 缺 <属性> 的 states」（不写进 `notes`，
@@ -59,7 +60,7 @@
 组：main
 自检：exit=<n>；Merged 行原样
 属性 <n>、码值集 <n>、表现 <n>、绑定 <n>（identifier <n> / foreign_identifier <n> / attribute <n> / foreign_attribute <n> / technical <n> / unmapped <n>）
-义务清单：度量属性 <n>（有 unit <n>、有 additivity <n>）；带 time_role 的绑定 <n>（valid_from <n> / valid_to <n> / partition <n> / event_time <n>）；缺 states、列进「需要编排者处理」的状态属性 <n>
+义务清单：度量属性 <n>（有 unit <n>、材料没给单位写了待确认 <n>、有 additivity <n>）；带 time_role 的绑定 <n>（valid_from <n> / valid_to <n> / partition <n> / event_time <n>）；缺 states、列进「需要编排者处理」的状态属性 <n>
 unmapped 列及原因：…（没有写「无」）
 notes 原文：…（没有写「无」）
 需要编排者合并后改成 foreign_attribute 的列：…（没有写「无」）

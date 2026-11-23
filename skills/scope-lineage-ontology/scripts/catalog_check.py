@@ -22,9 +22,15 @@ these kinds of omission:
                                      own or a binding's) and no ``states`` (one state machine, an
                                      object; events and roles carry none), unless
                                      ``catalog_changes.md`` has ``<concept id> states skip: …``;
-  measure_without_unit               a measure attribute with no ``unit``;
+  measure_without_unit               a measure attribute with no ``unit``, unless its
+                                     ``notes`` carry 「待 owner 确认：单位」 (the material gives
+                                     none; listed after the findings for the owner, not counted);
+  unit_in_digest                     (with ``--digest``) a measure attribute whose ``notes``
+                                     carry that sentence while the digest gives a unit for a
+                                     column bound to it -- the unit is in the material, write it;
   metric_incomplete                  a metric with no ``unit`` or ``additivity``, or a sum,
-                                     avg, min or max with no ``measure``;
+                                     avg, min or max with no ``measure``; no unit is not reported
+                                     when the measure has none and its notes carry that sentence;
   code_attribute_without_relation    (cleared by ``<db.table.column> code skip: …`` in
                                      ``catalog_changes.md``) a column named like a code or a key (``*_cd``, ``*_id``,
                                      ``*_no``, ``*_code``) bound as a plain attribute, not as an
@@ -41,6 +47,12 @@ these kinds of omission:
 
 Each finding is something to look at, not proof of an error: fix it (back to S10c / S10d)
 or write in ``catalog_changes.md`` why it stays.
+
+Listed after the findings for a person, not counted: measures with no unit whose notes
+carry that sentence, and (with ``--digest``) measures with a unit that no column bound to
+them has in the digest -- a unit with nothing in the material behind it. The orchestrator
+copies both lists into ``RESULT.md``'s pending-confirmation summary for the owner. A measure
+none of whose bound columns the digest lists is not compared with it.
 
   catalog_check.py ONTOLOGY_JSON [--digest DIGEST_JSON] [--changes CATALOG_CHANGES_MD]
 
@@ -62,6 +74,10 @@ POINTER_SUFFIXES = ("_cd", "_id", "_no", "_code")
 RULE_KINDS = ("filter", "dedup", "derive")
 MEASURED_AGGREGATIONS = ("sum", "avg", "min", "max")
 TEXT_SUFFIXES = ("_desc", "_name", "_nm")
+# What T5 and T6 tell the drafter to write in a measure's ``notes`` when the digest gives no
+# unit (the drafter then writes no ``unit``); the same literal as ``UNIT_LEFT_TO_OWNER`` in
+# ``scope_lineage/catalog/soft_checks.py``, which this standard-library script cannot import.
+UNIT_LEFT_TO_OWNER = "待 owner 确认：单位"
 
 
 def _stem(column: str, suffixes: tuple[str, ...]) -> str | None:
@@ -72,16 +88,26 @@ def _stem(column: str, suffixes: tuple[str, ...]) -> str | None:
 
 
 def check(
-    ontology: dict, digest: dict | None = None, changes: str = "", look: list[str] | None = None
+    ontology: dict,
+    digest: dict | None = None,
+    changes: str = "",
+    look: list[str] | None = None,
+    units: dict[str, list[str]] | None = None,
 ) -> list[str]:
     """The findings; code columns bound as plain attributes that name no concept go to
-    ``look`` (listed for a person, not counted)."""
+    ``look``, and the measures whose unit a person has to settle to ``units`` (``left``:
+    no unit, left to the owner; ``unsupported``: a unit the digest does not give) -- listed
+    for a person, not counted."""
     concepts = {c["id"]: c for c in ontology.get("concepts") or []}
     look = look if look is not None else []
+    units = units if units is not None else {}
     findings = _empty_concept_findings(ontology, concepts, changes)
     for representation in ontology.get("representations") or []:
         findings += _representation_findings(ontology, concepts, representation)
     findings += _state_and_measure_findings(ontology, concepts, changes)
+    findings += _unit_findings(
+        ontology, digest, units.setdefault("left", []), units.setdefault("unsupported", [])
+    )
     findings += _code_column_findings(ontology, concepts, changes, look)
     findings += _metric_findings(ontology)
     if digest is not None:
@@ -116,13 +142,19 @@ def _empty_concept_findings(ontology: dict, concepts: dict, changes: str) -> lis
 
 def _metric_findings(ontology: dict) -> list[str]:
     """``metric_incomplete``: a metric with no ``unit`` or ``additivity``, or one that adds
-    up, averages or picks an extreme with no ``measure`` to do it over."""
+    up, averages or picks an extreme with no ``measure`` to do it over. A metric whose
+    measure has no unit and leaves it to the owner has none to copy: no unit is not
+    reported for it."""
+    attributes = {a["id"]: a for a in _measures(ontology)}
     findings = []
     for metric in ontology.get("metrics") or []:
+        measure = attributes.get(metric.get("measure") or "") or {}
+        unit_left = bool(measure) and not measure.get("unit") and _left_to_owner(measure)
         missing = [
             key for key in ("measure", "unit", "additivity")
             if not metric.get(key)
             and (key != "measure" or metric.get("aggregation") in MEASURED_AGGREGATIONS)
+            and (key != "unit" or not unit_left)
         ]
         if missing:
             findings.append(f"metric_incomplete  {metric['id']}：缺 {'、'.join(missing)}")
@@ -195,8 +227,85 @@ def _state_and_measure_findings(ontology: dict, concepts: dict, changes: str) ->
                 f"`{concept_id} states skip: <理由>`）"
             )
         for attribute in concept.get("attributes") or []:
-            if attribute.get("category") == "measure" and not attribute.get("unit"):
+            if (
+                attribute.get("category") == "measure" and not attribute.get("unit")
+                and not _left_to_owner(attribute)
+            ):
                 findings.append(f"measure_without_unit  {attribute['id']}：度量属性没有 unit")
+    return findings
+
+
+def _left_to_owner(attribute: dict) -> bool:
+    """Whether the attribute's ``notes`` carry ``UNIT_LEFT_TO_OWNER``."""
+    notes = attribute.get("notes")
+    if isinstance(notes, list):
+        notes = "；".join(str(note) for note in notes)
+    return UNIT_LEFT_TO_OWNER in str(notes or "")
+
+
+def _measures(ontology: dict) -> list[dict]:
+    return [
+        a for c in ontology.get("concepts") or [] for a in c.get("attributes") or []
+        if a.get("category") == "measure"
+    ]
+
+
+def _bound_columns(ontology: dict) -> dict:
+    """``attribute id -> [(db.table, column), ...]``: every column bound to it."""
+    found: dict = {}
+    for representation in ontology.get("representations") or []:
+        for binding in representation.get("bindings") or []:
+            if binding.get("ref") and binding.get("column"):
+                found.setdefault(binding["ref"], []).append((representation["table"], binding["column"]))
+    return found
+
+
+def _digest_units(digest: dict) -> dict:
+    """``(db.table, column) -> unit or ""`` (lower case) for every column the digest lists."""
+    found: dict = {}
+    for table in digest.get("tables") or []:
+        name = str(table.get("table") or "").lower()
+        for key, value in table.items():
+            if not key.endswith("_columns") or not isinstance(value, list):
+                continue
+            for column in value:
+                if isinstance(column, dict) and column.get("column"):
+                    found[(name, str(column["column"]).lower())] = str(column.get("unit") or "").strip()
+                elif isinstance(column, str):
+                    found.setdefault((name, column.lower()), "")
+    return found
+
+
+def _unit_findings(ontology: dict, digest: dict | None, left: list[str], unsupported: list[str]) -> list[str]:
+    """``unit_in_digest`` (with ``--digest``): a measure whose notes leave the unit to the
+    owner while the digest gives a unit for a column bound to it. A measure with no unit and
+    no such sentence is ``measure_without_unit`` already and is not reported twice.
+
+    Listed, not counted: measures with no unit whose notes leave it to the owner (``left``),
+    and, with ``--digest``, measures with a unit that no column bound to them has in the
+    digest (``unsupported``). A measure none of whose bound columns the digest lists is not
+    compared with it."""
+    bound = _bound_columns(ontology)
+    units = _digest_units(digest) if digest is not None else {}
+    findings = []
+    for attribute in _measures(ontology):
+        columns = bound.get(attribute["id"]) or []
+        listed = [
+            (f"{table}.{column}", units[(table.lower(), column.lower())])
+            for table, column in columns if (table.lower(), column.lower()) in units
+        ]
+        given = [(at, unit) for at, unit in listed if unit]
+        where = "、".join(f"{table}.{column}" for table, column in columns) or "没有绑定的列"
+        if _left_to_owner(attribute) and given:
+            findings.append(
+                f"unit_in_digest  {attribute['id']}：notes 写着「{UNIT_LEFT_TO_OWNER}」，digest 却给了所绑列的单位 "
+                f"{'、'.join(f'{at} [{unit}]' for at, unit in given)}——照 digest 写 unit，去掉这句"
+            )
+        elif not attribute.get("unit"):
+            if _left_to_owner(attribute):
+                left.append(f"{attribute['id']}（{where}）")
+        elif listed and not given:
+            unsupported.append(f"{attribute['id']} [{attribute['unit']}]（{where}）")
     return findings
 
 
@@ -305,9 +414,20 @@ def main(argv: list[str]) -> int:
             return 2
         changes = Path(args.changes).read_text(encoding="utf-8")
     look: list[str] = []
-    findings = check(ontology, digest, changes, look)
+    units: dict[str, list[str]] = {}
+    findings = check(ontology, digest, changes, look, units)
     for finding in findings:
         print(finding)
+    if units["left"]:
+        print(f"供人看（不计入）：{len(units['left'])} 个度量属性没有单位（材料没给，notes 写着「{UNIT_LEFT_TO_OWNER}」）——"
+              "编排者抄进 RESULT.md 的「待确认汇总」交 owner，不用返工")
+        for item in units["left"]:
+            print(f"  {item}")
+    if units["unsupported"]:
+        print(f"供人看（不计入）：{len(units['unsupported'])} 个度量属性有 unit，digest 里所绑的列却都没有单位（单位没有材料依据）——"
+              "编排者抄进 RESULT.md 的「待确认汇总」交 owner")
+        for item in units["unsupported"]:
+            print(f"  {item}")
     if look:
         print(f"供人看（不计入）：{len(look)} 个编码列绑成属性、无码值集、列名不指向已有概念——"
               "若其实指向一个还没建的对象，按 S10g 返工建概念；否则不用处理")

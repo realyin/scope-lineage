@@ -28,6 +28,12 @@ Both inputs are plain dicts: the built ``ontology-json/3`` document and
 ``{db.table: table-semantics document}``. Nothing is read from disk here. A table with no
 semantics document says so (``{"present": false}``) rather than carrying empty fields, so
 a reader can tell "nothing to watch" from "nobody wrote it down".
+
+A measure's unit, on a column's binding and on a metric over that measure, is compared
+with the table semantics when they are given (``_unit_mark``): a unit none of the
+attribute's bound columns has in the material is marked as not given by it and
+unconfirmed, and a measure with no unit says whether the material gives one
+(``material_unit``). Without semantics nothing is compared and the pack is unchanged.
 """
 
 from __future__ import annotations
@@ -85,6 +91,8 @@ def context_pack(
     documents = {
         catalog_table_name(name).lower(): doc for name, doc in (semantics or {}).items()
     }
+    # what a measure's unit is compared with (``_unit_mark``); None without semantics
+    material = documents if semantics is not None else None
     tables = list(tables)
     expanded, unplaced = _table_columns(view, documents, tables, list(columns), table_columns)
     query: dict = {"tables": tables, "columns": expanded, "concepts": list(concepts)}
@@ -102,7 +110,7 @@ def context_pack(
     }
     focused = _requested_columns(view, query["columns"]) if focus else {}
     for term in pack["query"]["concepts"]:
-        _concept_term(view, term, pack)
+        _concept_term(view, term, pack, material)
     for term in pack["query"]["tables"]:
         rep = view.representation(term)
         if rep is None:
@@ -119,7 +127,7 @@ def context_pack(
             _link(view, a, b) for i, a in enumerate(reps) for b in reps[i + 1:]
         ]
     for term in pack["query"]["columns"]:
-        answer = _column(view, term, documents)
+        answer = _column(view, term, documents, material)
         if answer is None:
             pack["missing"].append({"kind": "column", "term": term})
         else:
@@ -128,7 +136,9 @@ def context_pack(
     return pack
 
 
-def _concept_term(view: CatalogView, term: str, pack: dict) -> None:
+def _concept_term(
+    view: CatalogView, term: str, pack: dict, material: Optional[Mapping] = None
+) -> None:
     """Add the concepts one ``--concept`` term names to the pack, or a ``missing`` entry.
 
     A concept is looked for first (by id, the id without ``concept:`` -- the page name --,
@@ -137,7 +147,9 @@ def _concept_term(view: CatalogView, term: str, pack: dict) -> None:
     first and named in ``via_metric``."""
     found = find_concepts(view, term) or find_concepts(view, f"concept:{term}")
     if found:
-        pack["concepts"].extend(_concept(view, concept) for concept, _ in found)
+        pack["concepts"].extend(
+            _concept(view, concept, material=material) for concept, _ in found
+        )
         return
     metrics = find_metrics(view, term) or find_metrics(view, f"metric:{term}")
     if not metrics:
@@ -149,7 +161,7 @@ def _concept_term(view: CatalogView, term: str, pack: dict) -> None:
                 {"kind": "concept", "term": term, "metric": _metric_ref(metric)}
             )
         else:
-            pack["concepts"].append(_concept(view, concept, via=metric))
+            pack["concepts"].append(_concept(view, concept, via=metric, material=material))
 
 
 def _table_columns(
@@ -240,7 +252,12 @@ def _ref(view: CatalogView, object_id: str) -> dict:
 # ------------------------------------------------------------------ concept
 
 
-def _concept(view: CatalogView, concept: Mapping, via: Optional[Mapping] = None) -> dict:
+def _concept(
+    view: CatalogView,
+    concept: Mapping,
+    via: Optional[Mapping] = None,
+    material: Optional[Mapping] = None,
+) -> dict:
     """A concept's entry; reached through the metric ``via``, that metric comes first."""
     concept_id = concept["id"]
     metrics = view.metrics_on(concept_id)
@@ -258,7 +275,7 @@ def _concept(view: CatalogView, concept: Mapping, via: Optional[Mapping] = None)
             for rep in view.representations_of(concept_id)
         ],
         "constraints": _constraints(view, concept_id),
-        "metrics": [_metric(view, metric) for metric in metrics],
+        "metrics": [_metric(view, metric, material) for metric in metrics],
     }
     if via is not None:
         answer["via_metric"] = _metric_ref(via)
@@ -284,7 +301,7 @@ def _constraints(view: CatalogView, concept_id: str) -> list[dict]:
     ]
 
 
-def _metric(view: CatalogView, metric: Mapping) -> dict:
+def _metric(view: CatalogView, metric: Mapping, material: Optional[Mapping] = None) -> dict:
     by_id = {c["id"]: c for c in view.constraints}
     answer = {
         key: metric[key]
@@ -302,6 +319,10 @@ def _metric(view: CatalogView, metric: Mapping) -> dict:
                 f"{rep['table']}.{binding['column']}" for rep, binding in view.bindings_of(measure)
             ],
         }
+        if measure in view.attributes:
+            mark = _unit_mark(view, view.attributes[measure][0], metric.get("unit"), material)
+            if mark is not None:
+                answer["material_unit"] = mark
     answer["dimensions"] = [_ref(view, d) for d in metric.get("dimensions") or []]
     answer["constraints"] = [
         {"id": c, "expression": (by_id.get(c) or {}).get("expression")}
@@ -757,7 +778,9 @@ def _pick(item: Mapping, keys: tuple) -> dict:
 # ------------------------------------------------------------------- column
 
 
-def _column(view: CatalogView, term: str, documents: Mapping) -> Optional[dict]:
+def _column(
+    view: CatalogView, term: str, documents: Mapping, material: Optional[Mapping] = None
+) -> Optional[dict]:
     address = _address(view, term)
     if address is None:
         return None
@@ -782,7 +805,7 @@ def _column(view: CatalogView, term: str, documents: Mapping) -> Optional[dict]:
     return {
         "table": table,
         "column": name,
-        "catalog": _binding(view, table, binding) if binding else None,
+        "catalog": _binding(view, table, binding, material) if binding else None,
         "semantics": _described(described) if described else None,
         "watch": [
             _pick(item, ("kind", "text", "refs"))
@@ -809,7 +832,9 @@ def _described(column: Mapping) -> dict:
     return answer
 
 
-def _binding(view: CatalogView, table: str, binding: Mapping) -> dict:
+def _binding(
+    view: CatalogView, table: str, binding: Mapping, material: Optional[Mapping] = None
+) -> dict:
     answer: dict = {"to": binding["to"]}
     ref = binding.get("ref")
     if ref:
@@ -820,6 +845,9 @@ def _binding(view: CatalogView, table: str, binding: Mapping) -> dict:
                 answer["definition"] = attribute["definition"]
             if attribute.get("unit"):
                 answer["unit"] = attribute["unit"]
+            mark = _unit_mark(view, attribute, attribute.get("unit"), material)
+            if mark is not None:
+                answer["material_unit"] = mark
             values = [
                 {"code_set": code_set["id"], "values": [
                     _pick(value, ("value", "meaning", "retired", "unconfirmed"))
@@ -836,6 +864,40 @@ def _binding(view: CatalogView, table: str, binding: Mapping) -> dict:
     if expression:
         answer["expression"] = expression
     return answer
+
+
+def _unit_mark(
+    view: CatalogView, attribute: Mapping, unit, material: Optional[Mapping]
+) -> Optional[dict]:
+    """``material_unit`` of a measure's unit (``unit``: the attribute's own, or that of a
+    metric over it), or None when there is nothing to mark.
+
+    The material is the table-semantics documents (``material``; None without them). The
+    judgement is the attribute's: when any column bound to it has a ``unit`` in its table's
+    document, a unit is supported and carries no mark. Otherwise a unit is marked
+    ``{"given": false}`` (the catalog filled it in, unconfirmed), and so is no unit; no unit
+    while the material gives one is ``{"given": true, "units": [...]}``. An attribute none of
+    whose bound columns a document describes is not judged, nor is one that is not a measure.
+    """
+    if material is None or attribute.get("category") != "measure":
+        return None
+    described = False
+    units: list[str] = []
+    for rep, binding in view.bindings_of(attribute["id"]):
+        document = material.get(rep["table"].lower()) or {}
+        folded = binding["column"].casefold()
+        for column in document.get("columns") or []:
+            if str(column.get("column", "")).casefold() != folded:
+                continue
+            described = True
+            given = str(column.get("unit") or "").strip()
+            if given and given not in units:
+                units.append(given)
+    if not described:
+        return None
+    if units:
+        return None if unit else {"given": True, "units": units}
+    return {"given": False}
 
 
 # --------------------------------------------------------------------- text
@@ -906,13 +968,30 @@ def _metric_lines(metric: Mapping, asked: bool = False) -> list[str]:
         ("aggregation", "聚合"), ("filter", "过滤"), ("time_window", "时间窗"),
         ("additivity", "可加性"), ("unit", "单位"), ("status", "状态"),
     ):
-        if metric.get(key):
+        if key == "unit":
+            lines += [f"  - {line}" for line in _unit_line(metric)]
+        elif metric.get(key):
             lines.append(f"  - {label}：{metric[key]}")
     if metric["dimensions"]:
         lines.append("  - 维度：" + "、".join(d["name"] for d in metric["dimensions"]))
     for constraint in metric["constraints"]:
         lines.append(f"  - 约束 {constraint['id']}：{constraint.get('expression') or ''}")
     return lines
+
+
+def _unit_line(item: Mapping) -> list[str]:
+    """The ``单位：…`` line of a binding or a metric with what ``material_unit`` says; none
+    when there is neither a unit nor a mark."""
+    mark = item.get("material_unit")
+    if item.get("unit"):
+        if mark is not None and not mark.get("given"):
+            return [f"单位：{item['unit']}（材料未给，目录所填未经确认）"]
+        return [f"单位：{item['unit']}"]
+    if mark is None:
+        return []
+    if mark.get("given"):
+        return [f"单位：{'、'.join(mark.get('units') or [])}（目录未填）"]
+    return ["单位：材料未给"]
 
 
 def _constraint_lines(constraints: list) -> list[str]:
@@ -1131,7 +1210,9 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
             ("definition", "定义"), ("unit", "单位"), ("derivation", "取值"),
             ("time_role", "时间角色"), ("via", "经由"), ("expression", "表达式"),
         ):
-            if catalog.get(key):
+            if key == "unit":
+                lines += [f"  - {line}" for line in _unit_line(catalog)]
+            elif catalog.get(key):
                 lines.append(f"  - {label}：{catalog[key]}")
         if catalog.get("code_map"):
             pairs = "、".join(f"{k}={v}" for k, v in catalog["code_map"].items())

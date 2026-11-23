@@ -1122,3 +1122,164 @@ def test_check_sql_lists_the_same_pairs_the_link_shows(document: dict) -> None:
     assert [(p["left"], p["right"]) for p in finding["catalog"]["recorded"]] == [
         (p["left"], p["right"]) for p in link["pairs"]
     ]
+
+
+# -------------------------------------------------------------------- units
+#
+# A measure's unit in the catalog may have been filled in by the drafter while the table
+# semantics give none. With the semantics documents the pack can tell the two apart: a unit
+# none of the attribute's bound columns has in the material is marked as unconfirmed, and
+# an attribute with no unit says whether the material gives one. Without them nothing is
+# marked and the pack is what it always was.
+
+PRINCIPAL = f"{LOAN}.principal_amt"
+UNSUPPORTED = "（材料未给，目录所填未经确认）"
+
+
+def _material(unit: str | None = None, column: str = "principal_amt", table: str = LOAN) -> dict:
+    """A table-semantics document for ``table`` describing one measure column."""
+    described = {"column": column, "meaning": "金额", "category": "measure"}
+    if unit:
+        described["unit"] = unit
+    return {table: {"table": table, "columns": [described]}}
+
+
+def _principal(document: dict, **fields) -> dict:
+    """The document with ``attr:loan.principal`` changed (a field given as None is removed)."""
+    changed = copy.deepcopy(document)
+    for concept in changed["concepts"]:
+        for attribute in concept.get("attributes") or []:
+            if attribute["id"] == "attr:loan.principal":
+                attribute.update(fields)
+                for key in [k for k, v in fields.items() if v is None]:
+                    del attribute[key]
+    return changed
+
+
+def _column_pack(document: dict, semantics, column: str = PRINCIPAL) -> tuple[dict, str]:
+    pack = context_pack(document, semantics, columns=[column])
+    return pack["columns"][0]["catalog"], render_context_text(pack)
+
+
+def test_a_unit_the_material_does_not_give_is_marked_unconfirmed(document: dict) -> None:
+    catalog, text = _column_pack(document, _material())
+    assert catalog["unit"] == "CNY"
+    assert catalog["material_unit"] == {"given": False}
+    assert f"  - 单位：CNY{UNSUPPORTED}\n" in text
+
+
+def test_a_unit_the_material_gives_carries_no_mark(document: dict) -> None:
+    catalog, text = _column_pack(document, _material("元"))
+    assert "material_unit" not in catalog
+    assert "  - 单位：CNY\n" in text
+    assert "材料未给" not in text and "目录未填" not in text
+
+
+def test_notes_about_something_else_leave_a_supported_unit_unchanged(document: dict) -> None:
+    noted = _principal(document, notes="待 owner 确认：是否含税")
+    for semantics in (_material("元"), None):
+        assert context_pack(noted, semantics, columns=[PRINCIPAL]) == context_pack(
+            document, semantics, columns=[PRINCIPAL]
+        )
+        assert render_context_text(context_pack(noted, semantics, columns=[PRINCIPAL])) == (
+            render_context_text(context_pack(document, semantics, columns=[PRINCIPAL]))
+        )
+
+
+def test_without_semantics_nothing_is_marked(document: dict) -> None:
+    for changed in (document, _principal(document, unit=None)):
+        pack = context_pack(changed, None, columns=[PRINCIPAL])
+        assert "material_unit" not in json.dumps(pack, ensure_ascii=False)
+        text = render_context_text(pack)
+        assert "材料未给" not in text and "目录未填" not in text
+    assert "  - 单位：CNY\n" in render_context_text(context_pack(document, None, columns=[PRINCIPAL]))
+    assert "单位" not in render_context_text(
+        context_pack(_principal(document, unit=None), None, columns=[PRINCIPAL])
+    )
+
+
+def test_no_unit_and_none_in_the_material_says_the_material_gives_none(document: dict) -> None:
+    catalog, text = _column_pack(_principal(document, unit=None), _material())
+    assert "unit" not in catalog
+    assert catalog["material_unit"] == {"given": False}
+    assert "  - 单位：材料未给\n" in text
+
+
+def test_no_unit_while_the_material_gives_one_shows_the_materials_unit(document: dict) -> None:
+    catalog, text = _column_pack(_principal(document, unit=None), _material("元"))
+    assert "unit" not in catalog
+    assert catalog["material_unit"] == {"given": True, "units": ["元"]}
+    assert "  - 单位：元（目录未填）\n" in text
+
+
+def test_one_bound_column_with_a_unit_in_the_material_supports_the_attribute(document: dict) -> None:
+    changed = copy.deepcopy(document)
+    for rep in changed["representations"]:
+        if rep["table"] == REPAYMENT:
+            rep["bindings"].append(
+                {"column": "principal_copy", "to": "attribute", "ref": "attr:loan.principal"}
+            )
+    semantics = {**_material(), **_material("元", column="principal_copy", table=REPAYMENT)}
+    catalog, text = _column_pack(changed, semantics)
+    assert "material_unit" not in catalog
+    assert "材料未给" not in text
+
+
+def test_a_unit_whose_columns_no_document_describes_is_not_judged(
+    document: dict, semantics: dict
+) -> None:
+    """Semantics were given, but none for the attribute's table: the material says nothing."""
+    catalog, text = _column_pack(document, semantics)
+    assert "material_unit" not in catalog
+    assert "  - 单位：CNY\n" in text
+
+
+def test_a_non_measure_attribute_is_not_judged(document: dict) -> None:
+    catalog, _ = _column_pack(_principal(document, category="descriptive"), _material())
+    assert "material_unit" not in catalog
+
+
+def _repayment_material(unit: str | None = None) -> dict:
+    return _material(unit, column="repay_amt", table=REPAYMENT)
+
+
+@pytest.mark.parametrize("term", ["metric:repaid_amount", "concept:repayment"])
+def test_a_metric_over_a_measure_the_material_gives_no_unit_for_is_marked(
+    document: dict, term: str
+) -> None:
+    pack = context_pack(_with_two_metrics(document), _repayment_material(), concepts=[term])
+    metrics = {m["id"]: m for m in pack["concepts"][0]["metrics"]}
+    assert metrics["metric:repaid_amount"]["material_unit"] == {"given": False}
+    assert "material_unit" not in metrics["metric:count_repaid"]   # no measure to compare
+    assert f"  - 单位：元{UNSUPPORTED}\n" in render_context_text(pack)
+
+
+def test_a_metric_over_a_supported_measure_carries_no_mark(document: dict) -> None:
+    pack = context_pack(
+        _with_metric(document), _repayment_material("元"), concepts=["metric:repaid_amount"]
+    )
+    assert "material_unit" not in pack["concepts"][0]["metrics"][0]
+    assert "  - 单位：元\n" in render_context_text(pack)
+
+
+def test_a_metric_with_no_unit_says_what_the_material_gives(document: dict) -> None:
+    changed = _with_metric(document)
+    del changed["metrics"][0]["unit"]
+    for unit, line in ((None, "  - 单位：材料未给\n"), ("元", "  - 单位：元（目录未填）\n")):
+        pack = context_pack(changed, _repayment_material(unit), concepts=["metric:repaid_amount"])
+        assert line in render_context_text(pack)
+
+
+def test_a_metric_without_semantics_is_not_marked(document: dict) -> None:
+    for semantics in (None, {}):
+        pack = context_pack(_with_metric(document), semantics, concepts=["metric:repaid_amount"])
+        assert "material_unit" not in json.dumps(pack, ensure_ascii=False)
+        assert "  - 单位：元\n" in render_context_text(pack)
+
+
+def test_the_answers_facade_marks_the_same_way(document: dict) -> None:
+    from scope_lineage.cli_catalog_answers import context
+
+    answer = context(document, _material(), columns=[PRINCIPAL])
+    assert answer.result["columns"][0]["catalog"]["material_unit"] == {"given": False}
+    assert UNSUPPORTED in answer.text()

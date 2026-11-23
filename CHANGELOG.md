@@ -1,6 +1,29 @@
 # Changelog
 
 ## Unreleased
+- **Changed: a measure whose unit the material does not give gets no unit, instead of a provisional
+  one.** The catalog drafting templates (T5, T6 in skill `scope-lineage-ontology`) used to tell the
+  drafter to fill in a unit from the column comment when the digest gave none, so a guessed unit read
+  like a confirmed one. Now the unit comes from the digest; when no column an attribute is bound to has
+  one, the drafter writes no `unit` and the sentence 「待 owner 确认：单位」 in `notes`, and a metric
+  over such a measure has no unit either. `catalog validate` no longer warns `measure_without_unit`
+  for a measure carrying that sentence (one with neither is warned as before), so the
+  `attribute_unit` coverage of a catalog drafted this way is lower. `catalog_check.py` follows:
+  such a measure, and a metric over it, are no longer findings; they are listed for the owner with a
+  count, beside a new list (with `--digest`) of measures whose unit no bound column has in the
+  digest; a new finding `unit_in_digest` reports a measure carrying the sentence while the digest
+  does give a unit for a column bound to it -- an existing catalog may gain findings from it. The
+  runbook steps S10c, S10d and S10g say who reworks what and that the orchestrator copies both lists
+  into `RESULT.md`'s pending-confirmation summary.
+- **New: `catalog context` marks a measure's unit the table semantics do not give.** With
+  `--semantics`, a `measure` attribute's unit on a column's binding, and a metric's unit over that
+  measure (`--concept` with a concept or a metric), are compared with the table semantics per
+  attribute: a unit no bound column has in the material is printed with
+  「（材料未给，目录所填未经确认）」, no unit with 「单位：材料未给」, and a unit only the material has
+  with 「（目录未填）」; the JSON gains `material_unit` (`doc_format` unchanged). Without `--semantics`
+  the pack is unchanged. The same answer reaches `cli_catalog_answers.context` and the service. The
+  answering workflow (`catalog-answers.md`) now fetches a metric with `--semantics` and treats a unit
+  marked 「材料未给」 as an assumption or a pending item, not a conclusion.
 - **New: a read-only browse page for a built catalog, served by `scope-lineage-service http` at
   `/`.** Domains, concepts, metrics and tables with hash links; a concept's neighbourhood drawn as an
   SVG relations graph with each relation's join conditions; a table's catalog facts beside its

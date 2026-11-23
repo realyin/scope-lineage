@@ -633,7 +633,7 @@ Semantic completeness — places where the catalog says less than its own shape 
 | Rule | Meaning |
 | --- | --- |
 | `state_attribute_without_states` | a concept has a `state` attribute with a code set (by the rule under Attribute) and no `states` |
-| `measure_without_unit` | a `measure` attribute has no `unit` |
+| `measure_without_unit` | a `measure` attribute has no `unit`, and its `notes` do not carry 「待 owner 确认：单位」 (the sentence a drafter writes when the material gives no unit; such a measure is not warned) |
 | `zipper_without_validity` | a `zipper` representation has no binding with `time_role: valid_from`, or none with `valid_to` |
 | `participation_without_event` | a declared `participation` relation has no event at either end |
 | `generalization_cycle` | `generalization` relations run in a circle (named once, from its smallest concept) |
@@ -1114,6 +1114,17 @@ is asked of a table. A table with no table-semantics document has `semantics` eq
 `{"present": false}` and the text says so -- a reader must be able to tell "nothing to watch" from "nobody
 wrote it down". A column only the table-semantics document knows is still answered by `--column`, with an
 empty `catalog`.
+
+**A measure's unit against the material.** With `--semantics`, the unit of a `measure` attribute -- on a
+column's binding, and on a metric over that measure (`--concept` with a concept or a metric) -- is compared with
+the table semantics. The judgement is the attribute's: when any column bound to it has a `unit` in its table's
+document, the unit is supported and printed as before. Otherwise the binding or the metric gains
+`material_unit`: `{"given": false}` with a unit, printed `单位：<unit>（材料未给，目录所填未经确认）` (the catalog
+filled it in, nobody confirmed it); `{"given": false}` with no unit, printed `单位：材料未给`; and
+`{"given": true, "units": [...]}` when the catalog has no unit while the material gives one, printed
+`单位：<unit>（目录未填）`. An attribute none of whose bound columns a document describes is not judged.
+`doc_format` stays `catalog-context/1`. Without `--semantics` nothing is compared, so an unconfirmed unit
+reads like a confirmed one: ask for a metric with `--semantics` too.
 
 ```text
 # 表 demo_dwd.dwd_party_customer_info_df

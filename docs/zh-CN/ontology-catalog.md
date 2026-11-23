@@ -560,7 +560,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | 规则 | 含义 |
 | --- | --- |
 | `state_attribute_without_states` | 概念有 `state` 类属性且有码值集（按「属性」一节的规则），却没有 `states` |
-| `measure_without_unit` | `measure` 类属性没有 `unit` |
+| `measure_without_unit` | `measure` 类属性没有 `unit`，`notes` 也没写「待 owner 确认：单位」（材料没给单位时起草者写的那句话；写了的不报） |
 | `zipper_without_validity` | `zipper` 表现没有 `time_role: valid_from` 的绑定，或没有 `valid_to` 的绑定 |
 | `participation_without_event` | 手写的 `participation` 关系两端都不是事件 |
 | `generalization_cycle` | `generalization` 关系绕成环（每个环报一次，从环里 id 最小的概念报） |
@@ -972,6 +972,13 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 表是怎么做出来的，不是怎么查；下游留着，因为「改了它会影响谁」是对着表问的。没有表语义文档的表，`semantics` 是 `{"present": false}`，文本写「本表没有
 表语义文档」——读者要能分清「没有要注意的」和「没人写下来」。只在表语义里有、目录没绑定的列照样能用
 `--column` 查到，`catalog` 一项为空。
+
+**度量的单位对照材料。** 带 `--semantics` 时，`measure` 类属性的单位——列的绑定上的，以及以它为度量的指标上的（`--concept`
+给概念或指标）——要和表语义对照。按属性判断：它所绑的列里只要有一列在其表语义文档里有 `unit`，单位就算有依据，照原样打印。
+否则绑定或指标多一个 `material_unit`：有单位时是 `{"given": false}`，打印 `单位：<单位>（材料未给，目录所填未经确认）`（目录填的，
+没人确认过）；没有单位时也是 `{"given": false}`，打印 `单位：材料未给`；目录没有单位、材料却给了的，是
+`{"given": true, "units": [...]}`，打印 `单位：<单位>（目录未填）`。所绑的列没有一列有表语义文档说明的属性不作判断。
+`doc_format` 仍是 `catalog-context/1`。不带 `--semantics` 时不对照，没确认过的单位读起来和确认过的一样：取指标时也带上 `--semantics`。
 
 ```text
 # 表 demo_dwd.dwd_party_customer_info_df
