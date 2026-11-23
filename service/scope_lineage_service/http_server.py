@@ -90,7 +90,7 @@ ASK_NOT_CONFIGURED = (
     "costs money and sends catalog text to the model provider; start the server with --ask "
     "to enable it"
 )
-ASK_FIELDS = {"question": str, "conversation": str}
+ASK_FIELDS = {"question": str, "conversation": str, "model": str}
 DEFAULT_WAIT = 20
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
@@ -201,8 +201,9 @@ ENDPOINTS = [
     },
     {
         "method": "GET", "path": "/api/ask/status", "ask": True,
-        "description": "Whether asking works now (and why not), the model, effort, caps and "
-                       "conversation limits. JSON only.",
+        "description": "Whether asking works now (and why not), the models a question may "
+                       "use (id, label, provider kind, available and why not, the default), "
+                       "caps and conversation limits. Never a model's URL or key. JSON only.",
         "params": {},
     },
     {
@@ -216,7 +217,8 @@ ENDPOINTS = [
         ),
         "params": {
             "body": "application/json: question (required); conversation (an id from an "
-                    "earlier answer: a follow-up carrying its brief)",
+                    "earlier answer: a follow-up carrying its brief); model (a model id from "
+                    "/api/ask/status, default the server's default; 400 unknown, 409 unavailable)",
         },
     },
     {
@@ -637,9 +639,10 @@ class CatalogHandler(BaseHTTPRequestHandler):
         payload = self._json_request(ASK_FIELDS)
         if not isinstance(payload.get("question"), str):
             raise _bad("question is required")
-        conversation, run = service.ask(payload["question"], payload.get("conversation"))
+        conversation, run = service.ask(payload["question"], payload.get("conversation"),
+                                        payload.get("model"))
         self._send_json(202, {"conversation": conversation.id, "run": run.id,
-                              "follow_up": bool(run.brief)})
+                              "follow_up": bool(run.brief), "model": run.model_id})
 
     def _ask_events(self, query: str) -> None:
         params = _Params(query, {"conversation", "run", "after", "wait"})

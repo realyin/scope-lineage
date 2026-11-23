@@ -7,6 +7,11 @@ least recently used idle one when the count limit is reached. One question runs 
 time per conversation, on its own thread; a cancel stops it at the next model event or
 before the next tool call. The page polls a run's events (``events``), waiting on the
 run for the next one, so it sees each step as it happens.
+
+The service holds a set of models (``models.ModelSet``): one from ``--ask-model``, or the
+list from ``--ask-models``. A question names the model by id (none: the default); a
+follow-up may name another one. A model whose provider refuses its credentials is taken
+out of the set for the rest of the process; the others keep answering.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .loop import Limits, Model, Run, run_question
+from .models import ModelEntry, ModelSet
 from .tools import ToolBox
 from .walk import system_blocks
 
@@ -48,21 +54,24 @@ class Conversation:
 
 
 class AskService:
-    """Asking over one catalog. ``model`` is None when asking cannot work (``reason`` says
-    why); the browse page and every other endpoint keep working."""
+    """Asking over one catalog with one model (``model``, None when it cannot work and
+    ``reason`` says why) or several (``models``). When no model can answer, the browse page
+    and every other endpoint keep working."""
 
     def __init__(
         self,
         tools: ToolBox,
-        model: Model | None,
+        model: Model | None = None,
         *,
         reason: str | None = None,
+        models: ModelSet | None = None,
         limits: Limits = Limits(),
         max_conversations: int = 20,
         max_idle_seconds: float = 3600.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.tools, self.model, self.reason = tools, model, reason
+        self.tools = tools
+        self.models = models if models is not None else ModelSet.single(model, reason)
         self.limits = limits
         self.max_conversations = max_conversations
         self.max_idle_seconds = max_idle_seconds
@@ -73,15 +82,27 @@ class AskService:
 
     # ------------------------------------------------------------------ status
 
+    @property
+    def model(self) -> Model | None:
+        """The default model (what a question without a model id gets)."""
+        return self.models.default.model
+
+    @property
+    def reason(self) -> str | None:
+        return self.models.reason
+
     def status(self) -> dict:
         model = self.model
         return {
-            "available": model is not None and self.reason is None,
-            "reason": self.reason,
-            "fake": bool(getattr(model, "fake", False)),
+            "available": self.models.available,
+            "reason": self.models.reason,
+            "fake": self.models.fake,
+            # the default model, as before several models could be listed
             "model": getattr(model, "name", None),
             "effort": getattr(model, "effort", None),
             "fallback": getattr(model, "fallback", None),
+            "default": self.models.default_id,
+            "models": self.models.public(),
             "pending": self.tools.pending,
             "executes_sql": False,
             "limits": self.limits.as_dict(),
@@ -93,9 +114,18 @@ class AskService:
 
     # ------------------------------------------------------------------ asking
 
-    def ask(self, question: str, conversation_id: str | None = None) -> tuple[Conversation, Run]:
-        if self.model is None or self.reason is not None:
-            raise AskError(503, "ask_unavailable", self.reason or "asking is not available")
+    def ask(self, question: str, conversation_id: str | None = None,
+            model_id: str | None = None) -> tuple[Conversation, Run]:
+        if not self.models.available:
+            raise AskError(503, "ask_unavailable", self.models.reason or "asking is not available")
+        try:
+            entry = self.models.resolve(model_id)
+        except LookupError:
+            raise AskError(400, "unknown_model", f"no model {model_id!r} on this server; "
+                                                 "GET /api/ask/status lists them") from None
+        except ValueError as unavailable:
+            raise AskError(409, "model_unavailable",
+                           f"model {model_id!r} cannot answer now: {unavailable}") from None
         question = question.strip()
         if not question:
             raise AskError(400, "bad_input", "question is empty")
@@ -110,18 +140,19 @@ class AskService:
             if conversation.running is not None:
                 raise AskError(409, "busy", "a question is still running in this conversation; "
                                             "wait for it or cancel it")
-            run = Run(secrets.token_urlsafe(12), question, conversation.brief, clock=self.clock)
+            run = Run(secrets.token_urlsafe(12), question, conversation.brief,
+                      model_id=entry.id, model_label=entry.label, clock=self.clock)
             conversation.runs.append(run)
             del conversation.runs[:-MAX_RUNS_KEPT]
             conversation.used = self.clock()
-        thread = threading.Thread(target=self._answer, args=(conversation, run), daemon=True,
+        thread = threading.Thread(target=self._answer, args=(conversation, run, entry), daemon=True,
                                   name=f"ask-{run.id}")
         thread.start()
         return conversation, run
 
-    def _answer(self, conversation: Conversation, run: Run) -> None:
+    def _answer(self, conversation: Conversation, run: Run, entry: ModelEntry) -> None:
         try:
-            run_question(run, self.model, self.tools, self.system, self.limits)
+            run_question(run, entry.model, self.tools, self.system, self.limits)
         except Exception as error:  # noqa: BLE001 -- a bug must still end the run for the page
             if not run.done:
                 run.finish("error", reason="internal", detail=f"{type(error).__name__}: {error}",
@@ -132,7 +163,8 @@ class AskService:
                 conversation.brief = run.answer["brief"]
         last = run.events[-1] if run.events else {}
         if last.get("reason") == "credentials":
-            self.reason = f"the model provider refused the credentials: {last.get('detail')}"
+            self.models.mark_unavailable(
+                entry.id, f"the model provider refused the credentials: {last.get('detail')}")
 
     def events(self, conversation_id: str, run_id: str, after: int, wait: float) -> dict:
         with self._lock:
@@ -157,7 +189,8 @@ class AskService:
                 "conversation": conversation.id,
                 "brief": conversation.brief,
                 "runs": [{"run": run.id, "question": run.question, "status": run.status,
-                          "follow_up": bool(run.brief)} for run in conversation.runs],
+                          "follow_up": bool(run.brief), "model": run.model_id,
+                          "model_label": run.model_label} for run in conversation.runs],
             }
 
     # ------------------------------------------------------------------ the store

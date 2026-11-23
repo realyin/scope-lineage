@@ -1,6 +1,8 @@
 """A scripted stand-in for the model, for reviewing the ask panel without a key: a dev aid.
 
-Started only with ``--ask-dev-fake-model``. It calls no model and opens no connection: it
+Started only with ``--ask-dev-fake-model``; with ``--ask-models`` as well, every model in
+the file is played by one of these (named after the model's id), so the page's model
+picker can be reviewed without a key. It calls no model and opens no connection: it
 answers through the same loop with a fixed sequence of real tool calls against the loaded
 catalog -- search, then the best table's column list beside a metric search (two calls in
 one turn), then a context pack, then a check of a SQL it assembles with 待确认
@@ -26,10 +28,14 @@ NOTICE = "【开发用假模型】下面的过程和答案是脚本按目录拼�
 class FakeModel:
     name = NAME
     fake = True
+    provider = "fake"
+    effort = None
+    fallback = None
 
-    def __init__(self, state, *, delay: float = 0.8) -> None:
+    def __init__(self, state, *, delay: float = 0.8, name: str = NAME) -> None:
         self.state = state
         self.delay = delay
+        self.name = name
 
     def turn(self, request: dict, should_stop: Callable[[], bool]) -> dict:
         self._pause(should_stop)
@@ -47,7 +53,7 @@ class FakeModel:
             "cache_read_input_tokens": prefix if step else 0,
         }
         return {"content": content, "stop_reason": stop, "stop_details": None, "usage": usage,
-                "model": NAME}
+                "model": self.name}
 
     def _pause(self, should_stop) -> None:
         end = time.monotonic() + self.delay

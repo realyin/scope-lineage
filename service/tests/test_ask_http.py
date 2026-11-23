@@ -349,3 +349,118 @@ def test_the_ask_page_files_are_served(server) -> None:
     for path in ("/ask.js", "/askview.js"):
         status, headers, _ = _request(server, "GET", path)
         assert status == 200 and headers["Content-Type"].startswith("text/javascript")
+
+
+# ------------------------------------------------------------------ several models
+
+
+def _models(state, *, unavailable="its API key variable (api_key_env) is not set in the server's "
+                                  "environment"):
+    from scope_lineage_service.ask.models import ModelEntry, ModelSet, parse_models
+
+    specs = parse_models({"models": [
+        {"id": "first", "label": "First model", "provider": "anthropic", "model": "claude-opus-5-5",
+         "default": True},
+        {"id": "second", "label": "Second model", "provider": "openai-compatible",
+         "model": "example-model", "base_url": "https://models.example.internal/v1",
+         "api_key_env": "SECOND_MODEL_KEY"},
+        {"id": "third", "label": "Third model", "provider": "openai-compatible",
+         "model": "example-model", "base_url": "https://other.example.internal/v1",
+         "api_key_env": "THIRD_MODEL_KEY"},
+    ]})
+    entries = [ModelEntry(spec.id, spec.label, spec.provider,
+                          None if spec.id == "third" else FakeModel(state, delay=0, name=f"fake-{spec.id}"),
+                          unavailable if spec.id == "third" else None, spec.default, spec)
+               for spec in specs]
+    return ModelSet(entries)
+
+
+@pytest.fixture
+def multi_server(pending_state):
+    service = AskService(ToolBox(pending_state, max_sql=8192), models=_models(pending_state))
+    httpd = _serve(pending_state, service)
+    yield httpd
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def test_status_lists_the_models_without_urls_or_variable_names(multi_server) -> None:
+    status, body = _get(multi_server, "/api/ask/status")
+
+    assert status == 200 and body["available"] and body["default"] == "first"
+    assert [(m["id"], m["label"], m["available"], m["default"]) for m in body["models"]] == [
+        ("first", "First model", True, True), ("second", "Second model", True, False),
+        ("third", "Third model", False, False)]
+    assert body["models"][1]["provider"] == "openai-compatible"
+    assert "api_key_env" in body["models"][2]["reason"]
+    text = json.dumps(body)
+    for secret in ("example.internal", "SECOND_MODEL_KEY", "THIRD_MODEL_KEY", "base_url"):
+        assert secret not in text
+
+
+def test_a_question_goes_to_the_model_it_names_and_says_so(multi_server) -> None:
+    status, started = _post(multi_server, "/api/ask", {"question": "客户数", "model": "second"})
+    assert status == 202 and started["model"] == "second"
+    events = _until_done(multi_server, started["conversation"], started["run"])
+
+    assert events[0]["model_id"] == "second" and events[0]["model_label"] == "Second model"
+    assert events[0]["model"] == "fake-second"
+    assert events[-1]["model_id"] == "second" and events[-1]["status"] == "done"
+
+
+def test_without_a_model_the_default_answers(multi_server) -> None:
+    started = _ask(multi_server, "客户数")
+    events = _until_done(multi_server, started["conversation"], started["run"])
+
+    assert started["model"] == "first" and events[0]["model_id"] == "first"
+
+
+def test_a_follow_up_may_switch_model(multi_server) -> None:
+    first = _ask(multi_server, "客户数")
+    _until_done(multi_server, first["conversation"], first["run"])
+    status, second = _post(multi_server, "/api/ask", {"question": "按性别分", "model": "second",
+                                                       "conversation": first["conversation"]})
+    assert status == 202 and second["follow_up"]
+    events = _until_done(multi_server, second["conversation"], second["run"])
+
+    assert events[0]["model_id"] == "second" and events[0]["follow_up"]
+    _, conversation = _get(multi_server, "/api/ask/conversation", conversation=first["conversation"])
+    assert [run["model"] for run in conversation["runs"]] == ["first", "second"]
+    assert [run["model_label"] for run in conversation["runs"]] == ["First model", "Second model"]
+
+
+def test_an_unknown_or_unavailable_model_is_refused(multi_server) -> None:
+    status, body = _post(multi_server, "/api/ask", {"question": "客户数", "model": "nope"})
+    assert status == 400 and body["error"]["kind"] == "unknown_model"
+    status, body = _post(multi_server, "/api/ask", {"question": "客户数", "model": "third"})
+    assert status == 409 and body["error"]["kind"] == "model_unavailable"
+    assert "api_key_env" in body["error"]["message"]
+    status, body = _post(multi_server, "/api/ask", {"question": "客户数", "model": 3})
+    assert status == 400
+
+
+def test_a_refused_credential_takes_only_that_model_out(pending_state) -> None:
+    from scope_lineage_service.ask.loop import ModelError
+
+    class Refused:
+        name, fake = "refused", False
+
+        def turn(self, request, should_stop):
+            raise ModelError("credentials", "invalid key")
+
+    models = _models(pending_state)
+    models.entries[1].model = Refused()
+    service = AskService(ToolBox(pending_state, max_sql=8192), models=models)
+    _, run = service.ask("客户数", model_id="second")
+    _wait(run)
+
+    listed = {m["id"]: m for m in service.status()["models"]}
+    assert not listed["second"]["available"] and "invalid key" in listed["second"]["reason"]
+    assert listed["first"]["available"] and service.status()["available"]
+
+
+def test_the_single_model_status_keeps_its_fields_and_adds_the_list(server) -> None:
+    _, body = _get(server, "/api/ask/status")
+
+    assert body["model"] == "dev-fake-model" and body["default"] == "default"
+    assert [m["id"] for m in body["models"]] == ["default"] and body["models"][0]["fake"]

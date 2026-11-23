@@ -81,3 +81,101 @@ def test_the_real_mode_names_the_cost_and_what_is_sent(inputs, monkeypatch) -> N
     assert service.status()["available"] and not service.status()["fake"]
     for words in ("costs money", "sent to the model provider", "No SQL is run", "ANTHROPIC_API_KEY"):
         assert words in notice
+
+
+# ------------------------------------------------------------------ --ask-models
+
+MODELS = {"models": [
+    {"id": "opus", "label": "Claude Opus", "provider": "anthropic", "model": "claude-opus-5-5"},
+    {"id": "private", "label": "Private model", "provider": "openai-compatible",
+     "model": "example-model", "base_url": "https://models.example.internal/v1",
+     "api_key_env": "PRIVATE_MODELS_KEY", "max_tokens": 8192, "default": True},
+]}
+
+
+def _models_file(tmp_path, document=MODELS):
+    import json
+
+    path = tmp_path / "models.json"
+    path.write_text(json.dumps(document), "utf-8")
+    return str(path)
+
+
+def _fake_loaders(monkeypatch, **reasons):
+    from scope_lineage_service.ask import models
+
+    class Ready:
+        fake, effort, fallback = False, None, None
+
+        def __init__(self, name):
+            self.name = name
+
+    def load(spec, environ):
+        reason = reasons.get(spec.id)
+        return (None, reason) if reason else (Ready(spec.model), None)
+
+    monkeypatch.setattr(models, "default_loaders",
+                        lambda: {"anthropic": load, "openai-compatible": load})
+
+
+def test_a_models_file_lists_every_model_and_says_where_each_one_sends_text(
+        inputs, tmp_path, monkeypatch) -> None:
+    _fake_loaders(monkeypatch, opus="no Anthropic credential in the server's environment")
+    service, notice = _service(inputs, "--ask", "--ask-models", _models_file(tmp_path))
+    status = service.status()
+
+    assert status["available"] and status["default"] == "private"
+    assert [(m["id"], m["available"]) for m in status["models"]] == [("opus", False), ("private", True)]
+    assert "costs money" in notice and "No SQL is run" in notice
+    assert "private" in notice and "models.example.internal" in notice  # the operator sees where
+    assert "PRIVATE_MODELS_KEY" in notice and "unavailable" in notice and "opus" in notice
+    assert service.models.resolve("private").model.name == "example-model"
+
+
+def test_with_no_usable_model_in_the_file_the_panel_is_unavailable(inputs, tmp_path, monkeypatch) -> None:
+    _fake_loaders(monkeypatch, opus="no credential", private="no package")
+    service, notice = _service(inputs, "--ask", "--ask-models", _models_file(tmp_path))
+
+    assert not service.status()["available"] and notice.startswith("ask panel: unavailable")
+    assert "no credential" in service.status()["reason"]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--ask-model", "claude-sonnet-5-5"], ["--ask-effort", "low"], ["--ask-no-fallback"]],
+)
+def test_the_models_file_replaces_the_single_model_options(inputs, tmp_path, capsys, extra) -> None:
+    code = main(["http", str(inputs["ontology"]), "--ask", "--ask-models", _models_file(tmp_path), *extra])
+
+    assert code == 2 and "--ask-models" in capsys.readouterr().err
+
+
+def test_the_models_file_needs_ask(inputs, tmp_path, capsys) -> None:
+    code = main(["http", str(inputs["ontology"]), "--ask-models", _models_file(tmp_path)])
+
+    assert code == 2 and "--ask" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("document", "words"),
+    [({"models": []}, "at least one model"),
+     ({"models": [{**MODELS["models"][1], "base_url": "http://models.example.internal/v1"}]},
+      "allow_insecure_http"),
+     ({"models": [{**MODELS["models"][1], "api_key": "x"}]}, "secret")],
+)
+def test_a_bad_models_file_stops_the_server(inputs, tmp_path, capsys, document, words) -> None:
+    code = main(["http", str(inputs["ontology"]), "--ask", "--ask-models",
+                 _models_file(tmp_path, document)])
+
+    assert code == 2 and words in capsys.readouterr().err
+
+
+def test_the_fake_model_plays_every_model_in_the_file(inputs, tmp_path) -> None:
+    service, notice = _service(inputs, "--ask-dev-fake-model", "--ask-models", _models_file(tmp_path))
+    status = service.status()
+
+    assert status["available"] and status["fake"] and "FAKE MODEL" in notice
+    assert [(m["id"], m["label"], m["available"], m["fake"]) for m in status["models"]] == [
+        ("opus", "Claude Opus", True, True), ("private", "Private model", True, True)]
+    assert status["default"] == "private"
+    assert service.models.resolve("opus").model.name == "dev-fake-model:opus"

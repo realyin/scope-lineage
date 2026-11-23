@@ -89,6 +89,8 @@ class Run:
     id: str
     question: str
     brief: str | None = None
+    model_id: str | None = None
+    model_label: str | None = None
     clock: Callable[[], float] = time.monotonic
     events: list = field(default_factory=list)
     status: str = "running"
@@ -109,7 +111,7 @@ class Run:
 
     def finish(self, status: str, **data) -> None:
         self.status = status
-        self.emit("finished", status=status, **data)
+        self.emit("finished", status=status, model_id=self.model_id, **data)
 
     @property
     def done(self) -> bool:
@@ -185,6 +187,7 @@ class _Question:
         self.messages: list = [{"role": "user", "content": [
             {"type": "text", "text": question_text(run.question, run.brief)}]}]
         self.usage = dict.fromkeys(USAGE_FIELDS, 0)
+        self.estimated = False
         self.turns = self.tool_calls = self.json_retries = self.strikes = 0
         self.deadline = run.started + limits.max_seconds
 
@@ -195,7 +198,10 @@ class _Question:
         return self.run.cancelled or self.expired()
 
     def totals(self) -> dict:
-        return {**self.usage, "turns": self.turns, "tool_calls": self.tool_calls}
+        totals = {**self.usage, "turns": self.turns, "tool_calls": self.tool_calls}
+        if self.estimated:
+            totals["estimated"] = True
+        return totals
 
     def stop(self, status: str, reason: str | None = None, detail=None) -> None:
         self.run.finish(status, reason=reason, detail=detail, usage=self.totals())
@@ -222,9 +228,13 @@ class _Question:
         if remaining < MIN_TURN_TOKENS:
             self.stop("cap_reached", "output_tokens")
             return None
+        cap = min(self.limits.max_tokens_per_turn, remaining)
+        per_model = getattr(self.model, "max_tokens", None)
+        if isinstance(per_model, int) and per_model > 0:
+            cap = min(cap, per_model)  # private models often take far fewer per request
         request = {
             "system": self.system, "tools": self.definitions, "messages": self.messages,
-            "max_tokens": min(self.limits.max_tokens_per_turn, remaining),
+            "max_tokens": cap,
         }
         try:
             result = self.model.turn(request, self.should_stop)
@@ -244,6 +254,8 @@ class _Question:
             return None
         self.json_retries = 0
         self.turns += 1
+        if result.get("usage_estimated"):
+            self.estimated = True
         usage = result.get("usage") or {}
         for name in USAGE_FIELDS:
             self.usage[name] += int(usage.get(name) or 0)
@@ -255,10 +267,12 @@ class _Question:
             if block.get("type") == "fallback":
                 self.run.emit("fallback", **{"from": _model_name(block.get("from")),
                                              "to": _model_name(block.get("to"))})
+        extra = {"usage_estimated": True} if result.get("usage_estimated") else {}
         self.run.emit(
             "turn", turn=self.turns, stop_reason=result.get("stop_reason"),
             model=result.get("model"), text=_text_of(content),
             usage={name: int((result.get("usage") or {}).get(name) or 0) for name in USAGE_FIELDS},
+            **extra,
         )
 
     def run_tools(self, calls: list) -> list:
@@ -310,7 +324,8 @@ def run_question(run: Run, model: Model, tools: ToolBox, system: list, limits: L
     """Answer ``run.question``; every step is an event on ``run``, the last one ``finished``."""
     job = _Question(run, model, tools, system, limits)
     run.emit("started", question=run.question, follow_up=bool(run.brief),
-             model=getattr(model, "name", None), limits=limits.as_dict())
+             model=getattr(model, "name", None), model_id=run.model_id,
+             model_label=run.model_label, limits=limits.as_dict())
     while True:
         result = job.next_turn()
         if result is None:

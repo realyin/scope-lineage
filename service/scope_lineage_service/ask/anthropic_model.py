@@ -22,6 +22,13 @@ Credentials are the SDK's own: it resolves them from the environment on the serv
 API key or auth token variable, an ``ant auth login`` profile, workload identity
 federation). No key is taken on the command line, logged, or sent to the page.
 
+A model from the ``--ask-models`` file (``load_spec``) may also name a ``base_url`` (a
+private gateway that speaks the Messages API) and ``api_key_env`` (the variable whose
+value is passed to the client as its API key), and may switch off, one by one, what a
+gateway may reject: the refusal fallbacks, prompt caching (the top-level mark and the
+system block's breakpoint), ``eager_input_streaming``, adaptive thinking and the effort
+(``effort: null``). Its defaults are the request above.
+
 These SDK calls are written from the SDK's documentation; the repository's tests drive
 them only through a stand-in module of the same shape, never against the real API.
 """
@@ -72,9 +79,13 @@ def _version(text: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
-def load_model(model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT, *, fallback: bool = True,
-               environ=None):
+def load_model(model: str = DEFAULT_MODEL, effort: str | None = DEFAULT_EFFORT, *,
+               fallback: bool = True, environ=None, base_url: str | None = None,
+               api_key_env: str | None = None, prompt_cache: bool = True,
+               eager_input_streaming: bool = True, adaptive_thinking: bool = True,
+               max_tokens: int | None = None):
     """``(AnthropicModel, None)`` when asking can work, else ``(None, the reason)``."""
+    environ = os.environ if environ is None else environ
     try:
         import anthropic
     except ImportError:
@@ -83,37 +94,70 @@ def load_model(model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT, *, fall
     if _version(version) < MIN_SDK:
         return None, (f"anthropic {version} is older than this service needs ({SDK_RANGE}); "
                       f"{INSTALL_HINT}")
-    source = credential_source(environ)
-    if source is None:
-        return None, ("no Anthropic credential in the server's environment: set ANTHROPIC_API_KEY "
-                      "or ANTHROPIC_AUTH_TOKEN, or run `ant auth login`, then restart")
+    options: dict = {}
+    if base_url:
+        options["base_url"] = base_url
+    if api_key_env:
+        key = environ.get(api_key_env) or ""
+        if not key:
+            return None, "its API key variable (api_key_env) is not set in the server's environment"
+        options["api_key"], source = key, api_key_env
+    else:
+        source = credential_source(environ)
+        if source is None:
+            return None, ("no Anthropic credential in the server's environment: set ANTHROPIC_API_KEY "
+                          "or ANTHROPIC_AUTH_TOKEN, or run `ant auth login`, then restart")
     try:
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(**options)
     except anthropic.AnthropicError as error:
         return None, f"the anthropic client could not start: {error}"
-    return AnthropicModel(anthropic, client, model, effort, fallback=fallback, source=source), None
+    return AnthropicModel(anthropic, client, model, effort, fallback=fallback, source=source,
+                          prompt_cache=prompt_cache, eager_input_streaming=eager_input_streaming,
+                          adaptive_thinking=adaptive_thinking, max_tokens=max_tokens), None
+
+
+def load_spec(spec, environ=None):
+    """A model from the ``--ask-models`` file (``models.ModelSpec``)."""
+    return load_model(spec.model, spec.effort, fallback=spec.fallback, environ=environ,
+                      base_url=spec.base_url, api_key_env=spec.api_key_env,
+                      prompt_cache=spec.prompt_cache,
+                      eager_input_streaming=spec.eager_input_streaming,
+                      adaptive_thinking=spec.adaptive_thinking, max_tokens=spec.max_tokens)
 
 
 class AnthropicModel:
     """One streamed Messages API request per turn (see the module docstring)."""
 
     fake = False
+    provider = "anthropic"
 
-    def __init__(self, sdk, client, model: str, effort: str, *, fallback: bool, source: str):
+    def __init__(self, sdk, client, model: str, effort: str | None, *, fallback: bool, source: str,
+                 prompt_cache: bool = True, eager_input_streaming: bool = True,
+                 adaptive_thinking: bool = True, max_tokens: int | None = None):
         self._sdk, self._client = sdk, client
         self.name, self.effort, self.fallback, self.source = model, effort, fallback, source
+        self.prompt_cache, self.eager_input_streaming = prompt_cache, eager_input_streaming
+        self.adaptive_thinking, self.max_tokens = adaptive_thinking, max_tokens
 
     def params(self, request: dict) -> dict:
+        tools, system = request["tools"], request["system"]
+        if self.eager_input_streaming:
+            tools = [{**tool, "eager_input_streaming": True} for tool in tools]
+        if not self.prompt_cache and isinstance(system, list):
+            system = [{k: v for k, v in block.items() if k != "cache_control"} for block in system]
         params = {
             "model": self.name,
             "max_tokens": request["max_tokens"],
-            "system": request["system"],
-            "tools": [{**tool, "eager_input_streaming": True} for tool in request["tools"]],
+            "system": system,
+            "tools": tools,
             "messages": request["messages"],
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": self.effort},
-            "cache_control": {"type": "ephemeral"},
         }
+        if self.adaptive_thinking:
+            params["thinking"] = {"type": "adaptive"}
+        if self.effort:
+            params["output_config"] = {"effort": self.effort}
+        if self.prompt_cache:
+            params["cache_control"] = {"type": "ephemeral"}
         if self.fallback:
             params["betas"] = [FALLBACK_BETA]
             params["fallbacks"] = "default"

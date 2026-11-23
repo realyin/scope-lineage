@@ -280,6 +280,32 @@ def test_the_output_token_cap_bounds_each_request_and_the_question(tools) -> Non
     assert finished(job)["reason"] == "output_tokens"
 
 
+def test_a_model_with_a_small_output_limit_is_never_asked_for_more(tools) -> None:
+    model = Scripted(turn(call("a", "search_catalog", text="客户")), turn(text(ANSWER), stop="end_turn"))
+    model.max_tokens = 2048
+    run(model, tools, limits=Limits(max_output_tokens=3000, max_tokens_per_turn=64000))
+
+    assert [r["max_tokens"] for r in model.requests] == [2048, 2048]
+
+
+def test_estimated_usage_is_marked_on_the_turn_and_the_total(tools) -> None:
+    estimated = turn(text(ANSWER), stop="end_turn")
+    estimated["usage_estimated"] = True
+    job = run(Scripted(estimated), tools)
+
+    turn_event = next(e for e in job.events if e["type"] == "turn")
+    assert turn_event["usage_estimated"] is True
+    assert finished(job)["usage"]["estimated"] is True
+
+
+def test_the_model_that_answered_is_on_the_first_and_last_event(tools) -> None:
+    job = run(Scripted(turn(text(ANSWER), stop="end_turn")), tools,
+              run_obj=Run("r1", "客户数", model_id="opus", model_label="Claude Opus"))
+
+    assert job.events[0]["model_id"] == "opus" and job.events[0]["model_label"] == "Claude Opus"
+    assert finished(job)["model_id"] == "opus"
+
+
 def test_wall_time_stops_a_turn_in_flight(tools) -> None:
     now = [0.0]
 

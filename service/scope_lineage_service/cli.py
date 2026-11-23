@@ -6,8 +6,10 @@ it writes); they are read once at start -- an unreadable one stops the server wi
 
 ``http --ask`` adds the ask panel (a model on this server answers data questions through
 the catalog tools; it costs money and sends catalog text to the model provider, so it is
-never on by default and only on a loopback address); ``--ask-dev-fake-model`` is a
-development aid that walks the same panel through scripted tool calls with no model.
+never on by default and only on a loopback address). ``--ask-model`` names the one model;
+``--ask-models FILE`` lists several (the page lets the asker pick one per question; see
+``ask/models.py`` for the file). ``--ask-dev-fake-model`` is a development aid that walks
+the same panel through scripted tool calls with no model.
 """
 
 from __future__ import annotations
@@ -63,15 +65,22 @@ def _ask_options(mode: argparse.ArgumentParser) -> None:
     limits = Limits()
     ask = mode.add_argument_group(
         "ask panel", "Answer data questions on the page with a model on this server. Off unless "
-        "--ask is given: each question calls the model through the Anthropic API, costs money "
-        "and sends the question and catalog text to the model provider. Credentials come from "
-        "the server's environment (needs the [ask] extra). Loopback addresses only.")
+        "--ask is given: each question calls the model (the Anthropic API, or the endpoints a "
+        "--ask-models file names), costs money and sends the question and catalog text to the "
+        "model provider. Credentials come from the server's environment (needs the [ask] "
+        "extra; [ask-openai] for OpenAI-compatible endpoints). Loopback addresses only.")
     ask.add_argument("--ask", action="store_true", help="Enable the ask panel and its endpoints")
-    ask.add_argument("--ask-model", default=DEFAULT_MODEL, help=f"Model id (default {DEFAULT_MODEL})")
-    ask.add_argument("--ask-effort", choices=EFFORTS, default=DEFAULT_EFFORT,
+    ask.add_argument("--ask-model", default=None,
+                     help=f"The one model's id (default {DEFAULT_MODEL})")
+    ask.add_argument("--ask-effort", choices=EFFORTS, default=None,
                      help=f"output_config.effort (default {DEFAULT_EFFORT})")
     ask.add_argument("--ask-no-fallback", action="store_true",
                      help="Do not ask the API to retry a refused request on its fallback model")
+    ask.add_argument(
+        "--ask-models", metavar="FILE",
+        help="A JSON file listing several models (Anthropic or OpenAI-compatible endpoints) the "
+             "asker picks from per question; replaces --ask-model, --ask-effort and "
+             "--ask-no-fallback. Keys come from environment variables it names, never the file")
     ask.add_argument("--ask-max-turns", type=int, default=limits.max_turns, metavar="N",
                      help=f"Model requests per question (default {limits.max_turns})")
     ask.add_argument("--ask-max-tool-calls", type=int, default=limits.max_tool_calls, metavar="N",
@@ -92,7 +101,7 @@ def _ask_options(mode: argparse.ArgumentParser) -> None:
 
 def _ask_service(args, state: CatalogState):
     """The ask service the options ask for, and the sentence to print at start."""
-    from .ask.anthropic_model import load_model
+    from .ask.anthropic_model import DEFAULT_EFFORT, DEFAULT_MODEL, load_model
     from .ask.loop import Limits
     from .ask.service import AskService
     from .ask.tools import ToolBox
@@ -106,6 +115,11 @@ def _ask_service(args, state: CatalogState):
                     max_seconds=float(args.ask_max_seconds),
                     max_tokens_per_turn=min(Limits().max_tokens_per_turn, args.ask_max_output_tokens))
     tools = ToolBox(state, max_sql=args.max_body)
+    options = dict(limits=limits, max_conversations=args.ask_max_conversations,
+                   max_idle_seconds=args.ask_idle_minutes * 60.0)
+    if args.ask_models:
+        models, notice = _models(args, state)
+        return AskService(tools, models=models, **options), notice
     if args.ask_dev_fake_model:
         from .ask.fake_model import FakeModel
 
@@ -113,21 +127,75 @@ def _ask_service(args, state: CatalogState):
         notice = ("ask panel: DEVELOPMENT FAKE MODEL -- answers are scripted from real catalog "
                   "tool calls; no model is called and nothing leaves this machine")
     else:
-        model, reason = load_model(args.ask_model, args.ask_effort, fallback=not args.ask_no_fallback)
+        name, effort = args.ask_model or DEFAULT_MODEL, args.ask_effort or DEFAULT_EFFORT
+        model, reason = load_model(name, effort, fallback=not args.ask_no_fallback)
         if reason:
             notice = f"ask panel: unavailable -- {reason}"
         else:
             notice = (
-                f"ask panel: ON -- every question calls {args.ask_model} (effort {args.ask_effort}) "
+                f"ask panel: ON -- every question calls {name} (effort {effort}) "
                 "through the Anthropic API with credentials from this environment "
                 f"({model.source}). It costs money, and the question, the catalog text the tools "
                 "return and the drafted SQL are sent to the model provider. No SQL is run."
             )
-    service = AskService(
-        tools, model, reason=reason, limits=limits,
-        max_conversations=args.ask_max_conversations, max_idle_seconds=args.ask_idle_minutes * 60.0,
-    )
-    return service, notice
+    return AskService(tools, model, reason=reason, **options), notice
+
+
+def _models(args, state: CatalogState):
+    """The models of the --ask-models file, loaded (or all played by the fake model)."""
+    from .ask.models import ModelEntry, ModelSet, ModelsFileError, load_entries, read_models_file
+
+    given = [name for name, value in (("--ask-model", args.ask_model), ("--ask-effort", args.ask_effort),
+                                      ("--ask-no-fallback", args.ask_no_fallback)) if value]
+    if given:
+        raise CatalogAnswerError(2, f"--ask-models replaces {', '.join(given)}: set the model, "
+                                    "effort and fallback of each model in the file")
+    try:
+        specs = read_models_file(args.ask_models)
+    except ModelsFileError as error:
+        raise CatalogAnswerError(2, error.message) from None
+    if args.ask_dev_fake_model:
+        from .ask.fake_model import NAME, FakeModel
+
+        models = ModelSet([ModelEntry(spec.id, spec.label, spec.provider,
+                                      FakeModel(state, name=f"{NAME}:{spec.id}"), None, spec.default,
+                                      spec) for spec in specs])
+        return models, (f"ask panel: DEVELOPMENT FAKE MODEL -- the {len(specs)} models of "
+                        f"{args.ask_models} are all played by scripted catalog tool calls; no model "
+                        "is called and nothing leaves this machine")
+    models = load_entries(specs)
+    lines = [_model_line(entry) for entry in models.entries]
+    if not models.available:
+        return models, "\n".join([f"ask panel: unavailable -- no model in {args.ask_models} can "
+                                   "answer:", *lines])
+    head = (f"ask panel: ON -- {len(specs)} models; each question goes to the one the asker picks "
+            f"(default {models.default_id}). It costs money, and the question, the catalog text "
+            "the tools return and the drafted SQL are sent to that model's endpoint. No SQL is run.")
+    return models, "\n".join([head, *lines])
+
+
+def _model_line(entry) -> str:
+    spec = entry.spec
+    if spec.provider == "anthropic":
+        where = f"the Messages API at {spec.base_url}" if spec.base_url else "the Anthropic API"
+        off = [name for name in ("fallback", "prompt_cache", "eager_input_streaming",
+                                 "adaptive_thinking") if not getattr(spec, name)]
+        if spec.effort is None:
+            off.append("effort")
+        extra = f"; switched off: {', '.join(off)}" if off else ""
+    else:
+        from .ask.openai_model import DEFAULT_MAX_TOKENS
+
+        where = f"the chat-completions API at {spec.base_url}"
+        extra = f"; at most {spec.max_tokens or DEFAULT_MAX_TOKENS} output tokens per request"
+    if spec.api_key_env:
+        key = f"key from ${spec.api_key_env}"
+    elif spec.provider == "anthropic":
+        key = f"credentials from {getattr(entry.model, 'source', None) or 'the SDK'}"
+    else:
+        key = "no key"
+    state = "available" if entry.available else f"unavailable -- {entry.reason}"
+    return f"  - {spec.id} ({spec.provider}, {spec.model}) -> {where}, {key}{extra}: {state}"
 
 
 def _is_loopback(host: str) -> bool:
@@ -154,6 +222,10 @@ def main(argv: list[str] | None = None) -> int:
     from .http_server import make_server
 
     asking = args.ask or args.ask_dev_fake_model
+    if args.ask_models and not asking:
+        print("--ask-models lists the models of the ask panel: add --ask to enable it",
+              file=sys.stderr)
+        return 2
     if asking and not _is_loopback(args.host):
         print(f"--ask serves this machine only: it spends money on every question and the "
               f"server has no authentication; bind a loopback address, not {args.host}",
