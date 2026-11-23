@@ -212,6 +212,14 @@ def test_the_same_sql_as_a_run_instance_keeps_its_offsets(tmp_path) -> None:
     assert "（期望日期 −2 天）" in _markdown(plain)
 
 
+def test_a_template_without_an_expected_date_adds_no_empty_line(tmp_path) -> None:
+    packets = _build(tmp_path, {**TEMPLATE_META, "expect_date": None})
+    lines = _markdown(packets).splitlines()
+    assert "-" not in [line.strip() for line in lines]
+    assert not any(line.startswith("- 期望日期") for line in lines)
+    assert any(line.startswith("- 调度参数") for line in lines)
+
+
 def test_a_template_with_no_parameter_left_says_it_is_a_template(tmp_path) -> None:
     """No ``${…}`` left and none bound: still the template, not a run instance."""
     fixed = _instance()

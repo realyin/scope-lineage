@@ -206,7 +206,7 @@ def _template_dates(task: dict) -> list[str]:
     if literals:
         parts.append(f"{FIXED_LITERALS}（模板里没有被参数替换，不随运行日变化）：" + "、".join(
             f"{_code(item['literal'])} ×{item['count']}" for item in literals))
-    return ["- " + "；".join(parts)]
+    return ["- " + "；".join(parts)] if parts else []
 
 
 FIXED_LITERALS = "写死的日期字面量"
