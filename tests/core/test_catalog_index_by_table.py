@@ -351,8 +351,8 @@ def test_the_context_pack_is_unchanged_by_sharing_the_unit_rule(document: dict) 
     assert _pack_digest(document, PARTIAL) == PARTIAL_PACK_DIGEST
 
 
-PACK_DIGEST = "15677f22d99a30686f3d1e9b261082f00fa14d13bc646174996a90b4d60d46cf"
-PARTIAL_PACK_DIGEST = "8e146de2594ae116e7711288999ceb7b3dc3046dbc1886583a706c4e1e5b2cde"
+PACK_DIGEST = "255e32f65f4a37932749dbe8a62fc9d429bacafdad87236ad2053628e03708d2"
+PARTIAL_PACK_DIGEST = "f90ee20a9b91f6a39c5d3fa5be905363621b20b655373030fd2c1be29a35f2dc"
 
 
 # ------------------------------------------------------------- the command

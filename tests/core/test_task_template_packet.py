@@ -168,3 +168,66 @@ def test_with_the_instance_there_is_no_parameter_line(tmp_path) -> None:
     assert "scheduling_parameters" not in _task(plain)
     assert "调度参数" not in _markdown(plain)
     assert json.dumps(_task(plain)).count("${") == 0
+
+
+# ----------------------------------------------- a template's literals are fixed values
+#
+# A date literal in a run instance may be a parameter the scheduler replaced, so its offset
+# from the expected run date is a clue. In a template nothing was replaced: a literal there
+# is a fixed value, so the packet says so and gives no offset. The run instance is unchanged.
+
+OFFSET_WORDS = ("期望日期 −", "期望日期 +", "期望日期当天", "不在期望日期前后一个月内")
+FAR = TEMPLATE.replace("'2026-01-01'", "'2026-01-01' AND a.order_date < '2030-06-30'")
+
+
+def test_a_templates_date_literals_carry_no_offset(templated: Path) -> None:
+    assert _task(templated)["date_literals"] == [{"literal": "'2026-01-01'", "count": 1}]
+    assert _task(templated)["sql_from_template"] is True
+
+
+def test_the_markdown_calls_a_templates_literal_fixed_with_no_offset(templated: Path) -> None:
+    text = _markdown(templated)
+    assert ("- 期望日期：2026-01-03；写死的日期字面量（模板里没有被参数替换，不随运行日变化）："
+            "`'2026-01-01'` ×1") in text
+    assert "写死的日期字面量 '2026-01-01'" in text  # the note beside the rule
+    for words in OFFSET_WORDS:
+        assert words not in text
+    assert "SQL 里没有 `${…}` 参数" not in text
+
+
+def test_a_literal_far_from_the_expected_date_is_fixed_too(tmp_path) -> None:
+    packets = _build(tmp_path, {**TEMPLATE_META, "task_sql": FAR})
+    assert _task(packets)["date_literals"] == [
+        {"literal": "'2026-01-01'", "count": 1}, {"literal": "'2030-06-30'", "count": 1},
+    ]
+    for words in OFFSET_WORDS:
+        assert words not in _markdown(packets)
+
+
+def test_the_same_sql_as_a_run_instance_keeps_its_offsets(tmp_path) -> None:
+    plain = _build(tmp_path, {"sql": _instance()})
+    assert {item["literal"]: item["days_from_expect_date"]
+            for item in _task(plain)["date_literals"]} == {"'20260102'": -1, "'2026-01-01'": -2}
+    assert "sql_from_template" not in _task(plain)
+    assert "（期望日期 −2 天）" in _markdown(plain)
+
+
+def test_a_template_without_an_expected_date_adds_no_empty_line(tmp_path) -> None:
+    packets = _build(tmp_path, {**TEMPLATE_META, "expect_date": None})
+    lines = _markdown(packets).splitlines()
+    assert "-" not in [line.strip() for line in lines]
+    assert not any(line.startswith("- 期望日期") for line in lines)
+    assert any(line.startswith("- 调度参数") for line in lines)
+
+
+def test_a_template_with_no_parameter_left_says_it_is_a_template(tmp_path) -> None:
+    """No ``${…}`` left and none bound: still the template, not a run instance."""
+    fixed = _instance()
+    packets = _build(tmp_path, {"sql": fixed, "task_sql": fixed, "task_parameters": PARAMETERS})
+    task = _task(packets)
+    assert task["sql_from_template"] is True and "scheduling_parameters" not in task
+    text = _markdown(packets)
+    assert "- 期望日期：2026-01-03；SQL 取自调度模板，没有参数；写死的日期字面量" in text
+    assert "SQL 里没有 `${…}` 参数" not in text
+    for words in OFFSET_WORDS:
+        assert words not in text

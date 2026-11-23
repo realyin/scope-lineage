@@ -263,7 +263,8 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 - Each `produced_by[]` entry comes from that task's semantic profile (`task`,
   `output_shape`, `fields`); `refresh` comes from the task JSON's `meta`
   (`schedule_cycle` / `schedule`) and stays `null` when none was supplied — a cadence is
-  never guessed from a partition column or a table name.
+  never guessed from a partition column or a table name. The 更新频率 column of the
+  Markdown shows the cycle, or the cron when the cycle is missing or the literal `unknown`.
 - `produced_by[].grain.keys` names each logical key by its target column; a key the SELECT
   never projected (`GROUP BY id, upper(k)` writing only an aggregate) is written as the
   expression it groups by, `` UPPER(`a`.`k`) ``, never as `None`. `grain.evidence` (optional,

@@ -79,6 +79,7 @@ CHECK_TEXT = {
     "derived_codes": "派生码值",
     "documented_meaning": "注释已写明的含义",
     "header_facts": "头注释事实",
+    "placeholder": "没替换的占位符",
 }
 _TERMINAL = "。！？!?.；;…"
 

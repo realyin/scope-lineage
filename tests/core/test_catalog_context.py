@@ -1176,12 +1176,14 @@ def test_a_unit_the_material_gives_carries_no_mark(document: dict) -> None:
 
 
 def test_notes_about_something_else_leave_a_supported_unit_unchanged(document: dict) -> None:
+    """The notes are shown as they are (``test_catalog_notes``); the unit is judged as before."""
     noted = _principal(document, notes="待 owner 确认：是否含税")
     for semantics in (_material("元"), None):
-        assert context_pack(noted, semantics, columns=[PRINCIPAL]) == context_pack(
-            document, semantics, columns=[PRINCIPAL]
-        )
-        assert render_context_text(context_pack(noted, semantics, columns=[PRINCIPAL])) == (
+        pack = context_pack(noted, semantics, columns=[PRINCIPAL])
+        assert pack["columns"][0]["catalog"].pop("notes") == "待 owner 确认：是否含税"
+        assert pack == context_pack(document, semantics, columns=[PRINCIPAL])
+        text = render_context_text(context_pack(noted, semantics, columns=[PRINCIPAL]))
+        assert text.replace("  - 备注：待 owner 确认：是否含税\n", "") == (
             render_context_text(context_pack(document, semantics, columns=[PRINCIPAL]))
         )
 

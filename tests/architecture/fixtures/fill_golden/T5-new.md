@@ -185,7 +185,14 @@ c. **度量**：你建的每个 `category: measure` 属性，单位以 digest �
    "status": "drafted", "source": "sql", "evidence": ["<库.表>.<列>"]}`。逐键这样定：
    - `on` 是表的一行所对应的概念；`aggregation` 是**跨行**怎么汇总（加总、计数……）。列的派生里的 sum / count 是这张表在写入时
      已经做过的行内汇总（例如把一行之下的多条明细加成一个数），它说明这一列是度量，不决定 `aggregation`；可加的度量跨行一般是 `sum`。
-     `additivity` 也按跨行判断。
+     `additivity` 也按跨行判断。digest 在这一列下给了 `joined in through <规则> on <键>` 一行、且这些键没盖住表的行粒度
+     （digest 的 Grain 有列不在键里）时，同键的每一行带的是同一个值：度量属性的 `notes` 点名每张这样的表，写「在 <库.表> 里同
+     <键> 的多行带同一个值，按 <键> 每组取一行后再加」；以它为度量的指标在 `notes` 写同一句，`dimensions` 里不放在那张表里比
+     这些键细的维度；`additivity` 仍按上面的定义写，不为这个缘故改。这一行是线索：读 SQL 判断值其实不重复（例如被关联的一侧是
+     明细侧、fan-out 是 `risk`）时，在 `catalog_changes.md` 写 `<属性 id> repeats skip: <理由>` 了结 S10g 的
+     `measure_repeats_within_grain`。其余情况（没有这一行，或键盖住了粒度）照旧读派生：派生是按哪些键汇总出来的（「按 <键>
+     汇总 / 聚合 …」）、表的一行由哪些键决定（digest 的 Row 与 Grain）；汇总键比一行的键少时同样按上面写 `notes` 和
+     `dimensions`。有这一行不等于不用读派生。
    - `measure`：`sum`、`avg`、`min`、`max` 必须写，指向 `on` 概念上的度量属性。这个属性**由你在这一步建好**（带 `additivity`，单位照上面写），
      片段再把列绑上去；不要留空等片段补。只数实例个数的 `count` / `count_distinct` 不写 `measure`。
    - `dimensions`：业务会按什么拆开看这个数。`on` 自己的属性写 `attr:` id（例如发生时间、状态）；按另一个对象拆（例如按事件的

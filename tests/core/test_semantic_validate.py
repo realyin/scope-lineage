@@ -304,12 +304,21 @@ def test_an_item_with_no_source_fails(document: dict, packet: dict) -> None:
     assert [p["at"] for p in problems] == ["columns[2].sources", "rules[1].sources"]
 
 
-def test_more_than_five_questions_fail(document: dict, packet: dict) -> None:
-    document["summary"]["questions"] = [
-        {"id": f"q{index}", "text": "?", "status": "open"} for index in range(1, 7)
-    ]
+def _questions(count: int) -> list[dict]:
+    return [{"id": f"q{index}", "text": "?", "status": "open"} for index in range(1, count + 1)]
+
+
+def test_more_than_eight_questions_fail(document: dict, packet: dict) -> None:
+    document["summary"]["questions"] = _questions(9)
     (problem,) = _problems(validate_document(document, packet), "sources")
     assert problem["at"] == "summary.questions"
+    assert "最多 8 个，现在 9 个" in problem["message"]
+
+
+@pytest.mark.parametrize("count", [5, 6, 8])
+def test_up_to_eight_questions_pass(document: dict, packet: dict, count: int) -> None:
+    document["summary"]["questions"] = _questions(count)
+    assert _problems(validate_document(document, packet), "sources") == []
 
 
 # 8 ------------------------------------------------------------------- digest

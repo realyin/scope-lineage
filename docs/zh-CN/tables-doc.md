@@ -216,7 +216,7 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   `table` 不同时出现（上例里写 `mart.customer_daily` 的语句）。`tables --merge` 据此把条目分到对应的卡上。
 - `produced_by[]` 每条来自该任务 semantic profile 的 `task` / `output_shape` / `fields` 块，
   `refresh` 来自任务 JSON 的 `meta`（`schedule_cycle` / `schedule`），没有就是 `null`——
-  绝不从分区列或表名猜调度周期。
+  绝不从分区列或表名猜调度周期。Markdown 的「更新频率」一列写周期；周期缺失或是字面量 `unknown` 时写 cron。
 - `produced_by[].grain.keys` 用目标列名写每个逻辑键；SELECT 没有投影出来的键（例如
   `GROUP BY id, upper(k)` 只写聚合值）写成它分组用的表达式 `` UPPER(`a`.`k`) ``，不会写成 `None`。
   `grain.evidence`（可选，非空才有）就是生产方自己的 `output_shape.grain.evidence`：粒度依据的

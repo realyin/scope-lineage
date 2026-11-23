@@ -204,6 +204,15 @@ def test_a_rule_names_the_offset_of_its_tasks_date_literals() -> None:
     assert "批次日" not in note
 
 
+def test_a_templates_rule_calls_its_literals_fixed_with_no_offset() -> None:
+    template = [{"name": "t_one", "sql_from_template": True, "date_literals": [
+        {"literal": "'20250115'", "count": 2}, {"literal": "'20240101'", "count": 1},
+    ]}]
+    note = _rule_note(_dated("t_one", "x.dt = '20250115' AND x.b >= '20240101'"), [], template)
+    assert "写死的日期字面量 '20250115'、'20240101'" in note
+    assert "期望日期" not in note
+
+
 def test_another_tasks_literal_and_an_unquoted_number_say_nothing() -> None:
     assert "日期字面量" not in _rule_note(_dated("t_two", "x.dt = '20250115'"), [], TASKS)
     assert "日期字面量" not in _rule_note(_dated("t_one", "x.dt = 20250115"), [], TASKS)

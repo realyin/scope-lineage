@@ -294,6 +294,7 @@ def test_a_self_relation_counts_only_joins_on_its_self_referencing_column() -> N
         "samples": [
             {"task": "t", "statement_id": "stmt:001", "on": f"{loan}.orig_loan_no = {loan}.loan_no"}
         ],
+        "by_column": {f"{loan}.loan_no": 1, f"{loan}.orig_loan_no": 1},
     }
 
 
@@ -597,6 +598,7 @@ def test_a_join_that_fills_a_foreign_key_is_a_source_join(built: dict) -> None:
                     "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no",
                 }
             ],
+            "by_column": {"demo_dwd.dwd_lending_repayment_di.loan_no": 1},
         }
     }
     assert relations["rel:repayment.loan"]["joins"]["count"] == 1
@@ -621,6 +623,7 @@ def test_a_source_join_is_counted_on_the_far_end_s_identifier() -> None:
                     "on": f"{SOURCE}.cust_ref = {CUSTOMER}.cust_id",
                 }
             ],
+            "by_column": {f"{CALL}.cust_id": 1},
         }
     }
 
@@ -918,3 +921,74 @@ def test_merging_twice_writes_the_same_bytes(corpus: Path, tmp_path: Path) -> No
         )
 
     assert (first / "ontology.json").read_bytes() == (second / "ontology.json").read_bytes()
+
+
+# ------------------------------------------------- how many JOINs each column has
+#
+# A relation keeps at most three sample JOINs. Which column the others were about used to
+# be lost, so a reader could not tell whether a column it asked about had any. ``by_column``
+# counts every JOIN under each column it involves, and the samples keep one per column
+# while the limit allows.
+
+
+def test_source_joins_count_each_foreign_key_column_and_sample_each() -> None:
+    catalog = _join_catalog()
+    item(catalog["concepts"], "concept:customer")["identifiers"].append("id:cust_alt")
+    call = item(catalog["representations"], "table", CALL)
+    call["bindings"].append(_binding("cust_alt", "foreign_identifier", "id:cust_alt"))
+    catalog["identifiers"] = [{"id": "id:cust_alt", "spellings": [{"column": "alt_no"}]}]
+    looked_up = (SOURCE, CUSTOMER, ("cust_ref", "cust_id"))
+
+    merged = _producing(
+        CALL,
+        {"cust_id": [f"{SOURCE}.cust_ref"], "cust_alt": [f"{SOURCE}.alt_ref"]},
+        looked_up, looked_up, looked_up, looked_up,
+        (SOURCE, SIDE, ("alt_ref", "alt_no")),
+        catalog=catalog,
+    )
+
+    found = _source_joins(merged)["rel:customer_receives_call"]
+    assert found["count"] == 5
+    assert found["by_column"] == {f"{CALL}.cust_alt": 1, f"{CALL}.cust_id": 4}
+    assert len(found["samples"]) == 3
+    assert {s["column"] for s in found["samples"]} == {f"{CALL}.cust_id", f"{CALL}.cust_alt"}
+
+
+def test_joins_between_catalog_tables_count_each_side_column_and_sample_each() -> None:
+    catalog = _join_catalog()
+    contact = item(catalog["representations"], "table", CONTACT)
+    contact["bindings"].append(_binding("cust_id2", "foreign_identifier", "id:cust_id"))
+    usual = (CONTACT, CUSTOMER, ("cust_id", "cust_id"))
+
+    merged = _producing(
+        CALL, {}, usual, usual, usual, (CONTACT, CUSTOMER, ("cust_id2", "cust_id")),
+        catalog=catalog,
+    )
+
+    joins = merged["evidence"]["relations"]["rel:customer_has_contact"]["joins"]
+    assert joins["count"] == 4
+    assert joins["by_column"] == {
+        f"{CONTACT}.cust_id": 3, f"{CONTACT}.cust_id2": 1, f"{CUSTOMER}.cust_id": 4,
+    }
+    assert len(joins["samples"]) == 3
+    assert f"{CONTACT}.cust_id2 = {CUSTOMER}.cust_id" in {s["on"] for s in joins["samples"]}
+
+
+def test_a_relation_with_no_join_has_no_column_counts() -> None:
+    merged = _producing(CALL, {})
+    assert merged["evidence"]["relations"]["rel:customer_has_contact"]["joins"] == {
+        "count": 0, "samples": [],
+    }
+
+
+def test_the_schema_checks_the_column_counts(built: dict) -> None:
+    import copy
+
+    import jsonschema
+
+    joins = built["evidence"]["relations"]["rel:repayment.loan"]["source_joins"]
+    assert joins["by_column"] == {"demo_dwd.dwd_lending_repayment_di.loan_no": 1}
+    broken = copy.deepcopy(built)
+    broken["evidence"]["relations"]["rel:repayment.loan"]["source_joins"]["by_column"] = {"x": 0}
+    with pytest.raises(jsonschema.ValidationError):
+        validate_ontology_document(broken)

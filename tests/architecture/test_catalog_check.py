@@ -611,3 +611,144 @@ def test_the_finding_says_what_to_build_for_an_event_table_and_for_an_entity_tab
     assert "participants" in on_event and "foreign_identifier" in on_event and "relations" not in on_event
     for line in (on_entity, on_event):
         assert "code skip:" in line
+
+
+# ---- measure_repeats_within_grain: a measure joined in by keys that do not cover the grain ----
+#
+# The digest says, per measure column, which JOIN its value is brought in through and the
+# left keys as this table's columns (``joined_in``). Keys that leave a grain column out mean
+# the rows sharing a key carry the same value, so an ``additive`` measure adds it again.
+# One finding per measure attribute, listing each such table; cleared when the attribute is
+# no longer ``additive``, when its ``notes`` name every listed table, or by a skip line.
+
+REPEATS = "measure_repeats_within_grain"
+JOIN = "logic:ROOT:join:001"
+
+
+def _repeat_catalog(**fields) -> dict:
+    ontology = _complete()
+    _measure(ontology, unit="元", additivity="additive", **fields)
+    return ontology
+
+
+def _repeat_digest(keys=("task_id",), grain=("task_id", "line_no"), fan_out="safe",
+                   source="inferred", joined=True) -> dict:
+    column = {"column": "amount", "meaning": "金额", "unit": "元"}
+    if joined:
+        column["joined_in"] = [{"rule": JOIN, "keys": list(keys), "fan_out": fan_out}]
+    return {"doc_format": "catalog-digest/1", "tables": [
+        {"table": "demo_dwd.task_det", "grain": {"columns": list(grain), "source": source, "unique": "unknown"},
+         "measure_columns": [column], "technical_columns": ["dt"], "rules": []},
+        {"table": "demo_dwd.record_det", "rules": []},
+    ]}
+
+
+def _repeats(tmp_path, ontology, digest, changes: str | None = None) -> list[str]:
+    extra = ["--digest", str(_save_digest(tmp_path, digest))]
+    if changes is not None:
+        path = tmp_path / "catalog_changes.md"
+        path.write_text(changes, encoding="utf-8")
+        extra += ["--changes", str(path)]
+    return _lines(_check_with(_save(tmp_path, ontology), *extra), REPEATS)
+
+
+def _second_table(ontology: dict, digest: dict, grain: list, fan_out: str) -> None:
+    """The attribute also bound on the record table, joined in there by task_id."""
+    _bindings(ontology, "demo_dwd.record_det").append(
+        {"column": "amount", "to": "attribute", "ref": "attr:task.amount"})
+    digest["tables"][1] = {
+        "table": "demo_dwd.record_det", "rules": [],
+        "grain": {"columns": grain, "source": "proven", "unique": "yes"},
+        "measure_columns": [{"column": "amount", "meaning": "金额", "unit": "元",
+                             "joined_in": [{"rule": JOIN, "keys": ["task_id"], "fan_out": fan_out}]}],
+    }
+
+
+def test_keys_leaving_a_grain_column_out_are_reported(tmp_path):
+    (line,) = _repeats(tmp_path, _repeat_catalog(), _repeat_digest())
+    assert "attr:task.amount" in line
+    assert "demo_dwd.task_det.amount" in line and JOIN in line
+    assert "task_id" in line and "task_id、line_no" in line
+    assert "推断" in line and "safe" in line
+
+
+def test_the_remedy_is_a_note_naming_each_table_or_a_skip_line(tmp_path):
+    (line,) = _repeats(tmp_path, _repeat_catalog(), _repeat_digest())
+    assert "notes" in line and "按 <键> 每组取一行后再加" in line
+    assert "attr:task.amount repeats skip: <理由>" in line
+    assert "不再写 additive" not in line and "additivity 不为此改" in line
+
+
+def test_keys_covering_the_grain_are_not_reported(tmp_path):
+    assert _repeats(tmp_path, _repeat_catalog(), _repeat_digest(keys=("line_no", "task_id"))) == []
+
+
+def test_an_empty_grain_is_not_compared(tmp_path):
+    assert _repeats(tmp_path, _repeat_catalog(), _repeat_digest(grain=())) == []
+
+
+def test_a_key_outside_a_surrogate_grain_is_reported(tmp_path):
+    (line,) = _repeats(tmp_path, _repeat_catalog(), _repeat_digest(keys=("queue_cd",), grain=("row_id",)))
+    assert "queue_cd" in line and "row_id" in line
+
+
+def test_a_value_from_the_driving_side_is_not_reported(tmp_path):
+    """The mirror case: grain columns brought by a joined detail, the measure from the driving
+    side -- the digest has no ``joined_in`` for it."""
+    assert _repeats(tmp_path, _repeat_catalog(), _repeat_digest(joined=False)) == []
+
+
+@pytest.mark.parametrize("additivity", ["semi_additive", "non_additive", None])
+def test_an_attribute_that_is_not_additive_is_not_reported(tmp_path, additivity):
+    ontology = _repeat_catalog()
+    attribute = _measure(ontology)
+    attribute.pop("additivity")
+    if additivity:
+        attribute["additivity"] = additivity
+    assert _repeats(tmp_path, ontology, _repeat_digest()) == []
+
+
+def test_notes_naming_every_listed_table_clear_it_and_one_of_two_does_not(tmp_path):
+    ontology, digest = _repeat_catalog(), _repeat_digest()
+    _second_table(ontology, digest, ["rec_id"], "risk")
+    _measure(ontology, notes="在 demo_dwd.task_det 按 task_id 取一行后再加")
+    (line,) = _repeats(tmp_path, ontology, digest)
+    assert "demo_dwd.task_det.amount" in line and "demo_dwd.record_det.amount" in line
+    _measure(ontology, notes="在 task_det 按 task_id 取一行后再加；在 demo_dwd.record_det 按 task_id 取一行后再加")
+    assert _repeats(tmp_path, ontology, digest) == []
+
+
+def test_a_skip_line_clears_it(tmp_path):
+    changes = "- `attr:task.amount` repeats skip: 上游每个 task_id 只有一行明细\n"
+    assert _repeats(tmp_path, _repeat_catalog(), _repeat_digest(), changes) == []
+    other = "- attr:task.amount states skip: x\n- demo_dwd.task_det#r1 skip: x\n"
+    assert len(_repeats(tmp_path, _repeat_catalog(), _repeat_digest(), other)) == 1
+
+
+def test_a_join_that_may_multiply_rows_is_still_reported_with_its_status(tmp_path):
+    (line,) = _repeats(tmp_path, _repeat_catalog(), _repeat_digest(fan_out="risk", source="proven"))
+    assert "risk" in line and "证实" in line
+
+
+def test_the_sum_additive_metrics_on_the_attribute_are_named(tmp_path):
+    ontology = _repeat_catalog()
+    ontology["metrics"] = [
+        {"id": "metric:task_amount", "on": "concept:task", "aggregation": "sum",
+         "measure": "attr:task.amount", "unit": "元", "additivity": "additive"},
+        {"id": "metric:task_amount_avg", "on": "concept:task", "aggregation": "avg",
+         "measure": "attr:task.amount", "unit": "元", "additivity": "non_additive"},
+    ]
+    (line,) = _repeats(tmp_path, ontology, _repeat_digest())
+    assert "metric:task_amount（" in line and "metric:task_amount_avg" not in line
+
+
+def test_only_the_tables_where_it_repeats_are_listed(tmp_path):
+    ontology, digest = _repeat_catalog(), _repeat_digest()
+    _second_table(ontology, digest, ["task_id"], "safe")
+    (line,) = _repeats(tmp_path, ontology, digest)
+    assert "demo_dwd.task_det.amount" in line and "demo_dwd.record_det" not in line
+
+
+def test_without_a_digest_nothing_is_compared(tmp_path):
+    result = _check_with(_save(tmp_path, _repeat_catalog()))
+    assert _lines(result, REPEATS) == []

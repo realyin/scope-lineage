@@ -777,7 +777,7 @@ byte for byte what it was.
 | Where | Key | From | What it says |
 | --- | --- | --- | --- |
 | `representations["db.table"]` | `producing_tasks` | `--lineage` | the tasks whose statements write the table |
-| `representations["db.table"]` | `refresh` | `--lineage` | those tasks' schedule cycle (or cron) |
+| `representations["db.table"]` | `refresh` | `--lineage` | those tasks' schedule cycle, or the cron when the cycle is missing or the literal `unknown` (any case); `unknown` only with no cron either |
 | `representations["db.table"]` | `upstream_tables` / `downstream_tables` | `--lineage` | one hop of table lineage: what the writers read, what the readers write |
 | `representations["db.table"]` | `grain_proof` | `--lineage` | the best grain any writer proves: `confidence` (`proven` / `candidate` / `none`), `keys` (target column names; keys a WHERE pins are left out), `basis`, `task` |
 | `representations["db.table"]` | `conflicts` | `--lineage` | `grain_not_proven` (declared `proven`, lineage cannot prove it), `grain_not_exposed` (declared `proven`, lineage proves a key the write does not expose on target columns), `grain_mismatch` (both proven, different columns) or `table_identity_ambiguous` (corpus names that are not one table all match this catalog table, listed in `names`; no other lineage evidence is attached) |
@@ -786,8 +786,8 @@ byte for byte what it was.
 | `bindings["db.table.column"]` | `sources` / `expression` | `--lineage` | the physical source columns and the final expression (at most 200 characters), only for a binding without a hand-written `derivation` |
 | `bindings["db.table.column"]` | `declared_only` | `--tables` | the metadata declares the column and no task in the corpus touches it |
 | `code_sets["code:..."]` | `table` / `missing_columns` | `--tables` | when the table a code set's `lookup` names has a card that does not declare some of the lookup's columns: which ones (present only then; `build` also prints a `lookup_column_missing` warning on stderr) |
-| `relations["rel:..."]` | `joins` | `--lineage` | `count` and up to three `samples` of JOINs linking the two concepts' tables on columns bound to one identifier of theirs |
-| `relations["rel:..."]` | `source_joins` | `--lineage` | JOINs inside a producing task: in a statement writing one end's table, the JOINs made to fill that table's foreign key column; `count` and up to three `samples` (with one more field, `column`: the foreign key filled); counted apart from `joins`, present only when there is such a JOIN |
+| `relations["rel:..."]` | `joins` | `--lineage` | `count` and up to three `samples` of JOINs linking the two concepts' tables on columns bound to one identifier of theirs; `by_column` (when `count` > 0): how many of them involve each catalog column on either side, `db.table.column` → n; the samples keep one JOIN per column while the limit allows |
+| `relations["rel:..."]` | `source_joins` | `--lineage` | JOINs inside a producing task: in a statement writing one end's table, the JOINs made to fill that table's foreign key column; `count` and up to three `samples` (with one more field, `column`: the foreign key filled), and `by_column`: how many fill each foreign key column, `db.table.column` → n, the samples keeping one JOIN per column while the limit allows; counted apart from `joins`, present only when there is such a JOIN |
 
 ```json
 {
@@ -814,11 +814,11 @@ byte for byte what it was.
   },
   "relations": {
     "rel:borrower_owes_loan": {
-      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}]}
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}], "by_column": {"demo_dwd.dwd_lending_borrower_df.customer_id": 1, "demo_dwd.dwd_lending_loan_df.customer_id": 1}}
     },
     "rel:repayment.loan": {
-      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}]},
-      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}]}
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}], "by_column": {"demo_dwd.dwd_lending_loan_df.loan_no": 1, "demo_dwd.dwd_lending_repayment_di.loan_no": 1}},
+      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}], "by_column": {"demo_dwd.dwd_lending_repayment_di.loan_no": 1}}
     }
   }
 }
@@ -989,7 +989,7 @@ has a 编号 row with the concept id):
 | A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
 | A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up; with several code sets, each after its name, 「A：1=…；B：0=…」), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B, and one with `code_sets_by: source` reads 「按来源分别查 A、B」, each source in its own; a column with `holds` adds what it stores, 「存含义（zh）或码」 (stores the meaning, in zh, or the code), after the code sets as 「（码值：查 A；存代理键）」; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
 | A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it — a column naming a `relation` only under that one, a column naming none under every self relation — and one with an `inverse_name` reads both ways); JOINs inside a producing task (`source_joins`), when there are any, as 「生产任务内连接 N 次（如 …，填 <foreign key column>）」, apart from the JOIN count; when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column realising it) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
-| A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
+| A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status; the expression is followed by the rules a constraint carries (承接规则) and the catalog tables it comes from (来源表, the judgement `catalog query table` uses) |
 | A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
 
 Anything that came from the corpus is labelled 「血缘」; without evidence those cells show
@@ -1009,8 +1009,8 @@ anywhere, English ones as whole words (an underscore separates words, so `is_del
 | 其他 | `other` | none of the above |
 
 The same page lists the tables that declare no `scope`, and the constraints of kind
-`business_rule` / `value_domain` that cite a representation's table in their `evidence` or
-expression. An expression cites a table by its whole name, which may be followed by
+`business_rule` / `value_domain` that come from a representation's table: their `rules` name it
+(`<db.table>#rN`), or their `evidence` or expression cites it. An expression cites a table by its whole name, which may be followed by
 `.column`: a rule about `db.t_order_refund` does not cite `db.t_order`.
 
 ## Query: `catalog query`
@@ -1023,10 +1023,10 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | Kind | Term | Answer |
 | --- | --- | --- |
 | `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read, and the concept page's one-page overview (`overview`, the same fields as the page) |
-| `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation; for a code table (one a code set's `lookup` names), the code sets it holds and how each is looked up (`code_sets`), and when the table is also represented, the representation's answer gains `code_sets`; exit code `0` |
-| `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up, and carries `code_sets_by` when it is `source` (the text reads 「按来源分别查 A、B」); one with `holds` says what it stores, 「存含义（zh）或码」, and carries `holds` and `lang`) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
+| `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the representation's `refresh` (a 刷新 line; none without it), the table comment and `notes`, its record scope, the business rules and value domains coming from it (`constraints`: its `rules` name the table, or its `evidence` or expression cites it), and what every bound column points at, with evidence (a column bound to an attribute carries the attribute's `type`, printed 「；类型 …」); a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation; for a code table (one a code set's `lookup` names), the code sets it holds and how each is looked up (`code_sets`), and when the table is also represented, the representation's answer gains `code_sets`; exit code `0` |
+| `column` | `db.table.column` | the attribute or identifier it holds and its concept (an attribute's `type` too, printed 「；类型 …」; a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up, and carries `code_sets_by` when it is `source` (the text reads 「按来源分别查 A、B」); one with `holds` says what it stores, 「存含义（zh）或码」, and carries `holds` and `lang`) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
-| `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up; an attribute with no `code_set` of its own answers with `code_sets`, the sets its columns name, each shaped like `code_set` plus its `name`), derivation and every table column |
+| `attribute` | id, name or term | its concept, its `notes` when it has any (printed 「备注：…」), code values (with a `lookup`, `code_set` also carries how and in which table to look them up; an attribute with no `code_set` of its own answers with `code_sets`, the sets its columns name, each shaped like `code_set` plus its `name`), derivation and every table column |
 | `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it; with JOINs inside a producing task also `source_joins` (the count), printed as 「生产任务内连接 N 次」 apart from `joins` |
 | `carriers` | a concept's id, name, synonym or term | every column, in the tables of any concept, binding one of its identifiers: table, the table's concept, column, identifier, and how |
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
@@ -1125,11 +1125,11 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 
 | Option | What it gives |
 | --- | --- |
-| `--concept` (id, id without its prefix, name, synonym or term; or a metric's id, id without `metric:`, name or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites); a term no concept matches is tried as a metric, and the metric's concept is packed with that metric first, named in `via_metric` (`{id, name}`) |
-| `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh, time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions, the downstream tasks and tables that read it, one line per column |
-| `--column` (`db.table.column`) | the catalog binding (what it points at, definition, unit, code values, derivation, time role, lineage expression); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column |
+| `--concept` (id, id without its prefix, name, synonym or term; or a metric's id, id without `metric:`, name or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites, and its `notes` when it has any); a term no concept matches is tried as a metric, and the metric's concept is packed with that metric first, named in `via_metric` (`{id, name}`) |
+| `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh (the text's 刷新 line adds the cycle the table-semantics document wrote, 表语义写的周期), time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where: only the sample JOINs that involve this column -- a JOIN inside a producing task by the column it fills, one between catalog tables by its two sides --, one entry for the same evidence however many relations carry it, `relations` naming them; `count` is this column's own from the build's `by_column`, and a column whose JOINs kept no sample gets a count-only line; a document built before `by_column` counts this column's samples when they are complete, and when the build cut them short says how many JOINs were not sampled (`unsampled`) and that whether they are this column's is not recorded -- with no sample of this column, one line naming the relation's count (`relation_count`) -- rebuild to know), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions, the downstream tasks and tables that read it, one line per column |
+| `--column` (`db.table.column`) | the catalog binding (what it points at, definition, the attribute's `type` for a column bound to an attribute -- an identifier, technical or unmapped column has none, so nothing is printed --, unit, code values, derivation, time role, lineage expression, and the bound attribute's `notes` when it has any, printed 「备注：…」); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column |
 | `--columns` (`col[,col...]`) | the same as `--column` for columns of the `--table` values, named without the table and separated by commas; needs a `--table`. With one `--table` every name is that table's. With several, a bare name goes to every requested table that has the column (the catalog binds it on the table, or the table's semantics document describes it; case is ignored), `table.col` pins the requested table of that name and `db.table.col` is taken as written; a name already asked is not asked again |
-| `--brief` | a short `--table` pack: every catalog fact, what it is, what one row is, how to read it, scope, good for, not for, things to watch, open questions and the text of the cited rules stay; columns are listed by name grouped by category (entries keep `column` and `category`), cited rules lose their SQL, downstream readers are named by the table they write (by their task when they write none); a column whose table is in the same pack points to the table's notes instead of repeating them |
+| `--brief` | a short `--table` pack: every catalog fact, what it is, what one row is, how to read it, scope, good for, not for, things to watch, open questions and the text of the cited rules stay; columns are listed by name grouped by category (entries keep `column` and `category`), cited rules lose their SQL, downstream readers are named by the table they write (by their task when they write none); a join column's sample JOINs whose two tables are both outside the catalog are folded into one count (`seen_outside_catalog`, 「另有 n 条产出任务内部的连接证据两边的表都不在目录里」), while a JOIN involving a catalog table is always listed; a column whose table is in the same pack points to the table's notes instead of repeating them |
 | `--focus` | with `--column`/`--columns`: each table's watch items, open questions and cited rules narrowed to its requested columns; `semantics.focus` (`columns`, `left_out` counts) says what was left out |
 
 `--table`, `--column`, `--columns` and `--concept` are repeatable and can be mixed. A column of a table named by
@@ -1162,7 +1162,8 @@ document, the unit is supported and printed as before. Otherwise the binding or 
 filled it in, nobody confirmed it); `{"given": false}` with no unit, printed `单位：材料未给`; and
 `{"given": true, "units": [...]}` when the catalog has no unit while the material gives one, printed
 `单位：<unit>（目录未填）`. An attribute none of whose bound columns a document describes is not judged.
-`doc_format` stays `catalog-context/1`. Without `--semantics` nothing is compared, so an unconfirmed unit
+`doc_format` stays `catalog-context/1`. Where such a mark says the material gives no unit, the sentence 「待 owner 确认：单位」 in the
+attribute's or metric's `notes` says the same and is left out of the printed notes; every other sentence stays. Without `--semantics` nothing is compared, so an unconfirmed unit
 reads like a confirmed one: ask for a metric with `--semantics` too.
 
 ```text
@@ -1172,6 +1173,21 @@ reads like a confirmed one: ask for a metric with `--semantics` too.
 - 承载概念：客户（concept:customer），表的种类 core
 - 粒度：customer_id（proven）
 ```
+
+**Where a table's constraints come from.** The constraints listed under a table are those on its concept, and
+each comes from the tables its `rules` name or that its `evidence` or expression cites (`tables`; the same
+judgement `catalog query table`, `scopes.md` and the concept page use, catalog tables only). Under the table each
+gets a `relation`, the first that holds: `this_table` (this table is a source); `upstream` (a source is upstream
+of this table in the lineage evidence, followed hop after hop through catalog tables: when this table's rows come
+from that table the condition is already carried in, when this table only joins it for extra fields it does not
+apply -- the evidence does not say which, so the text says both and names the source); `downstream` (done when a
+downstream table is built, not here); `unrelated` (no lineage relation, so whether it holds here is not known).
+A constraint with a source on each side is listed upstream, and `also_downstream` names its sources that read this table. A `unique` constraint from
+upstream gets its own sentence: the table's grain may differ, so uniqueness may not hold. Without lineage
+evidence in the catalog the only relations are `this_table` and `other_table`. The text prints one segment a
+relation, each line naming its sources. A constraint from another table on an attribute this table binds no column to is not listed
+but counted (one from this table's own rules is always listed, so that segment is what `catalog query table` lists) (`constraints_unbound`, `{relation: n}`), and a constraint naming no table is listed as before with
+neither key. With `--concept`, each constraint names its `tables` too.
 
 **Two or more tables: how they join.** With two or more `--table` values the pack adds one entry per pair of
 requested tables (`links`, and a `# 关联 a ↔ b` section after the table blocks), so the agent does not work out the
@@ -1571,6 +1587,23 @@ binding's `holds` are written from, so the drafter need not go back to the SQL f
   `key_of_order: "unknown"` says so. A read with an empty `read_by` (`read by no column`) is a
   dead join or a row filter, not evidence for a code set, and drafting builds none for it --
   code sets are built only for the `where` combinations some column reads.
+- `joined_in`: on a measure column only, the JOINs whose right side the value is brought in
+  through, one entry a JOIN: `{rule, keys, fan_out}` -- `rule` the JOIN's logic block id in
+  the lineage (the numbering `lookups[].rule` uses), `keys` its left join keys as the columns
+  of **this** table they reach by pass-through steps, `fan_out` the fan-out status the
+  statement alone gives it (`safe` / `risk` / `unknown`; no table cards, so it may be more
+  cautious than the packet's). Only JOINs above the first aggregate on the path count (one
+  below is folded by it); an entry is written only when every key reaches a column of this
+  table; several statements writing the column add their own entries with `source`
+  (`<task>/<statement>`). Nothing is compared or filtered by `fan_out`: keys that do not cover
+  the table's row grain mean rows sharing the key carry the same value, and `catalog_check.py`
+  makes that comparison. The md says `joined in through <rule> on <keys> (fan-out: <status>)`.
+  When drafting, a value that does repeat gets, in the `notes` of its measure attribute and of
+  each metric over it, 「在 <库.表> 里同 <键> 的多行带同一个值，按 <键> 每组取一行后再加」; its
+  `additivity` is not changed for this -- the value is still additive at its own grain, what is
+  wrong is summing it over this table's rows. One the SQL shows does not repeat gets
+  `<attribute id> repeats skip: <reason>` in `catalog_changes.md`. `catalog_check.py --digest`
+  reports, as `measure_repeats_within_grain`, an `additive` measure attribute with neither.
 
 What counts: only a value that enters through a JOIN (or passes through a joined
 subquery / CTE) has conditions; a condition is a single equality with a string literal, in
@@ -1599,7 +1632,7 @@ an attribute, not evidence for a code set. A read keyed by a foreign identifier 
 mark and may still be another entity's attribute row.
 
 `catalog-digest/1` does not move with `key`, `lookups_by`, `source`, `other_sources`,
-`code_set_mismatch` and `keyed_by`; two meanings narrow: `fallback` is a true fallback of the
+`code_set_mismatch`, `keyed_by` and `joined_in`; two meanings narrow: `fallback` is a true fallback of the
 same source only, and `code_set` needs a matching join column when the key is known.
 
 ```json

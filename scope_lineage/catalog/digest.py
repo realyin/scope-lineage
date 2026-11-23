@@ -60,8 +60,10 @@ def digest_tables(
 
     ``lookups`` is what ``render.value_lookups.column_lookups`` read from a lineage corpus
     (``{"tables": {db.table: {column: facts}}}``): each listed column of a table it names
-    gains those facts, tagged with the catalog's matching code set when a catalog is given.
-    Without it the digest is exactly what it was.
+    gains those facts, tagged with the catalog's matching code set when a catalog is given;
+    a measure column also gains ``joined_in`` (the JOINs its value is brought in through,
+    with their left keys as this table's columns and their fan-out status), compared with
+    nothing here. Without it the digest is exactly what it was.
 
     ``column_types`` is ``{db.table: {column: physical type}}`` (both keys lower case), as
     ``column_types_of`` reads it from table cards: each listed column it names gains ``type``.
@@ -196,6 +198,8 @@ def _column(
             result[key] = column[key]
     if facts:
         result.update(_lookup_facts(facts, code_sets or []))
+        if column["category"] == "measure" and facts.get("joined_in"):
+            result["joined_in"] = [dict(hop) for hop in facts["joined_in"]]
     return result
 
 
@@ -436,9 +440,18 @@ def _lookup_lines(entry: dict) -> list[str]:
                     _read_text(read) + f" ({_read_note(read, _readers_text(read), rows)})"
                     for read in column["key_of"]
                 ) + order)
+            parts += [_joined_in_text(hop) for hop in column.get("joined_in") or []]
             if parts:
                 lines.append(f"  - {column['column']}: " + "; ".join(parts))
     return ["- Joined inputs read (from the lineage):", *lines] if lines else []
+
+
+def _joined_in_text(hop: dict) -> str:
+    """``joined in through <rule> on k1, k2 (fan-out: safe)``: the JOIN a measure's value
+    enters through and its left keys, as this table's columns."""
+    source = f" [{hop['source']}]" if hop.get("source") else ""
+    return (f"joined in through {hop['rule']} on {', '.join(hop['keys'])} "
+            f"(fan-out: {hop['fan_out']}){source}")
 
 
 def _reads_text(reads: list[dict], rows: dict) -> str:
