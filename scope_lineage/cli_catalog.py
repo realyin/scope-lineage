@@ -169,8 +169,10 @@ def _add_context_parser(actions) -> None:
     context_cmd.add_argument(
         "--columns", action="append", default=[], metavar="COL[,COL...]",
         help=(
-            "Columns of the one --table, comma-separated, each answered in full like --column "
-            "in the same pack (repeatable; needs exactly one --table)"
+            "Columns of the --table values, comma-separated, each answered in full like "
+            "--column in the same pack: a bare name goes to every requested table that has "
+            "the column (bound in the catalog or in its semantics document), table.col pins "
+            "one (repeatable; needs a --table)"
         ),
     )
     context_cmd.add_argument(
@@ -191,7 +193,10 @@ def _add_context_parser(actions) -> None:
     )
     context_cmd.add_argument(
         "--concept", action="append", default=[], metavar="CONCEPT",
-        help="A concept by id, name, synonym or term: tables, constraints, metrics (repeatable)",
+        help=(
+            "A concept by id, name, synonym or term, or a metric by id or name (packs the "
+            "metric's concept, that metric first): tables, constraints, metrics (repeatable)"
+        ),
     )
     context_cmd.add_argument(
         "--json", action="store_true",

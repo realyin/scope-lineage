@@ -129,9 +129,10 @@ def context_columns(
     concepts: Iterable[str] = (),
     focus: bool = False,
 ) -> list[str]:
-    """The columns a context pack answers in full, or the refusal of ``catalog context``.
+    """The names ``--columns`` asks of the requested tables, or the refusal of ``catalog context``.
 
-    ``columns_of_table`` is ``--columns``: comma-separated names of the one table given.
+    ``columns_of_table`` is ``--columns``: comma-separated names, each looked up in every
+    requested table (``table.col`` pins one of them).
     """
     tables, columns = list(tables), list(columns)
     columns_of_table, concepts = list(columns_of_table), list(concepts)
@@ -139,24 +140,20 @@ def context_columns(
         raise CatalogAnswerError(
             2, "catalog context: name at least one --table, --column or --concept"
         )
-    if columns_of_table:
-        if len(tables) != 1:
-            raise CatalogAnswerError(
-                2,
-                "catalog context: --columns names columns of one table; give exactly one "
-                "--table, or use --column db.table.column",
-            )
-        columns += [
-            f"{tables[0]}.{name.strip()}"
-            for value in columns_of_table
-            for name in value.split(",")
-            if name.strip()
-        ]
-    if focus and not columns:
+    if columns_of_table and not tables:
+        raise CatalogAnswerError(
+            2,
+            "catalog context: --columns names columns of the --table values; give at least "
+            "one --table, or use --column db.table.column",
+        )
+    table_columns = [
+        name.strip() for value in columns_of_table for name in value.split(",") if name.strip()
+    ]
+    if focus and not (columns or table_columns):
         raise CatalogAnswerError(
             2, "catalog context: --focus needs the columns to focus on (--column or --columns)"
         )
-    return columns
+    return table_columns
 
 
 def context(
@@ -172,14 +169,14 @@ def context(
 ) -> CatalogAnswer:
     from .render.catalog_context import context_pack, render_context_text
 
-    tables, concepts = list(tables), list(concepts)
-    full = context_columns(
+    tables, columns, concepts = list(tables), list(columns), list(concepts)
+    table_columns = context_columns(
         tables=tables, columns=columns, columns_of_table=columns_of_table,
         concepts=concepts, focus=focus,
     )
     pack = context_pack(
-        document, semantics, tables=tables, columns=full, concepts=concepts,
-        brief=brief, focus=focus,
+        document, semantics, tables=tables, columns=columns, concepts=concepts,
+        table_columns=table_columns, brief=brief, focus=focus,
     )
     found = pack["concepts"] or pack["tables"] or pack["columns"]
     return CatalogAnswer(pack, 0 if found else 1, render_context_text)

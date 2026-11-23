@@ -93,8 +93,8 @@ def build_server(state: CatalogState) -> MCPServer:
         columns_of_table: Annotated[
             list[str],
             Field(description=(
-                "Column names of the ONE table given in tables (each item may be comma-separated), "
-                "answered in full like columns"
+                "Column names looked up in every table given in tables (each item may be "
+                "comma-separated; table.col pins one table), answered in full like columns"
             )),
         ] = [],
         concepts: Annotated[

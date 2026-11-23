@@ -48,7 +48,7 @@ from .catalog_joins import (
     time_groups,
     uncovered,
 )
-from .catalog_query import find_concepts
+from .catalog_query import find_concepts, find_metrics
 from .catalog_view import CatalogView, catalog_table_name, realises
 
 __all__ = ["CONTEXT_FORMAT", "context_pack", "render_context_text"]
@@ -68,19 +68,26 @@ def context_pack(
     tables: Iterable[str] = (),
     columns: Iterable[str] = (),
     concepts: Iterable[str] = (),
+    table_columns: Iterable[str] = (),
     brief: bool = False,
     focus: bool = False,
 ) -> dict:
     """The pack for the named tables, columns (``db.table.column``) and concepts.
 
-    ``brief`` shortens each table's semantics as the module says; ``focus`` narrows each
-    table that has requested columns to them. Neither changes a concept or a column.
+    ``table_columns`` are columns of the requested tables named without the table (or
+    with ``table.`` to pin one); ``_table_columns`` says which table each goes to, and
+    ``query.columns`` lists them as ``db.table.column`` after ``columns``. A concept term
+    may name a metric: its concept is packed (``_concept_term``). ``brief`` shortens each
+    table's semantics as the module says; ``focus`` narrows each table that has requested
+    columns to them. Neither changes a concept or a column.
     """
     view = CatalogView(document)
     documents = {
         catalog_table_name(name).lower(): doc for name, doc in (semantics or {}).items()
     }
-    query: dict = {"tables": list(tables), "columns": list(columns), "concepts": list(concepts)}
+    tables = list(tables)
+    expanded, unplaced = _table_columns(view, documents, tables, list(columns), table_columns)
+    query: dict = {"tables": tables, "columns": expanded, "concepts": list(concepts)}
     if brief:
         query["brief"] = True
     if focus:
@@ -95,11 +102,7 @@ def context_pack(
     }
     focused = _requested_columns(view, query["columns"]) if focus else {}
     for term in pack["query"]["concepts"]:
-        # the page of a concept is named by its id without the prefix, so that spelling works
-        found = find_concepts(view, term) or find_concepts(view, f"concept:{term}")
-        if not found:
-            pack["missing"].append({"kind": "concept", "term": term})
-        pack["concepts"].extend(_concept(view, concept) for concept, _ in found)
+        _concept_term(view, term, pack)
     for term in pack["query"]["tables"]:
         rep = view.representation(term)
         if rep is None:
@@ -121,7 +124,90 @@ def context_pack(
             pack["missing"].append({"kind": "column", "term": term})
         else:
             pack["columns"].append(answer)
+    pack["missing"] += unplaced
     return pack
+
+
+def _concept_term(view: CatalogView, term: str, pack: dict) -> None:
+    """Add the concepts one ``--concept`` term names to the pack, or a ``missing`` entry.
+
+    A concept is looked for first (by id, the id without ``concept:`` -- the page name --,
+    name, synonym or term); only when none matches is the term read as a metric (id, id
+    without ``metric:``, name or term), and the metric's concept is packed with that metric
+    first and named in ``via_metric``."""
+    found = find_concepts(view, term) or find_concepts(view, f"concept:{term}")
+    if found:
+        pack["concepts"].extend(_concept(view, concept) for concept, _ in found)
+        return
+    metrics = find_metrics(view, term) or find_metrics(view, f"metric:{term}")
+    if not metrics:
+        pack["missing"].append({"kind": "concept", "term": term})
+    for metric, _ in metrics:
+        concept = view.concepts.get(metric.get("on") or "")
+        if concept is None:
+            pack["missing"].append(
+                {"kind": "concept", "term": term, "metric": _metric_ref(metric)}
+            )
+        else:
+            pack["concepts"].append(_concept(view, concept, via=metric))
+
+
+def _table_columns(
+    view: CatalogView,
+    documents: Mapping,
+    tables: list[str],
+    columns: list[str],
+    table_columns: Iterable[str],
+) -> tuple[list[str], list[dict]]:
+    """``columns`` followed by the ``table_columns`` terms as ``db.table.column``, and the
+    ``missing`` entries of the terms no requested table takes.
+
+    With one requested table every bare name is that table's, as written. With several, a
+    bare name goes to each requested table that has the column -- bound in the catalog, or
+    described by the table's semantics document -- and ``table.col`` to the requested table
+    of that name; ``db.table.col`` is taken as it is. A term already asked (ignoring case)
+    is not asked again."""
+    found = list(columns)
+    asked = {term.casefold() for term in found}
+    unplaced: list[dict] = []
+
+    def add(term: str) -> None:
+        if term.casefold() not in asked:
+            asked.add(term.casefold())
+            found.append(term)
+
+    names = [str(term).strip() for term in table_columns if str(term).strip()]
+    if len(tables) == 1:
+        for name in names:
+            add(f"{tables[0]}.{name}")
+        return found, unplaced
+    reps = list({
+        rep["table"]: rep for rep in (view.representation(t) for t in tables) if rep is not None
+    }.values())
+    tried = [rep["table"] for rep in reps]
+    for name in names:
+        table_part, _, column = name.rpartition(".")
+        if "." in table_part:
+            add(name)
+            continue
+        if table_part:
+            folded = table_part.casefold()
+            targets = [r for r in reps if r["table"].rpartition(".")[2].casefold() == folded]
+        else:
+            targets = [r for r in reps if _has_column(r, documents.get(r["table"].lower()), column)]
+        if not targets:
+            unplaced.append({"kind": "column", "term": name, "tables": tried})
+        for rep in targets:
+            add(f"{rep['table']}.{column}")
+    return found, unplaced
+
+
+def _has_column(rep: Mapping, document: Optional[Mapping], column: str) -> bool:
+    """Whether the catalog binds the column on the table or its semantics document has it."""
+    folded = column.casefold()
+    return any(b["column"].casefold() == folded for b in rep["bindings"]) or any(
+        str(c.get("column", "")).casefold() == folded for c in (document or {}).get("columns") or []
+    )
 
 
 def _address(view: CatalogView, term: str):
@@ -154,8 +240,12 @@ def _ref(view: CatalogView, object_id: str) -> dict:
 # ------------------------------------------------------------------ concept
 
 
-def _concept(view: CatalogView, concept: Mapping) -> dict:
+def _concept(view: CatalogView, concept: Mapping, via: Optional[Mapping] = None) -> dict:
+    """A concept's entry; reached through the metric ``via``, that metric comes first."""
     concept_id = concept["id"]
+    metrics = view.metrics_on(concept_id)
+    if via is not None:
+        metrics = [via] + [m for m in metrics if m["id"] != via["id"]]
     answer = {
         "id": concept_id,
         "name": concept["name"],
@@ -168,11 +258,17 @@ def _concept(view: CatalogView, concept: Mapping) -> dict:
             for rep in view.representations_of(concept_id)
         ],
         "constraints": _constraints(view, concept_id),
-        "metrics": [_metric(view, metric) for metric in view.metrics_on(concept_id)],
+        "metrics": [_metric(view, metric) for metric in metrics],
     }
+    if via is not None:
+        answer["via_metric"] = _metric_ref(via)
     if concept.get("notes"):
         answer["notes"] = concept["notes"]
     return answer
+
+
+def _metric_ref(metric: Mapping) -> dict:
+    return {"id": metric["id"], "name": metric.get("name") or metric["id"]}
 
 
 def _constraints(view: CatalogView, concept_id: str) -> list[dict]:
@@ -761,12 +857,23 @@ def render_context_text(pack: Mapping) -> str:
         lines += _column_text(column, column["table"] if column["table"] in shown else None)
     kinds = {"concept": "概念", "table": "表", "column": "字段"}
     for item in pack["missing"]:
-        lines.append(f"未找到：{kinds[item['kind']]} {item['term']}")
+        lines.append(f"未找到：{kinds[item['kind']]} {item['term']}{_missing_why(item)}")
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _missing_why(item: Mapping) -> str:
+    if item.get("metric"):
+        return f"（指标 {item['metric']['name']} 没有挂在目录里的概念上）"
+    if "tables" in item:
+        return f"（{'、'.join(item['tables']) or '请求的表'} 都没有这一列）"
+    return ""
 
 
 def _concept_text(concept: Mapping) -> list[str]:
     lines = [f"# 概念 {concept['name']}（{concept['id']}，{concept['kind']}）", ""]
+    via = concept.get("via_metric")
+    if via:
+        lines.append(f"- 由指标 {via['name']}（{via['id']}）找到：它是下面「指标」的第一条")
     if concept.get("definition"):
         lines.append(f"- 定义：{concept['definition']}")
     if concept.get("synonyms"):
@@ -782,14 +889,15 @@ def _concept_text(concept: Mapping) -> list[str]:
     if concept["metrics"]:
         lines += ["", "## 指标"]
         for metric in concept["metrics"]:
-            lines += _metric_lines(metric)
+            lines += _metric_lines(metric, asked=bool(via) and metric["id"] == via["id"])
     else:
         lines += ["", "## 指标", "目录没有为这个概念定义指标。"]
     return lines + [""]
 
 
-def _metric_lines(metric: Mapping) -> list[str]:
-    lines = [f"- {metric['name']}（{metric['id']}）：{metric.get('definition') or ''}"]
+def _metric_lines(metric: Mapping, asked: bool = False) -> list[str]:
+    mark = "（所问）" if asked else ""
+    lines = [f"- {mark}{metric['name']}（{metric['id']}）：{metric.get('definition') or ''}"]
     measure = metric.get("measure")
     if measure:
         columns = "、".join(measure["columns"]) or "没有绑定的列"

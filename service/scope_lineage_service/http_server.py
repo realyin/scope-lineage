@@ -80,7 +80,7 @@ ENDPOINTS = [
         "params": {
             "table": "repeatable: db.table",
             "column": "repeatable: db.table.column, answered in full",
-            "columns": "repeatable: comma-separated columns of the one table given",
+            "columns": "repeatable: comma-separated column names, looked up in every table given",
             "concept": "repeatable: a concept id, name, synonym or term",
             "brief": "true/false: the short table pack",
             "focus": "true/false: narrow watch items and rules to the requested columns",
