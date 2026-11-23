@@ -415,7 +415,7 @@ is sourced `confirmed`.
 | `downstream[]` | consuming `task` and optionally the `table` it writes |
 | `good_for[]` / `not_for[]` | typical uses and their limits |
 | `watch[]` | conflicts, risks, deprecations and coverage gaps, each with a `kind` and optional `refs` such as `column:x` or `rule:r2` |
-| `questions[]` | at most five open questions for the owner: `id` (`q1`…), `text`, `about`, `status` (`open` / `answered`), and once answered `answer`, `answered_by`, `answered_on` |
+| `questions[]` | at most eight open questions for the owner: `id` (`q1`…), `text`, `about`, `status` (`open` / `answered`), and once answered `answer`, `answered_by`, `answered_on` |
 
 ### Columns and rules
 
@@ -433,7 +433,7 @@ A rule holds `id` (`r1`…), `kind` (`filter`, `join`, `dedup`, `derive`, `union
 
 The schema checks shape only. Two counts a model often gets wrong are deliberately left to
 check 7 so they land in the rewrite list instead of failing the whole document: an empty
-`sources`, and more than five questions.
+`sources`, and more than eight questions.
 
 ## `semantic validate`
 
@@ -468,7 +468,7 @@ The fourteen checks (thirteen against the packet, the last on the prose alone):
 | 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet | the claimed grain columns differ from the proven key |
 | 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule. A quote cites a filter when it, or one of its AND conjuncts (comments dropped), equals the filter in some form; when the quote is a whole statement (a SELECT, an INSERT … SELECT), so does each conjunct of every WHERE / HAVING / ON in it, nested subqueries included; a longer quote that merely contains the filter's text (a CASE branch, a MERGE condition) cites nothing. A filter with `right_of` and a `right_side_kind` of `rank_first` or `values` need not be cited; one with `right_of` alone must be, by a rule, and the message says to keep it out of `summary.scope`. The fix quotes that one condition, not the whole WHERE | the packet has no SQL to check a quote against |
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |
-| 7 | `sources` | a sourced item has an empty `sources`, or there are more than five questions | — |
+| 7 | `sources` | a sourced item has an empty `sources`, or there are more than eight questions | — |
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date (a full snapshot is a table-name reading, so this needs a configured `table_name_convention`; the message says it rests on the name convention) | `refresh.time` is `snapshot` while the write filters on a business date (only date filters shaped `window` count) |
 | 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare), by an alias no other right side in the packet carries, or by its join rule's number (pN) — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | it is named only by an alias another right side carries too (an alias is unique within one SELECT only; UNION branches and subqueries reuse `b`, `c`): the sentence may be about the other join, so one warning per right side, asking for the table or the pN; a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. Nor is a phrase made under a condition with its failing case said: a condition word before the phrase in the sentence (若, 如果, 假如, 倘若, 假设, 只要, 只有, 一旦, 除非, 当 / 在 … 时, and "X 成立时 / 满足时 / 唯一时 / 不重复时"; 不成立时 / 不唯一时 is no condition word) and the rows multiplying after it (会 / 可能 + 放大, 膨胀, 重复, or 关联出多行 / 多条); or a next sentence opening with 若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足, or with 不成立时 / 不满足时 / 不唯一时 / 重复时, that says the rows multiply (重复时 counts only as the very opening: a next sentence naming its subject first, "… 重复时", does not); or a condition word before the phrase and a next sentence opening with 否则, 不然 or 反之 that says so. A failing case naming a join the sentence has not named up to the phrase still warns, and a trailing reservation alone (「注释推出，SQL 未证明」) is no failing case. A join off the grain path (below an aggregate) is held to neither |

@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Changed: a table-semantics document may hold up to eight open questions (was five).** Check 7
+  (`sources`) fails above eight. The writer prompt (`table-semantics-prompt@14`) says at most eight,
+  ordered by impact, with no padding by questions that do not change how the table is read; the fix
+  prompt is `table-semantics-fix@9` with the same cap. The schema's description and the docs follow.
+  The page, the context pack and `catalog pending` already list every question. Its effect on the
+  quality of the questions is not verified.
 - **New: `semantic validate` check 14 `placeholder`.** A free-text field of a table-semantics document
   holding a format placeholder nothing filled in (`%s`, `%d`, `%(name)s`, `{}`, `{{` / `}}`, `{name}`)
   is warned, one WARN per placeholder; text in backticks or quotes, `${param}`, and a set written

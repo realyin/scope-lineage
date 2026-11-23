@@ -179,7 +179,7 @@ def _downstream(at: str, item: dict, known: dict) -> dict:
 
 
 def check_sources(document: dict, _packet: dict) -> list[dict]:
-    """Every sourced item names at least one source; at most five questions."""
+    """Every sourced item names at least one source; at most ``MAX_QUESTIONS`` (eight) questions."""
     results = [
         result("sources", "pass" if item.get("sources") else "fail", f"{at}.sources",
                "" if item.get("sources") else "没有来源；写明 comment / sql / sql_comment / metadata / task / inferred")

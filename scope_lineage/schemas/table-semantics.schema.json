@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "table-semantics/1",
-  "description": "What one target table means, written for people over a deterministic material packet. The shape is checked here; agreement with the packet is `semantic validate`'s cross checks, which also own the counts (non-empty sources, at most five questions).",
+  "description": "What one target table means, written for people over a deterministic material packet. The shape is checked here; agreement with the packet is `semantic validate`'s cross checks, which also own the counts (non-empty sources, at most eight questions).",
   "type": "object",
   "required": ["doc_format", "table", "packet_digest", "summary", "columns", "steps", "rules"],
   "additionalProperties": false,

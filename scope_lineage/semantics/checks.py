@@ -31,7 +31,7 @@ CHECKS = (
     "header_facts",
     "placeholder",
 )
-MAX_QUESTIONS = 5
+MAX_QUESTIONS = 8
 
 
 def result(check: str, status: str, at: str, message: str = "") -> dict:
