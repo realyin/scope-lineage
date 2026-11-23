@@ -291,3 +291,27 @@ def test_the_report_is_built_from_plain_data() -> None:
     assert problems == []
     report = pending_report(entries, problems)
     assert [item["missing"] for item in report["items"]] == ["甲"]
+
+
+def test_the_report_reads_the_catalogs_names_once_for_every_item(monkeypatch) -> None:
+    """A pending file of many items is checked against a catalog of many tables without
+    reading the catalog again for each item (the board and ``pending list`` both wait on it)."""
+    from scope_lineage.render import catalog_search
+
+    document = json.loads(ONTOLOGY.read_text(encoding="utf-8"))
+    calls = []
+    original = catalog_search._items
+    monkeypatch.setattr(
+        catalog_search, "_items", lambda *args: calls.append(1) or original(*args)
+    )
+    entries = [
+        {**pending_line(missing=f"缺口 {n}", question="q", date="2026-01-01"), "line": n}
+        for n in range(1, 6)
+    ]
+    entries.append({**pending_line(missing="客户", question="q", date="2026-01-01"), "line": 6})
+
+    report = pending_report(entries, document=document)
+
+    assert len(calls) == 1
+    named = next(item for item in report["items"] if item["missing"] == "客户")
+    assert [o["id"] for o in named["in_catalog"]] == ["concept:customer"]

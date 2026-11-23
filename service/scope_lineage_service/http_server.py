@@ -19,16 +19,36 @@ refused, which keeps a web page elsewhere from reaching the server through DNS r
 ``POST /api/pending`` takes only ``application/json``, which a browser cannot send to
 another origin without a preflight this server never grants. No endpoint runs SQL, and
 the pending file is the only thing written.
+
+The browse page (``GET /``) is a fixed set of files packaged with this module
+(``static/``), each served at one fixed path from ``STATIC_FILES``: no request path is ever
+joined to a directory. Every response carries a ``Content-Security-Policy`` that lets a
+page run only this server's own scripts and styles and connect only back to it, so
+catalog text placed in the page cannot load or run anything. The page calls the browse
+endpoints (``/api/browse``, ``/api/list``, ``/api/neighbourhood``, ``/api/semantics``,
+``/api/questions``), which answer what ``cli_catalog_answers`` answers a view at a time;
+they have no command of their own and answer JSON only.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import resources
 from urllib.parse import parse_qs, urlsplit
 
 from scope_lineage.cli_catalog_answers import CatalogAnswerError
+from scope_lineage.render.catalog_browse import (
+    BOARD_SOURCES,
+    BOARD_STATUSES,
+    DEFAULT_LIMIT,
+    LIST_KINDS,
+    MAX_LIMIT,
+    NEIGHBOURHOOD_LIMIT,
+    NEIGHBOURHOOD_MAX,
+)
 from scope_lineage.render.catalog_query import QUERY_KINDS
 from scope_lineage.render.catalog_search import SEARCH_KINDS
 
@@ -42,6 +62,27 @@ PENDING_FIELDS = {
     "question": str, "missing": str, "sql": str, "sql_name": str, "term": str,
     "tables": list, "columns": list, "proposed": str, "date": str,
 }
+
+# The page's files: request path -> (packaged file under static/, content type). Nothing
+# outside this table is served, whatever the path says.
+STATIC_FILES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
+    "/views.js": ("views.js", "text/javascript; charset=utf-8"),
+    "/graph.js": ("graph.js", "text/javascript; charset=utf-8"),
+}
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+    "connect-src 'self'; font-src 'none'; object-src 'none'; base-uri 'none'; "
+    "form-action 'none'; frame-ancestors 'none'"
+)
+PAGE_PARAMS = {
+    "offset": "an integer >= 0 (default 0)",
+    "limit": f"an integer from 1 to {MAX_LIMIT} (default {DEFAULT_LIMIT})",
+}
+BROWSE_NOTE = "JSON only; no command prints it (scope_lineage.cli_catalog_answers)."
 
 FORMAT_PARAM = {"format": "json (default: what --json prints) or text (what the command prints)"}
 ENDPOINTS = [
@@ -139,6 +180,60 @@ ENDPOINTS = [
         },
         "cli": "catalog pending add PENDING --question Q (--missing M | --from-sql FILE) ...",
     },
+    {
+        "method": "GET", "path": "/",
+        "description": "The browse page (HTML); its scripts and styles are served beside it.",
+        "params": {},
+    },
+    {
+        "method": "GET", "path": "/api/browse",
+        "description": "The catalog's name and counts, and each domain with how many concepts, "
+                       "tables and metrics it holds. " + BROWSE_NOTE,
+        "params": {},
+    },
+    {
+        "method": "GET", "path": "/api/list",
+        "description": "One page of concepts, tables or metrics, filtered, with the total. "
+                       "An empty page is 200. " + BROWSE_NOTE,
+        "params": {
+            "kind": f"required: {', '.join(LIST_KINDS)}",
+            "domain": "a domain id",
+            "concept": "tables and metrics of this concept (id, name, synonym or term)",
+            "text": "a piece of the id, name or synonym (of a table: its name), ignoring case",
+            **PAGE_PARAMS,
+        },
+    },
+    {
+        "method": "GET", "path": "/api/neighbourhood",
+        "description": "A concept, the concepts one relation or role away, and the relations "
+                       "between them with their join conditions. 404 when no concept "
+                       "matches. " + BROWSE_NOTE,
+        "params": {
+            "concept": "required: a concept id, name, synonym or term",
+            "limit": f"at most this many neighbours, 1 to {NEIGHBOURHOOD_MAX} "
+                     f"(default {NEIGHBOURHOOD_LIMIT})",
+        },
+    },
+    {
+        "method": "GET", "path": "/api/semantics",
+        "description": "One table's table-semantics document, whole. 404 when it has none. "
+                       + BROWSE_NOTE,
+        "params": {"table": "required: db.table"},
+    },
+    {
+        "method": "GET", "path": "/api/questions",
+        "description": "The registered questions: the table-semantics documents' and the "
+                       "pending file's (when given), each with its concepts and whether "
+                       "the catalog carries it. " + BROWSE_NOTE,
+        "params": {
+            "table": "db.table",
+            "concept": "a concept id, name, synonym or term",
+            "status": f"{', '.join(BOARD_STATUSES)} (default open)",
+            "source": ", ".join(BOARD_SOURCES),
+            "text": "a piece of the question, the missing definition or the table name",
+            **PAGE_PARAMS,
+        },
+    },
 ]
 
 
@@ -188,6 +283,19 @@ class _Params:
         if lowered in ("0", "false", "no"):
             return False
         raise _bad(f"{name} takes true or false, not {value!r}")
+
+    def integer(self, name: str, default: int) -> int:
+        value = self.one(name)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            raise _bad(f"{name} takes an integer, not {value!r}") from None
+
+    def json_only(self) -> None:
+        if self.format() != "json":
+            raise _bad("the browse endpoints answer JSON only")
 
     def format(self) -> str:
         value = self.one("format") or "json"
@@ -247,7 +355,7 @@ class CatalogHandler(BaseHTTPRequestHandler):
 
     def _routes(self) -> dict:
         routes = {
-            "/": {"GET": self._endpoints},
+            **{path: {"GET": self._static} for path in STATIC_FILES},
             "/health": {"GET": self._health},
             "/api": {"GET": self._endpoints},
             "/api/search": {"GET": self._search},
@@ -256,6 +364,11 @@ class CatalogHandler(BaseHTTPRequestHandler):
             "/api/check-sql": {"POST": self._check_sql},
             # Answered 404 not_configured when the server has no pending file.
             "/api/pending": {"GET": self._pending_list, "POST": self._pending_add},
+            "/api/browse": {"GET": self._browse},
+            "/api/list": {"GET": self._list},
+            "/api/neighbourhood": {"GET": self._neighbourhood},
+            "/api/semantics": {"GET": self._semantics},
+            "/api/questions": {"GET": self._questions},
         }
         return routes
 
@@ -372,6 +485,57 @@ class CatalogHandler(BaseHTTPRequestHandler):
             raise RequestError(status, kind, error.message, error.exit_code) from None
         self._send_json(201, {"appended": len(lines), "lines": lines}, exit_code=0)
 
+    # ------------------------------------------------------------------ browse page
+
+    def _static(self, query: str) -> None:
+        if query:
+            raise _bad("the page's files take no parameters")
+        name, content_type = STATIC_FILES[self.path.partition("?")[0]]
+        self._send(200, _static_bytes(name), content_type, {})
+
+    def _browse(self, query: str) -> None:
+        _Params(query, set()).json_only()
+        self._answer(self.server.state.browse_index, "json", nothing_found=404)
+
+    def _list(self, query: str) -> None:
+        params = _Params(query, {"kind", "domain", "concept", "text", "offset", "limit"})
+        params.json_only()
+        kind = params.one("kind", required=True)
+        request = dict(
+            domain=params.one("domain"), concept=params.one("concept"), text=params.one("text"),
+            offset=params.integer("offset", 0), limit=params.integer("limit", DEFAULT_LIMIT),
+        )
+        self._answer(lambda: self.server.state.browse_list(kind, **request), "json",
+                     nothing_found=200)
+
+    def _neighbourhood(self, query: str) -> None:
+        params = _Params(query, {"concept", "limit"})
+        params.json_only()
+        concept = params.one("concept", required=True)
+        limit = params.integer("limit", NEIGHBOURHOOD_LIMIT)
+        self._answer(lambda: self.server.state.neighbourhood(concept, limit=limit), "json",
+                     nothing_found=404)
+
+    def _semantics(self, query: str) -> None:
+        params = _Params(query, {"table"})
+        params.json_only()
+        table = params.one("table", required=True)
+        self._answer(lambda: self.server.state.table_semantics(table), "json",
+                     nothing_found=404)
+
+    def _questions(self, query: str) -> None:
+        params = _Params(
+            query, {"table", "concept", "status", "source", "text", "offset", "limit"}
+        )
+        params.json_only()
+        request = dict(
+            table=params.one("table"), concept=params.one("concept"),
+            status=params.one("status") or "open", source=params.one("source"),
+            text=params.one("text"), offset=params.integer("offset", 0),
+            limit=params.integer("limit", DEFAULT_LIMIT),
+        )
+        self._answer(lambda: self.server.state.questions(**request), "json", nothing_found=200)
+
     # ------------------------------------------------------------------ helpers
 
     def _answer(self, produce, fmt: str, nothing_found: int) -> None:
@@ -452,12 +616,21 @@ class CatalogHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
         for name, value in headers.items():
             self.send_header(name, value)
         if self.close_connection:
             self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+
+
+@lru_cache(maxsize=None)
+def _static_bytes(name: str) -> bytes:
+    """A packaged page file, read once; ``name`` comes from ``STATIC_FILES`` only."""
+    return (resources.files(__package__) / "static" / name).read_bytes()
 
 
 class CatalogHTTPServer(ThreadingHTTPServer):

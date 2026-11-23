@@ -154,7 +154,7 @@ def _data(view: CatalogView, concept: dict) -> list[dict]:
     return [
         {
             "table": rep["table"],
-            "about": _about(view, rep),
+            "about": table_about(view, rep),
             "replaced_by": rep.get("replaced_by"),
             "confirmed": _confirmed(rep),
         }
@@ -162,7 +162,7 @@ def _data(view: CatalogView, concept: dict) -> list[dict]:
     ]
 
 
-def _about(view: CatalogView, rep: dict) -> Optional[str]:
+def table_about(view: CatalogView, rep: dict) -> Optional[str]:
     """The table card's comment, else the first line of the catalog's notes on the table."""
     comment = view.rep_evidence(rep["table"]).get("table_comment")
     note = str(rep.get("notes") or "").strip().splitlines()

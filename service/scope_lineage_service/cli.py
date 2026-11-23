@@ -84,8 +84,8 @@ def main(argv: list[str] | None = None) -> int:
         quiet=args.quiet,
     )
     host, port = httpd.server_address[:2]
-    print(f"Serving catalog answers on http://{host}:{port}/ (GET /api lists the endpoints)",
-          file=sys.stderr, flush=True)
+    print(f"Serving catalog answers on http://{host}:{port}/ (open it in a browser to browse "
+          "the catalog; GET /api lists the endpoints)", file=sys.stderr, flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

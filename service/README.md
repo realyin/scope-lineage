@@ -47,6 +47,12 @@ the files load now.
 | POST | `/api/check-sql` | body: the SQL as `text/plain`, or `application/json` `{"sql": "..."}` | `catalog check-sql --json` |
 | GET | `/api/pending` | none | `catalog pending list --ontology --semantics --json` |
 | POST | `/api/pending` | body (`application/json`): `question`, and `missing` or `sql`; `term`, `tables`, `columns`, `proposed`, `sql_name`, `date` | `catalog pending add` |
+| GET | `/` | none | the browse page (see below) |
+| GET | `/api/browse` | none | none |
+| GET | `/api/list` | `kind` (required: `concepts`, `tables`, `metrics`), `domain`, `concept`, `text`, `offset`, `limit` | none |
+| GET | `/api/neighbourhood` | `concept` (required), `limit` | none |
+| GET | `/api/semantics` | `table` (required) | none |
+| GET | `/api/questions` | `table`, `concept`, `status` (`open`, `answered`, `all`), `source` (`semantics`, `pending`), `text`, `offset`, `limit` | none |
 
 Every answer endpoint takes `format=text` for what the command prints without `--json`. The JSON body is
 byte for byte what the command prints with `--json`. The command's exit code is in the
@@ -77,6 +83,54 @@ rebinding. POST bodies must declare `Content-Length` and are capped by `--max-bo
 is not read). `POST /api/pending` takes only `application/json`, which a browser will not send to another
 origin without a preflight this server never grants. Unknown parameters and fields are refused (400), and
 a connection that stops sending is dropped after 30 seconds.
+
+## Browse page
+
+Start the HTTP server and open `http://127.0.0.1:8765/` in a browser:
+
+```bash
+scope-lineage-service http out/ontology.json --semantics semantics/ --pending pending.jsonl
+```
+
+The page is for a person looking around a built catalog. Its labels are Chinese, in the words the command
+line's text output uses; every view has its own address (`#/concept/<id>`, `#/table/<db.table>`, ...), so it
+can be linked.
+
+- **目录** -- the catalog's counts and its domains; a domain lists its concepts (kind, definition, how many
+  tables, status), a page at a time. The search box uses `/api/search`.
+- **概念** -- the concept's overview (`catalog query concept`), its tables a page at a time, its metrics,
+  attributes and identifiers, and its **relations graph**: the concept, the concepts one relation or role away
+  and every relation between them, drawn as SVG, with a table of each relation's join conditions -- the JOINs
+  the corpus showed and the foreign-key columns the catalog binds.
+- **指标** -- one metric as `catalog context --concept <metric>` gives it: definition, aggregation, filter,
+  time window, measure columns, dimensions, constraints.
+- **表** -- what the catalog says (`catalog query table` and `catalog context --table --brief`): concept,
+  grain, time form and partition reading, bound columns with their code values (a column's full answer,
+  `catalog context --column`, opens on request), joins, constraints, metrics; then the table-semantics document
+  whole, its sections collapsible. A list of all tables is paged and filtered by name, concept or domain.
+- **待确认问题** -- every open question registered: the table-semantics documents' questions and, with
+  `--pending`, the pending file's items (grouped and checked as `catalog pending list` does), filterable by
+  table, concept, status, source and text, each marked when the catalog does not carry it (a question on a
+  table the catalog lacks; a pending item no catalog object is named by).
+
+The browse endpoints (`/api/browse`, `/api/list`, `/api/neighbourhood`, `/api/semantics`, `/api/questions`)
+are thin: each calls a browse answer of `scope_lineage.cli_catalog_answers` (`browse_index`, `browse_list`,
+`neighbourhood`, `table_semantics`, `questions`). These answers have no command of their own -- the command
+line keeps `query`, `context` and `render` for the same facts -- and answer JSON only (`format=text` is
+refused). A list is one page (`limit` 1 to 200, default 50, with `offset` and the `total`); the graph is one
+concept's neighbourhood (at most 40 neighbours by default, at most 10 join columns an edge); no endpoint
+sends the whole catalog. An empty page or board is 200; a concept with no match, or a table with no
+semantics document, is 404 with the answer as body.
+
+Read-only: the page only sends GET requests and writes nothing; no SQL is run. Its files (`index.html`,
+`app.css`, `app.js`, `dom.js`, `views.js`, `graph.js`) are packaged with this module and served from a fixed
+table of paths -- no request path is joined to a directory, anything else is 404, and they take no
+parameters. They are plain HTML, CSS and JavaScript: no build step, no third-party code, nothing loaded from
+the network, so the page works offline against the local server. Catalog text is placed in the page as text
+(DOM nodes, never parsed as markup), and every response carries a `Content-Security-Policy` that allows only
+this server's own scripts, styles and requests (`default-src 'self'`, no inline script, no framing), with
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. The Host and Origin checks apply to the
+page as to every endpoint.
 
 ## MCP
 
@@ -122,6 +176,10 @@ pending file is read on every list. The servers never answer from a copy they kn
 
 The tests use the repository's demo ontology and table-semantics document, need no network, and start the
 HTTP server on an ephemeral port of `127.0.0.1` and the MCP server in memory and as a stdio subprocess:
+
+The browse page's pure JavaScript functions (the graph layout, the document title) are checked by running
+the page's own modules with `node` when it is on `PATH` (`test_service_page_js.py`, skipped otherwise; no
+JavaScript package is installed).
 
 ```bash
 pip install -e ".[dev]" -e service

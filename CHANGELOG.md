@@ -1,6 +1,24 @@
 # Changelog
 
 ## Unreleased
+- **New: a read-only browse page for a built catalog, served by `scope-lineage-service http` at
+  `/`.** Domains, concepts, metrics and tables with hash links; a concept's neighbourhood drawn as an
+  SVG relations graph with each relation's join conditions; a table's catalog facts beside its
+  table-semantics document (sections collapsible); and a board of the open questions from the
+  table-semantics documents and the pending file, filterable by table, concept, status, source and
+  text, marking what the catalog does not carry. Plain HTML, CSS and JavaScript packaged with the
+  service (no build step, nothing loaded from the network), served from a fixed list of paths under a
+  restrictive `Content-Security-Policy`; catalog text is only ever placed as text. Lists are paged on
+  the server, so a large catalog is never sent whole. New JSON-only endpoints
+  `/api/browse`, `/api/list`, `/api/neighbourhood`, `/api/semantics` and `/api/questions`. `GET /`
+  now serves the page; the endpoint list stays at `GET /api`.
+- **New: browse answers in `scope_lineage.cli_catalog_answers`** (`browse_index`, `browse_list`,
+  `neighbourhood`, `table_semantics`, `questions`, shaped in `render/catalog_browse.py`): a page of
+  concepts, tables or metrics, a concept's neighbourhood, one table's semantics document and the
+  questions board. They have no command; the command line keeps `query`, `context` and `render`.
+- **`catalog pending list` checks a large catalog faster.** The catalog's names are read once for the
+  whole report instead of once for each item (`named_finder` in `render/catalog_search.py`); the
+  output is unchanged.
 - **New: the catalog answers as a service, in a separately packaged `service/` directory.**
   `scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE]` serves `search`,
   `context`, `query`, `check-sql` and `pending list/add` as JSON endpoints (standard library only,
