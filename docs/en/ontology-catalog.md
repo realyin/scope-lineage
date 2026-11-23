@@ -1351,6 +1351,14 @@ scope-lineage-service http out/ontology.json --semantics semantics/ --pending pe
 scope-lineage-service mcp out/ontology.json --semantics semantics/
 ```
 
+The HTTP server also serves a read-only browse page at `/` (open `http://127.0.0.1:8765/` in a browser):
+domains, concepts, metrics and tables; a concept's neighbourhood drawn as a graph with the join conditions of
+each relation; a table's catalog facts beside its table-semantics document; and a board of the open questions
+(the table-semantics documents' and the pending file's). Lists arrive a page at a time, so a large catalog
+is never sent whole. The page is built on browse answers in
+`scope_lineage.cli_catalog_answers` (`browse_index`, `browse_list`, `neighbourhood`, `table_semantics`,
+`questions`) that no command prints: the command line keeps `query`, `context` and `render` for the same facts.
+
 ## Drafting: `catalog digest` and `catalog merge`
 
 Once a batch of tables has [table semantics](table-semantics.md) (`table-semantics/1`), a

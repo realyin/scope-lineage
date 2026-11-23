@@ -24,3 +24,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["scope_lineage_service*"]
+
+[tool.setuptools.package-data]
+# The browse page: plain HTML, CSS and JavaScript served by the HTTP server, no build step.
+scope_lineage_service = ["static/*.html", "static/*.css", "static/*.js"]

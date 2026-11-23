@@ -111,6 +111,32 @@ class CatalogState:
         with self._pending_lock:
             return answers.pending_add(str(path), **request)
 
+    # ------------------------------------------------------------------ browsing
+
+    def browse_index(self) -> answers.CatalogAnswer:
+        return answers.browse_index(self.inputs().document)
+
+    def browse_list(self, kind: str, **request) -> answers.CatalogAnswer:
+        return answers.browse_list(self.inputs().document, kind, **request)
+
+    def neighbourhood(self, concept: str, **request) -> answers.CatalogAnswer:
+        return answers.neighbourhood(self.inputs().document, concept, **request)
+
+    def table_semantics(self, table: str) -> answers.CatalogAnswer:
+        current = self.inputs()
+        return answers.table_semantics(current.document, current.semantics, table)
+
+    def questions(self, **request) -> answers.CatalogAnswer:
+        """The board; the pending file joins it when one was given (absent yet: empty)."""
+        current = self.inputs()
+        text = None
+        if self.pending_path is not None:
+            text = (
+                answers.read_pending_file(str(self.pending_path))
+                if self.pending_path.is_file() else ""
+            )
+        return answers.questions(current.document, current.semantics, text, **request)
+
     def _require_pending(self) -> Path:
         if self.pending_path is None:
             raise PendingNotConfigured()
