@@ -24,7 +24,9 @@ federation). No key is taken on the command line, logged, or sent to the page.
 
 A model from the ``--ask-models`` file (``load_spec``) may also name a ``base_url`` (a
 private gateway that speaks the Messages API) and ``api_key_env`` (the variable whose
-value is passed to the client as its API key), and may switch off, one by one, what a
+value is passed to the client as its API key; a gateway model without one gets a
+placeholder key, so the ambient credential -- ``ANTHROPIC_API_KEY``, an auth token, a
+login profile -- is never sent to that host), and may switch off, one by one, what a
 gateway may reject: the refusal fallbacks, prompt caching (the top-level mark and the
 system block's breakpoint), ``eager_input_streaming``, adaptive thinking and the effort
 (``effort: null``). Its defaults are the request above.
@@ -48,6 +50,7 @@ MIN_SDK = (1, 7, 0)
 SDK_RANGE = ">=1.7,<2"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 INSTALL_HINT = "pip install 'scope-lineage-service[ask]'"
+NO_KEY = "not-needed"
 
 
 def credential_source(environ=None, home: Path | None = None) -> str | None:
@@ -102,6 +105,11 @@ def load_model(model: str = DEFAULT_MODEL, effort: str | None = DEFAULT_EFFORT, 
         if not key:
             return None, "its API key variable (api_key_env) is not set in the server's environment"
         options["api_key"], source = key, api_key_env
+    elif base_url:
+        # An explicit api_key keeps the SDK from reading any credential of its own (the
+        # environment variables, a profile, federation): a private gateway named here
+        # must not receive the official key because api_key_env was left out.
+        options["api_key"], source = NO_KEY, "no key (placeholder)"
     else:
         source = credential_source(environ)
         if source is None:

@@ -107,3 +107,34 @@ def test_every_gateway_feature_can_be_switched_off(gateway) -> None:
         assert name not in body, name
     assert "eager_input_streaming" not in body["tools"][0]
     assert "cache_control" not in body["system"][0]
+
+
+def test_a_gateway_without_api_key_env_never_gets_the_ambient_credential(gateway, monkeypatch,
+                                                                          tmp_path) -> None:
+    url, seen = gateway
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ambient-api-key-value")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "ambient-auth-token-value")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "anthropic").mkdir()
+    (tmp_path / "anthropic" / "profile").write_text("x")
+    spec = parse_models({"models": [{"id": "gw", "provider": "anthropic", "model": "claude-opus-5-5",
+                                     "base_url": url}]})[0]
+    model, reason = anthropic_model.load_spec(spec)  # the process environment, as the server sees it
+    assert reason is None
+    model.turn(REQUEST, lambda: False)
+
+    headers = seen[0]["headers"]
+    sent = json.dumps(headers)
+    assert "ambient-api-key-value" not in sent and "ambient-auth-token-value" not in sent
+    assert "authorization" not in headers
+    assert headers["x-api-key"] == anthropic_model.NO_KEY
+
+
+def test_without_any_credential_a_gateway_model_is_still_available(monkeypatch) -> None:
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE"):
+        monkeypatch.delenv(name, raising=False)
+    spec = parse_models({"models": [{"id": "gw", "provider": "anthropic", "model": "claude-opus-5-5",
+                                     "base_url": "https://gateway.example.internal"}]})[0]
+
+    model, reason = anthropic_model.load_spec(spec, {})
+    assert reason is None and model.source == "no key (placeholder)"

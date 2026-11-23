@@ -257,7 +257,7 @@ scope-lineage-service http out/ontology.json --semantics semantics/ --ask --ask-
 | `provider` | all | `anthropic` or `openai-compatible` |
 | `model` | all | the provider's model id |
 | `base_url` | all | required for `openai-compatible` (the URL before `/chat/completions`); for `anthropic`, a gateway that speaks the Messages API (default: the official endpoint) |
-| `api_key_env` | all | the NAME of the environment variable holding the key. `anthropic` without it: the SDK's own credential (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, a login profile) -- which is then sent to that `base_url` too. `openai-compatible` without it: no key (a placeholder; `OPENAI_API_KEY` is never picked up) |
+| `api_key_env` | all | the NAME of the environment variable holding the key. `anthropic` without it: the SDK's own credential (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, a login profile) for the official endpoint, but with a `base_url` a placeholder key and never the ambient credential, so a forgotten `api_key_env` cannot send the official key to a private host. `openai-compatible` without it: no key (a placeholder; `OPENAI_API_KEY` is never picked up) |
 | `effort` | all | `anthropic`: `output_config.effort`, default `high`, `null` sends none. `openai-compatible`: sent as `reasoning_effort` when set |
 | `max_tokens` | all | the model's output limit per request: no request asks for more (`openai-compatible` default 8192, since private models often allow little) |
 | `default` | all | at most one; without it the first model. An unavailable default gives way to the first available model |
