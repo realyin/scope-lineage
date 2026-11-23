@@ -1213,7 +1213,9 @@ scope-lineage-service mcp out/ontology.json --semantics semantics/
 HTTP 服务还在 `/` 提供一个只读的浏览页面（浏览器打开 `http://127.0.0.1:8765/`）：业务域、概念、指标和表；把一个概念的邻域画成关系图，每条关系附带
 关联条件；一张表的目录信息与它的表语义文档并排；以及待确认问题看板（表语义文档里的问题和待确认文件里的条目）。列表一页一页地取，再大的目录也
 不会整份发给浏览器。页面用的是 `scope_lineage.cli_catalog_answers` 里专为浏览准备的回答（`browse_index`、`browse_list`、`neighbourhood`、
-`table_semantics`、`questions`），它们没有对应的命令：同样的事实在命令行里仍由 `query`、`context` 和 `render` 给出。
+`table_semantics`、`table_units`、`questions`），它们没有对应的命令：同样的事实在命令行里仍由 `query`、`context` 和 `render` 给出。
+首页给出 `index.md` 的「用之前先看」摘要；带 `--semantics` 启动时，表清单每行带上「按表看」的几列：两者都出自写 `index.md` 的同一组
+函数，数字与同一批表语义下 `catalog render --docs` 给出的相同；表清单默认按表名排列，读者可以选按其中一列排序。
 
 ## 起草：`catalog digest` 与 `catalog merge`
 

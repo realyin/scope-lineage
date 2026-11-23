@@ -132,12 +132,38 @@ ul.plain li { padding: 0.15rem 0; }
 .graph-box .edge.joined { stroke: var(--accent); stroke-width: 2; }
 .graph-box .edge-label rect { fill: var(--panel); stroke: var(--line); stroke-width: 0.8; }
 .graph-box .edge-label text { fill: var(--muted); font-size: 12px; }
+.graph-box .edge-label .leader { stroke: var(--edge); stroke-width: 0.8; stroke-dasharray: 2 2; }
 .graph-box .node rect { fill: var(--node); stroke: var(--edge); stroke-width: 1.2; }
 .graph-box .node.centre rect { fill: var(--node-centre); stroke: var(--accent); stroke-width: 2; }
 .graph-box .node text { fill: var(--text); font-size: 14px; }
 .graph-box .node .sub { fill: var(--muted); font-size: 11px; }
 .graph-box .node a:focus rect, .graph-box .node a:hover rect { stroke: var(--accent); }
 .graph-box .arrow { fill: var(--edge); }
+
+/* a wide table's columns: what only some columns have sits on a line of its own under
+   the column, not in a column of mostly empty cells */
+tr.column-extra td { border-top: none; color: var(--muted); font-size: 0.92em; padding-top: 0; }
+tr.has-extra td { border-bottom: none; }
+td .unit { display: block; color: var(--muted); font-size: 0.92em; }
+.column-filter { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; align-items: center; margin: 0.4rem 0 0.6rem; }
+.column-filter input[type="search"] { min-width: 14rem; }
+.summary-table { width: auto; min-width: 20rem; }
+
+/* Column widths of the wide lists (classes from views.js). A short column (a concept name,
+   a kind, a number, a binding) never wraps its cells, so it is never squeezed to two
+   characters a line; its heading may wrap, a few characters a line. A table name wraps
+   only after "." or "_" (the page puts a <wbr> there) and is capped, so it cannot push
+   the other columns out. Prose keeps a minimum width. A table still wider than its box
+   scrolls inside .table-wrap. */
+td.short, td.short code { white-space: nowrap; }
+th.short { white-space: normal; min-width: 4em; }
+th.short, td.short { padding-left: 0.35rem; padding-right: 0.35rem; }
+td.col-name { min-width: 9em; }
+td.col-name a.name { display: inline-block; max-width: 17em; overflow-wrap: normal; word-break: normal; }
+td.col-prose { min-width: 10em; }
+th.col-expr, td.col-expr { min-width: 16em; }
+th.col-name, th.col-prose, th.col-expr { white-space: nowrap; }
+td.num { text-align: right; white-space: nowrap; }
 
 @media (max-width: 40rem) {
   .main { padding: 0.75rem; }

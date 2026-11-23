@@ -26,7 +26,7 @@ joined to a directory. Every response carries a ``Content-Security-Policy`` that
 page run only this server's own scripts and styles and connect only back to it, so
 catalog text placed in the page cannot load or run anything. The page calls the browse
 endpoints (``/api/browse``, ``/api/list``, ``/api/neighbourhood``, ``/api/semantics``,
-``/api/questions``), which answer what ``cli_catalog_answers`` answers a view at a time;
+``/api/units``, ``/api/questions``), which answer what ``cli_catalog_answers`` answers a view at a time;
 they have no command of their own and answer JSON only.
 """
 
@@ -48,6 +48,7 @@ from scope_lineage.render.catalog_browse import (
     MAX_LIMIT,
     NEIGHBOURHOOD_LIMIT,
     NEIGHBOURHOOD_MAX,
+    TABLE_SORTS,
 )
 from scope_lineage.render.catalog_query import QUERY_KINDS
 from scope_lineage.render.catalog_search import SEARCH_KINDS
@@ -187,19 +188,27 @@ ENDPOINTS = [
     },
     {
         "method": "GET", "path": "/api/browse",
-        "description": "The catalog's name and counts, and each domain with how many concepts, "
-                       "tables and metrics it holds. " + BROWSE_NOTE,
+        "description": "The catalog's name and counts, each domain with how many concepts, "
+                       "tables and metrics it holds, and the summary catalog render puts "
+                       "first in index.md (use_first; its table-semantics rows only with "
+                       "--semantics). " + BROWSE_NOTE,
         "params": {},
     },
     {
         "method": "GET", "path": "/api/list",
         "description": "One page of concepts, tables or metrics, filtered, with the total. "
-                       "An empty page is 200. " + BROWSE_NOTE,
+                       "With --semantics, each table carries its row of index.md's by-table "
+                       "section (by_table). An empty page is 200. " + BROWSE_NOTE,
         "params": {
             "kind": f"required: {', '.join(LIST_KINDS)}",
             "domain": "a domain id",
             "concept": "tables and metrics of this concept (id, name, synonym or term)",
             "text": "a piece of the id, name or synonym (of a table: its name), ignoring case",
+            "sort": (
+                f"tables only: {', '.join(TABLE_SORTS)}, with - before it for largest first "
+                "(default: by name); over the whole filtered list, a table without a "
+                "document last; all but table need --semantics"
+            ),
             **PAGE_PARAMS,
         },
     },
@@ -217,6 +226,14 @@ ENDPOINTS = [
     {
         "method": "GET", "path": "/api/semantics",
         "description": "One table's table-semantics document, whole. 404 when it has none. "
+                       + BROWSE_NOTE,
+        "params": {"table": "required: db.table"},
+    },
+    {
+        "method": "GET", "path": "/api/units",
+        "description": "The unit of each of one table's measure columns, with the mark the "
+                       "context pack prints when the table-semantics documents do not give "
+                       "it (only with --semantics). 404 when the catalog has no such table. "
                        + BROWSE_NOTE,
         "params": {"table": "required: db.table"},
     },
@@ -368,6 +385,7 @@ class CatalogHandler(BaseHTTPRequestHandler):
             "/api/list": {"GET": self._list},
             "/api/neighbourhood": {"GET": self._neighbourhood},
             "/api/semantics": {"GET": self._semantics},
+            "/api/units": {"GET": self._units},
             "/api/questions": {"GET": self._questions},
         }
         return routes
@@ -498,11 +516,12 @@ class CatalogHandler(BaseHTTPRequestHandler):
         self._answer(self.server.state.browse_index, "json", nothing_found=404)
 
     def _list(self, query: str) -> None:
-        params = _Params(query, {"kind", "domain", "concept", "text", "offset", "limit"})
+        params = _Params(query, {"kind", "domain", "concept", "text", "sort", "offset", "limit"})
         params.json_only()
         kind = params.one("kind", required=True)
         request = dict(
             domain=params.one("domain"), concept=params.one("concept"), text=params.one("text"),
+            sort=params.one("sort"),
             offset=params.integer("offset", 0), limit=params.integer("limit", DEFAULT_LIMIT),
         )
         self._answer(lambda: self.server.state.browse_list(kind, **request), "json",
@@ -515,6 +534,12 @@ class CatalogHandler(BaseHTTPRequestHandler):
         limit = params.integer("limit", NEIGHBOURHOOD_LIMIT)
         self._answer(lambda: self.server.state.neighbourhood(concept, limit=limit), "json",
                      nothing_found=404)
+
+    def _units(self, query: str) -> None:
+        params = _Params(query, {"table"})
+        params.json_only()
+        table = params.one("table", required=True)
+        self._answer(lambda: self.server.state.table_units(table), "json", nothing_found=404)
 
     def _semantics(self, query: str) -> None:
         params = _Params(query, {"table"})

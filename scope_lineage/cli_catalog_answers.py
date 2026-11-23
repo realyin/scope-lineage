@@ -314,18 +314,24 @@ def _browse(produce: Callable[[], dict], found: Callable[[dict], bool] = lambda 
     return CatalogAnswer(result, 0 if found(result) else 1, _json_only)
 
 
-def browse_index(document: dict) -> CatalogAnswer:
-    """The catalog's name, counts and domains (no command; see above)."""
+def browse_index(document: dict, semantics: dict | None = None) -> CatalogAnswer:
+    """The catalog's name, counts and domains, and the index's 「用之前先看」 summary (no
+    command; see above): ``catalog render --docs`` counts the same rows from the same
+    table-semantics documents."""
     from .render.catalog_browse import browse_index as index
 
-    return _browse(lambda: index(document))
+    return _browse(lambda: index(document, semantics))
 
 
-def browse_list(document: dict, kind: str, **request) -> CatalogAnswer:
-    """One page of concepts, tables or metrics (no command); an empty page is exit 0."""
+def browse_list(
+    document: dict, kind: str, semantics: dict | None = None, **request
+) -> CatalogAnswer:
+    """One page of concepts, tables or metrics (no command); an empty page is exit 0. With
+    ``semantics``, a table row carries its row of the index's 「按表看」, and ``sort`` may
+    order the tables by one of its numbers."""
     from .render.catalog_browse import browse_list as listing
 
-    return _browse(lambda: listing(document, kind, **request))
+    return _browse(lambda: listing(document, kind, semantics=semantics, **request))
 
 
 def neighbourhood(document: dict, concept: str, **request) -> CatalogAnswer:
@@ -345,6 +351,16 @@ def table_semantics(document: dict, semantics: dict | None, table: str) -> Catal
 
     return _browse(
         lambda: one(document, semantics, table), lambda result: result["document"] is not None
+    )
+
+
+def table_units(document: dict, semantics: dict | None, table: str) -> CatalogAnswer:
+    """The units of one table's measure columns, marked as ``catalog context`` marks them
+    (no command); exit 1 when the catalog has no such table."""
+    from .render.catalog_browse import table_units as units
+
+    return _browse(
+        lambda: units(document, semantics, table), lambda result: result["in_catalog"]
     )
 
 

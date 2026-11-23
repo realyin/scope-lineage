@@ -39,12 +39,36 @@ def _file_signature(path: Path) -> tuple:
 
 
 def _directory_signature(root: Path) -> tuple:
+    """``(relative path, size, mtime, inode)`` of every ``*.json`` below ``root``, in path
+    order. Walked with ``os.scandir`` and plain strings: with thousands of documents this
+    runs before every answer, and ``Path.rglob`` with ``relative_to`` cost several times
+    as much."""
     if not root.is_dir():
         return ("missing",)
-    return tuple(
-        (path.relative_to(root).as_posix(), *_file_signature(path))
-        for path in sorted(root.rglob("*.json"))
-    )
+    found: list[tuple] = []
+    pending = [("", str(root))]
+    while pending:
+        prefix, directory = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            continue
+        for entry in entries:
+            name = prefix + entry.name
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                is_dir = False
+            if is_dir:
+                pending.append((name + "/", entry.path))
+            if entry.name.endswith(".json"):
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    found.append((name, "missing"))
+                    continue
+                found.append((name, stat.st_size, stat.st_mtime_ns, stat.st_ino))
+    return tuple(sorted(found, key=lambda item: item[0].split("/")))
 
 
 class CatalogState:
@@ -114,10 +138,16 @@ class CatalogState:
     # ------------------------------------------------------------------ browsing
 
     def browse_index(self) -> answers.CatalogAnswer:
-        return answers.browse_index(self.inputs().document)
+        current = self.inputs()
+        return answers.browse_index(current.document, current.semantics)
 
     def browse_list(self, kind: str, **request) -> answers.CatalogAnswer:
-        return answers.browse_list(self.inputs().document, kind, **request)
+        current = self.inputs()
+        return answers.browse_list(current.document, kind, current.semantics, **request)
+
+    def table_units(self, table: str) -> answers.CatalogAnswer:
+        current = self.inputs()
+        return answers.table_units(current.document, current.semantics, table)
 
     def neighbourhood(self, concept: str, **request) -> answers.CatalogAnswer:
         return answers.neighbourhood(self.inputs().document, concept, **request)

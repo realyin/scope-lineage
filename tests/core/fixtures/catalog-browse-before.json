@@ -1,0 +1,393 @@
+{
+ "index": {
+  "doc_format": "catalog-browse-index/1",
+  "catalog": {
+   "name": "demo-lending",
+   "description": "A fictional consumer-lending shop. Every name in this catalog is synthetic; it exists to show each element of the catalog-yaml/1 format once."
+  },
+  "counts": {
+   "domains": 3,
+   "identifiers": 7,
+   "code_sets": 4,
+   "concepts": 10,
+   "relations": 12,
+   "constraints": 7,
+   "metrics": 0,
+   "terms": 7,
+   "representations": 9,
+   "attributes": 18,
+   "derived_relations": 7,
+   "bindings": 46
+  },
+  "evidence": [
+   "lineage",
+   "tables"
+  ],
+  "domains": [
+   {
+    "id": "domain:collection",
+    "name": "催收",
+    "description": "Work on overdue loans, including the waivers granted to settle them.",
+    "concepts": 1,
+    "tables": 1,
+    "metrics": 0
+   },
+   {
+    "id": "domain:lending",
+    "name": "贷款",
+    "description": "Loans from disbursement to settlement.",
+    "concepts": 5,
+    "tables": 5,
+    "metrics": 0
+   },
+   {
+    "id": "domain:party",
+    "name": "客户与账户",
+    "description": "Who the shop lends to and the accounts they sign in with.",
+    "concepts": 4,
+    "tables": 3,
+    "metrics": 0
+   }
+  ]
+ },
+ "tables": {
+  "doc_format": "catalog-browse-list/1",
+  "query": {
+   "kind": "tables",
+   "domain": null,
+   "concept": null,
+   "text": null
+  },
+  "total": 9,
+  "offset": 0,
+  "limit": 200,
+  "items": [
+   {
+    "table": "demo_dwd.dwd_collection_fee_waiver_di",
+    "concept": {
+     "id": "concept:fee_waiver",
+     "name": "豁免"
+    },
+    "kind": "event_detail",
+    "time": "incremental",
+    "table_status": "active",
+    "status": "drafted",
+    "columns": 6,
+    "about": "Kept as JSON on purpose: any …"
+   },
+   {
+    "table": "demo_dwd.dwd_lending_borrower_df",
+    "concept": {
+     "id": "concept:borrower",
+     "name": "借款人"
+    },
+    "kind": "role_view",
+    "time": "snapshot",
+    "table_status": "active",
+    "status": "drafted",
+    "columns": 4,
+    "about": "Borrowers"
+   },
+   {
+    "table": "demo_dwd.dwd_lending_loan_df",
+    "concept": {
+     "id": "concept:loan",
+     "name": "借据"
+    },
+    "kind": "core",
+    "time": "snapshot",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 8,
+    "about": "Loan snapshot"
+   },
+   {
+    "table": "demo_dwd.dwd_lending_loan_status_his",
+    "concept": {
+     "id": "concept:loan",
+     "name": "借据"
+    },
+    "kind": "state_history",
+    "time": "zipper",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 4,
+    "about": "Loan status history (zipper)"
+   },
+   {
+    "table": "demo_dwd.dwd_lending_repayment_di",
+    "concept": {
+     "id": "concept:repayment",
+     "name": "还款"
+    },
+    "kind": "event_detail",
+    "time": "incremental",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 6,
+    "about": "Repayments"
+   },
+   {
+    "table": "demo_dwd.dwd_party_account_map_df",
+    "concept": {
+     "id": "concept:app_account",
+     "name": "应用账户"
+    },
+    "kind": "identifier_map",
+    "time": "snapshot",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 5,
+    "about": "App account to customer map"
+   },
+   {
+    "table": "demo_dwd.dwd_party_customer_ext_df",
+    "concept": {
+     "id": "concept:customer",
+     "name": "客户"
+    },
+    "kind": "extension",
+    "time": "snapshot",
+    "table_status": "active",
+    "status": "drafted",
+    "columns": 3
+   },
+   {
+    "table": "demo_dwd.dwd_party_customer_info_df",
+    "concept": {
+     "id": "concept:customer",
+     "name": "客户"
+    },
+    "kind": "core",
+    "time": "snapshot",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 7,
+    "about": "Customer master, one row per …"
+   },
+   {
+    "table": "demo_dws.dws_lending_loan_summary_1d",
+    "concept": {
+     "id": "concept:loan",
+     "name": "借据"
+    },
+    "kind": "summary",
+    "time": "incremental",
+    "table_status": "deprecated",
+    "status": "confirmed",
+    "columns": 3,
+    "about": "Loans per channel per day"
+   }
+  ]
+ },
+ "tables_page": {
+  "doc_format": "catalog-browse-list/1",
+  "query": {
+   "kind": "tables",
+   "domain": null,
+   "concept": null,
+   "text": "dwd"
+  },
+  "total": 8,
+  "offset": 2,
+  "limit": 3,
+  "items": [
+   {
+    "table": "demo_dwd.dwd_lending_loan_df",
+    "concept": {
+     "id": "concept:loan",
+     "name": "借据"
+    },
+    "kind": "core",
+    "time": "snapshot",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 8,
+    "about": "Loan snapshot"
+   },
+   {
+    "table": "demo_dwd.dwd_lending_loan_status_his",
+    "concept": {
+     "id": "concept:loan",
+     "name": "借据"
+    },
+    "kind": "state_history",
+    "time": "zipper",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 4,
+    "about": "Loan status history (zipper)"
+   },
+   {
+    "table": "demo_dwd.dwd_lending_repayment_di",
+    "concept": {
+     "id": "concept:repayment",
+     "name": "还款"
+    },
+    "kind": "event_detail",
+    "time": "incremental",
+    "table_status": "active",
+    "status": "confirmed",
+    "columns": 6,
+    "about": "Repayments"
+   }
+  ]
+ },
+ "concepts": {
+  "doc_format": "catalog-browse-list/1",
+  "query": {
+   "kind": "concepts",
+   "domain": null,
+   "concept": null,
+   "text": null
+  },
+  "total": 10,
+  "offset": 0,
+  "limit": 200,
+  "items": [
+   {
+    "id": "concept:app_account",
+    "name": "应用账户",
+    "kind": "entity",
+    "domain": {
+     "id": "domain:party",
+     "name": "客户与账户"
+    },
+    "definition": "The sign-in account a customer holds in one channel.",
+    "tables": 1,
+    "status": "confirmed",
+    "source": "sql"
+   },
+   {
+    "id": "concept:borrower",
+    "name": "借款人",
+    "kind": "role",
+    "domain": {
+     "id": "domain:lending",
+     "name": "贷款"
+    },
+    "definition": "A customer while they hold at least one loan that is not settled.",
+    "tables": 1,
+    "status": "confirmed",
+    "source": "owner"
+   },
+   {
+    "id": "concept:channel",
+    "name": "渠道",
+    "kind": "entity",
+    "domain": {
+     "id": "domain:party",
+     "name": "客户与账户"
+    },
+    "definition": "An app or partner through which customers reach the shop.",
+    "tables": 0,
+    "status": "confirmed",
+    "source": "owner"
+   },
+   {
+    "id": "concept:customer",
+    "name": "客户",
+    "kind": "entity",
+    "domain": {
+     "id": "domain:party",
+     "name": "客户与账户"
+    },
+    "definition": "A person the shop has registered, whether or not they ever borrow.",
+    "tables": 2,
+    "status": "confirmed",
+    "source": "owner"
+   },
+   {
+    "id": "concept:disbursement",
+    "name": "放款",
+    "kind": "event",
+    "domain": {
+     "id": "domain:lending",
+     "name": "贷款"
+    },
+    "definition": "The shop pays the principal of a loan out to the borrower.",
+    "tables": 0,
+    "status": "confirmed",
+    "source": "task"
+   },
+   {
+    "id": "concept:fee_waiver",
+    "name": "豁免",
+    "kind": "event",
+    "domain": {
+     "id": "domain:collection",
+     "name": "催收"
+    },
+    "definition": "The shop forgives part of what an overdue loan owes.",
+    "tables": 1,
+    "status": "drafted",
+    "source": "llm"
+   },
+   {
+    "id": "concept:identity_verification",
+    "name": "实名认证",
+    "kind": "event",
+    "domain": {
+     "id": "domain:party",
+     "name": "客户与账户"
+    },
+    "definition": "The customer proves who they are; afterwards they may borrow.",
+    "tables": 0,
+    "status": "drafted",
+    "source": "comment"
+   },
+   {
+    "id": "concept:installment_loan",
+    "name": "分期借据",
+    "kind": "entity",
+    "domain": {
+     "id": "domain:lending",
+     "name": "贷款"
+    },
+    "definition": "A loan repaid in fixed monthly instalments.",
+    "tables": 0,
+    "status": "drafted",
+    "source": "llm"
+   },
+   {
+    "id": "concept:loan",
+    "name": "借据",
+    "kind": "entity",
+    "domain": {
+     "id": "domain:lending",
+     "name": "贷款"
+    },
+    "definition": "One amount lent to a borrower, repaid over one or more instalments.",
+    "tables": 3,
+    "status": "confirmed",
+    "source": "owner"
+   },
+   {
+    "id": "concept:repayment",
+    "name": "还款",
+    "kind": "event",
+    "domain": {
+     "id": "domain:lending",
+     "name": "贷款"
+    },
+    "definition": "A customer pays money back against one or more loans.",
+    "tables": 1,
+    "status": "confirmed",
+    "source": "sql"
+   }
+  ]
+ },
+ "metrics": {
+  "doc_format": "catalog-browse-list/1",
+  "query": {
+   "kind": "metrics",
+   "domain": null,
+   "concept": null,
+   "text": null
+  },
+  "total": 0,
+  "offset": 0,
+  "limit": 200,
+  "items": []
+ }
+}

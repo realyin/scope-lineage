@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- **New (service): the browse page shows 「用之前先看」 and 「按表看」.** The home view shows the summary
+  `index.md` opens with (same rows, same numbers, same two sentences; the table-semantics rows only when the
+  server has `--semantics`), and the table list carries the by-table columns with the same definitions and
+  `—` for a table without a document. Both come from the core functions that write `index.md`
+  (`catalog_pages.use_first_rows`, `catalog_index_tables.table_figures` / `figure_cells`, split out of the
+  Markdown writer without changing its output). `GET /api/list` takes `sort` (tables only: the name, or one
+  by-table number, `-` for largest first), applied by the server to the whole filtered list; there is no
+  score and the default stays the table name. Added fields: `use_first` on `/api/browse`; `query.sort` on
+  `/api/list`, and, with `--semantics`, `by_table` on a table list and on each table row. New
+  `GET /api/units` gives a table's measure units with the context pack's 「材料未给」 mark. The
+  whole-catalog counts are computed once per loaded catalog, and the semantics directory's change check
+  walks with `os.scandir` (about 30 ms to 5 ms for 1,700 documents).
+- **Changed (service): the relations graph draws one line and one label per related pair.** Relations of
+  the same two concepts share a line, a label line per relation; a participation is labelled 「参与者」
+  (with the number of roles) instead of its `role_name`, which stays in the tooltip and the table; labels are
+  placed so that none meets another or a concept, and a shortened one keeps its full text in the tooltip.
+  Labels are drawn up to 24 concepts. A wide table's column list gets a filter box and binding choice, shows
+  code values and derivation only under the columns that have them, and shows each measure's unit with the
+  context pack's mark.
 - **Changed: `catalog render`'s `index.md` opens with what to look at before using the catalog.**
   The governance gap summary moves from the end of the page to before the concept listing, under
   「用之前先看」, after two fixed sentences: the page states what the catalog has and lacks

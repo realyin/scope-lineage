@@ -8,11 +8,18 @@ where named, the ``{db.table: table-semantics document}`` mapping and a pending 
 nothing is read from disk here and nothing is written.
 
 - ``browse_index`` -- the catalog's name and counts and each domain with how many concepts
-  and tables it holds: the first screen.
+  and tables it holds: the first screen; and the summary ``index.md`` opens with under
+  「用之前先看」 (``catalog_pages.use_first_rows``: the same rows and numbers, the rows that
+  need the table-semantics documents only when they are given).
 - ``browse_list`` -- one page of concepts, tables or metrics, filtered by domain, concept or
   a piece of text, with the total, so a long list is paged where the data is. A
   concept row carries what the index page's domain table shows (kind, definition, how many
-  tables, status); a table row what the concept page's table inventory leads with.
+  tables, status); a table row what the concept page's table inventory leads with, and,
+  given the table-semantics documents, the index's 「按表看」 row for it
+  (``catalog_index_tables``). Tables come in name order unless ``sort`` names one of
+  those columns; the sort is over the whole filtered list, before it is paged.
+- ``table_units`` -- the unit of each of one table's measure columns, with the mark the
+  context pack prints when the material does not give it.
 - ``concept_neighbourhood`` -- a concept, the concepts one relation away, and every
   relation between those nodes, each with its join conditions: the JOINs the corpus showed
   (``joins`` / ``source_joins``, as the concept page cites them) and the foreign-key columns
@@ -25,6 +32,11 @@ nothing is read from disk here and nothing is written.
   grouping and its catalog check unchanged), each placed at its tables' concepts and marked
   when the catalog does not carry it; filtered and paged.
 
+The catalog view, the summary rows and the by-table rows are computed once for the
+document and semantics objects a caller holds, and kept for the next call with the same
+objects (``_prepared``): a server answers a page of a large catalog without recounting it.
+The documents are read, never changed; a caller that changes one passes a new object.
+
 None of these is a ``scope-lineage`` command: they serve a browsing page
 (``scope-lineage-service``), and the command line keeps ``query``, ``context`` and
 ``render`` for the same facts. A request these functions cannot answer raises
@@ -33,11 +45,16 @@ None of these is a ``scope-lineage`` command: they serve a browsing page
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterable, Mapping
 from typing import Optional
 
+from .catalog_context import unit_mark, unit_text
+from .catalog_index_tables import by_table_columns, coverage_note, figure_cells, table_figures
 from .catalog_overview import table_about
+from .catalog_pages import ANSWERING_USES, STRUCTURE_ONLY, USE_FIRST_HEADING, use_first_rows
 from .catalog_query import find_concepts
+from .catalog_units import material_documents
 from .catalog_view import CatalogView, catalog_table_name, realises
 
 __all__ = [
@@ -47,11 +64,13 @@ __all__ = [
     "LIST_KINDS",
     "MAX_LIMIT",
     "NEIGHBOURHOOD_LIMIT",
+    "TABLE_SORTS",
     "browse_index",
     "browse_list",
     "concept_neighbourhood",
     "questions_board",
     "table_semantics",
+    "table_units",
 ]
 
 INDEX_FORMAT = "catalog-browse-index/1"
@@ -59,6 +78,7 @@ LIST_FORMAT = "catalog-browse-list/1"
 NEIGHBOURHOOD_FORMAT = "catalog-neighbourhood/1"
 SEMANTICS_FORMAT = "catalog-table-semantics/1"
 BOARD_FORMAT = "catalog-questions/1"
+UNITS_FORMAT = "catalog-table-units/1"
 
 LIST_KINDS = ("concepts", "tables", "metrics")
 BOARD_STATUSES = ("open", "answered", "all")
@@ -67,6 +87,9 @@ DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 NEIGHBOURHOOD_LIMIT = 40
 NEIGHBOURHOOD_MAX = 200
+# what ``sort`` may name for tables (``-`` before it: largest first): the table's name, or
+# one by-table count (``catalog_index_tables.table_figures``)
+TABLE_SORTS = ("table", "measures", "unit_unsupported", "unmapped", "watch", "watch_conflicts")
 # join conditions shown on one edge, and target columns on one key
 KEYS_SHOWN = 10
 
@@ -92,13 +115,62 @@ def _page(items: list, offset: int, limit: int) -> dict:
             "items": items[offset:offset + limit]}
 
 
+class _Prepared:
+    """What the browse answers count over the whole catalog, for one (document,
+    semantics) pair: the view at once, the summary and the by-table rows when first asked."""
+
+    def __init__(self, document: Mapping, semantics: Optional[Mapping[str, Mapping]]) -> None:
+        self.document, self.semantics = document, semantics
+        self.view = CatalogView(document)
+        self.docs = None if semantics is None else material_documents(semantics)
+        self._lock = threading.Lock()
+        self._use_first: Optional[list[tuple[str, str]]] = None
+        self._figures: Optional[dict[str, dict]] = None
+
+    def use_first(self) -> list[tuple[str, str]]:
+        with self._lock:
+            if self._use_first is None:
+                self._use_first = use_first_rows(self.view, self.docs)
+            return self._use_first
+
+    def figures(self, docs: Mapping[str, Mapping]) -> dict[str, dict]:
+        """``table -> its by-table row and cells`` (``docs`` is ``self.docs``)."""
+        with self._lock:
+            if self._figures is None:
+                self._figures = {
+                    row["table"]: {**row, "cells": figure_cells(row)}
+                    for row in table_figures(self.view, docs)
+                }
+            return self._figures
+
+
+_PREPARED: list[_Prepared] = []
+_PREPARED_KEPT = 2  # a server holds one catalog; one more covers the switch to a rebuilt one
+_PREPARED_LOCK = threading.Lock()
+
+
+def _prepared(document: Mapping, semantics: Optional[Mapping[str, Mapping]] = None) -> _Prepared:
+    """The counts for these very objects, made once and kept for the next call with them."""
+    with _PREPARED_LOCK:
+        for found in _PREPARED:
+            if found.document is document and found.semantics is semantics:
+                return found
+        made = _Prepared(document, semantics)
+        _PREPARED.insert(0, made)
+        del _PREPARED[_PREPARED_KEPT:]
+        return made
+
+
 # ------------------------------------------------------------------ index
 
 
-def browse_index(document: Mapping) -> dict:
-    """``{doc_format, catalog, counts, evidence, domains}``: each domain with how many
-    concepts, tables and metrics it holds, in id order."""
-    view = CatalogView(document)
+def browse_index(document: Mapping, semantics: Optional[Mapping[str, Mapping]] = None) -> dict:
+    """``{doc_format, catalog, counts, evidence, domains, use_first}``: each domain with how
+    many concepts, tables and metrics it holds, in id order, and the summary ``index.md``
+    leads with under 「用之前先看」 -- its two sentences and its rows, with the rows counted
+    from ``semantics`` (``{db.table: table-semantics document}``) only when it is given."""
+    prepared = _prepared(document, semantics)
+    view = prepared.view
     concepts: dict[str, int] = {}
     for concept in view.concepts.values():
         concepts[concept["domain"]] = concepts.get(concept["domain"], 0) + 1
@@ -127,6 +199,11 @@ def browse_index(document: Mapping) -> dict:
             }
             for domain_id in sorted(view.domains)
         ],
+        "use_first": {
+            "heading": USE_FIRST_HEADING.removeprefix("## "),
+            "notes": [STRUCTURE_ONLY, ANSWERING_USES],
+            "rows": [{"name": name, "value": value} for name, value in prepared.use_first()],
+        },
     }
 
 
@@ -137,9 +214,11 @@ def browse_list(
     document: Mapping,
     kind: str,
     *,
+    semantics: Optional[Mapping[str, Mapping]] = None,
     domain: Optional[str] = None,
     concept: Optional[str] = None,
     text: Optional[str] = None,
+    sort: Optional[str] = None,
     offset: int = 0,
     limit: int = DEFAULT_LIMIT,
 ) -> dict:
@@ -148,11 +227,21 @@ def browse_list(
     ``domain`` is a domain id; ``concept`` a concept id, name, synonym or term (as
     ``catalog query concept`` finds it) and does not apply to ``concepts``; ``text`` is a
     piece of the id, name or synonym (of a table: its name), ignoring case. Concepts and
-    metrics come in id order, tables in name order."""
+    metrics come in id order, tables in name order.
+
+    Given ``semantics`` (``{db.table: table-semantics document}``), each table row carries
+    ``by_table``, its row of the index's 「按表看」 (the numbers, None where the table has
+    no document, and ``cells`` as the index prints them), and the answer's ``by_table``
+    names the columns and says how many tables the documents cover. ``sort`` orders the
+    tables by one of ``TABLE_SORTS`` (``-`` first: largest first; a table whose value is
+    unknown last either way; equal values by name), over every table the filters keep,
+    before the page is cut."""
     if kind not in LIST_KINDS:
         raise ValueError(f"kind must be one of {', '.join(LIST_KINDS)}, not {kind!r}")
+    _check_sort(kind, sort, semantics)
     check_page(offset, limit)
-    view = CatalogView(document)
+    prepared = _prepared(document, semantics)
+    view = prepared.view
     wanted = None
     if concept is not None:
         if kind == "concepts":
@@ -164,8 +253,51 @@ def browse_list(
     needle = _fold(text) if text else None
     builders = {"concepts": _concept_rows, "tables": _table_rows, "metrics": _metric_rows}
     items = builders[kind](view, wanted, in_domain, needle)
-    query = {"kind": kind, "domain": domain, "concept": concept, "text": text}
-    return {"doc_format": LIST_FORMAT, "query": query, **_page(items, offset, limit)}
+    query = {"kind": kind, "domain": domain, "concept": concept, "text": text, "sort": sort}
+    answer: dict = {"doc_format": LIST_FORMAT, "query": query}
+    if kind == "tables" and prepared.docs is not None:
+        figures = prepared.figures(prepared.docs)
+        for item in items:
+            row = figures[item["table"]]
+            item["by_table"] = {k: v for k, v in row.items() if k not in ("table", "concept")}
+        answer["by_table"] = {
+            "columns": [{"key": key, "label": label} for key, label in by_table_columns(view)],
+            "covered": sum(1 for row in figures.values() if row["covered"]),
+            "tables": len(figures),
+            "note": coverage_note(view, prepared.docs),
+        }
+    if sort:
+        items = _sorted_tables(items, sort)
+    return {**answer, **_page(items, offset, limit)}
+
+
+def _check_sort(kind: str, sort: Optional[str], semantics) -> None:
+    if sort is None:
+        return
+    key = sort[1:] if sort.startswith("-") else sort
+    if key not in TABLE_SORTS:
+        raise ValueError(
+            f"sort must be one of {', '.join(TABLE_SORTS)} (with - before it: largest "
+            f"first), not {sort!r}"
+        )
+    if kind != "tables":
+        raise ValueError("sort orders tables only")
+    if key != "table" and semantics is None:
+        raise ValueError(
+            f"sort by {key} needs the table-semantics documents (the server's --semantics)"
+        )
+
+
+def _sorted_tables(items: list[dict], sort: str) -> list[dict]:
+    """Table rows (in name order) by their name or one by-table number; unknown values
+    last whichever way, equal values in name order (the sort is stable)."""
+    descending = sort.startswith("-")
+    key = sort[1:] if descending else sort
+    if key == "table":
+        return items[::-1] if descending else items
+    known = [item for item in items if item["by_table"][key] is not None]
+    known.sort(key=lambda item: item["by_table"][key], reverse=descending)
+    return known + [item for item in items if item["by_table"][key] is None]
 
 
 def _contains(needle: Optional[str], values: Iterable) -> bool:
@@ -432,6 +564,43 @@ def table_semantics(
         "table": name,
         "in_catalog": rep is not None,
         "document": dict(found) if found else None,
+    }
+
+
+def table_units(
+    document: Mapping, semantics: Optional[Mapping[str, Mapping]], table: str
+) -> dict:
+    """``{doc_format, query, table, in_catalog, checked, columns}``: each column of the
+    table bound to a measure attribute or to an attribute with a unit, in binding order,
+    with the attribute's ``unit``, the ``material_unit`` mark ``catalog context`` gives it
+    (``catalog_context.unit_mark``; only when ``semantics`` is given, ``checked``) and
+    ``text``, what the context pack's ``单位：`` line says (None when it prints none)."""
+    prepared = _prepared(document, semantics)
+    view = prepared.view
+    rep = view.representation(table)
+    columns = []
+    for binding in (rep or {}).get("bindings") or []:
+        ref = binding.get("ref")
+        if ref not in view.attributes:
+            continue
+        attribute = view.attributes[ref][0]
+        if attribute.get("category") != "measure" and not attribute.get("unit"):
+            continue
+        item: dict = {"column": binding["column"], "ref": _ref(view, ref)}
+        if attribute.get("unit"):
+            item["unit"] = attribute["unit"]
+        mark = unit_mark(view, attribute, attribute.get("unit"), prepared.docs)
+        if mark is not None:
+            item["material_unit"] = mark
+        item["text"] = unit_text(item)
+        columns.append(item)
+    return {
+        "doc_format": UNITS_FORMAT,
+        "query": {"table": table},
+        "table": rep["table"] if rep else catalog_table_name(str(table).strip()),
+        "in_catalog": rep is not None,
+        "checked": semantics is not None,
+        "columns": columns,
     }
 
 
