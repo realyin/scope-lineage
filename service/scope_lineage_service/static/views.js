@@ -8,7 +8,7 @@ import {
   answer, api, badge, code, conceptLink, fold, grid, h, href, joined, kv, link, pager,
   section, tableLink, text, word,
 } from "./dom.js";
-import { drawGraph } from "./graph.js";
+import { EDGE_LABELS_UP_TO, drawGraph, relationTitle } from "./graph.js";
 
 const PAGE = 50;
 
@@ -55,9 +55,22 @@ export async function home() {
     h("h1", {}, `本体目录：${text(index.catalog.name)}`),
     index.catalog.description ? h("p", {}, index.catalog.description) : null,
     h("p", { class: "muted" }, summary.join(" · ")),
+    ...useFirst(index.use_first),
     ...section("业务域", index.domains.length ? h("div", { class: "cards" }, cards)
       : h("p", { class: "muted" }, "目录里没有业务域。")),
   ];
+}
+
+/** The summary catalog render puts first in index.md, as the server counted it. */
+function useFirst(block) {
+  if (!block) return [];
+  const rows = block.rows.map((row) => h("tr", {}, h("td", {}, row.name), h("td", { class: "num" }, row.value)));
+  return section(block.heading,
+    block.notes.map((note) => h("p", {}, note)),
+    h("div", { class: "table-wrap" }, h("table", { class: "summary-table" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "缺口"), h("th", { scope: "col" }, "数量"))),
+      h("tbody", {}, rows))),
+    h("p", { class: "muted" }, "逐张表看见", link("tables", null, "表清单"), "。"));
 }
 
 // ------------------------------------------------------------------ domain
@@ -100,7 +113,8 @@ export async function concept(id, params) {
   const overview = match.overview || {};
   const identified = (overview.identified_by || []).map((item) =>
     `${item.name}${item.primary ? "（主）" : ""}：${item.scope}，${item.arises}`);
-  const participants = (overview.participants || []).map((p) => `${p.role_name}：${p.concept}`);
+  // as catalog query prints them: the concept, then the role name the catalog gives it
+  const participants = (overview.participants || []).map((p) => `${p.concept}（${p.role_name}）`);
   const tableRows = tables.items.map((rep) => [
     tableLink(rep.table), word(REP_KIND_TEXT, rep.kind), word(TIME_TEXT, rep.time),
     String(rep.columns), text(rep.about),
@@ -144,8 +158,8 @@ function graphBlock(graph) {
   const rows = graph.edges.map((edge) => [
     edge.id ? code(edge.id) : "—",
     word(RELATION_KIND_TEXT, edge.kind),
-    edge.kind === "role"
-      ? `${names.get(edge.from)} 是 ${names.get(edge.to)} 承担的角色${edge.name ? "（" + edge.name + "）" : ""}`
+    edge.kind === "role" || edge.kind === "participation"
+      ? relationTitle(edge, names)
       : `${names.get(edge.from)} ${edge.name} ${names.get(edge.to)}` +
         (edge.inverse_name ? ` / ${names.get(edge.to)} ${edge.inverse_name} ${names.get(edge.from)}` : ""),
     edge.cardinality ? `${edge.cardinality.from} : ${edge.cardinality.to}` : "—",
@@ -154,6 +168,8 @@ function graphBlock(graph) {
   ]);
   return [
     h("div", { class: "graph-box" }, drawGraph(graph)),
+    graph.nodes.length > EDGE_LABELS_UP_TO
+      ? h("p", { class: "muted" }, `图上概念多于 ${EDGE_LABELS_UP_TO} 个，线上不写关系名；每条关系见下表。`) : null,
     graph.truncated ? h("p", { class: "muted" }, `另有 ${graph.truncated} 个相邻概念没画出来。`) : null,
     graph.edges.length ? grid(["关系", "种类", "读法", "基数", "语料中的连接", "外键列"], rows) : null,
   ];
@@ -217,10 +233,11 @@ function columnLink(column) {
 // ------------------------------------------------------------------ table
 
 export async function table(name) {
-  const [query, pack, semantics] = await Promise.all([
+  const [query, pack, semantics, units] = await Promise.all([
     answer("/api/query", { kind: "table", term: name }, { notFoundOk: true }),
     answer("/api/context", { table: name, brief: "true" }, { notFoundOk: true }),
     answer("/api/semantics", { table: name }, { notFoundOk: true }),
+    answer("/api/units", { table: name }, { notFoundOk: true }),
   ]);
   const match = query.matches[0];
   const entry = pack.tables[0];
@@ -237,14 +254,14 @@ export async function table(name) {
   if (!match && !doc) return [...out, h("p", { class: "error" }, `目录和表语义里都没有表 ${name}`)];
   if (!match) out.push(h("p", { class: "muted" }, "目录里没有这张表；下面只有它的表语义。"));
   if (match && !entry) out.push(h("p", { class: "muted" }, "这张表是码值表：它存放码值，不承载概念。"));
-  if (match) out.push(...catalogPart(match, entry));
+  if (match) out.push(...catalogPart(match, entry, units));
   out.push(...section("表语义", doc ? semanticsDocument(doc)
     : h("p", { class: "muted" }, "这张表没有表语义文档：怎么读、注意事项和待确认问题都没有人写下来。")));
   out.push(h("p", {}, link("questions", null, "这张表的待确认问题", { table: title, status: "all" })));
   return out;
 }
 
-function catalogPart(match, entry) {
+function catalogPart(match, entry, units) {
   const out = [];
   const grain = entry ? entry.grain : null;
   out.push(...section("目录", kv([
@@ -265,7 +282,7 @@ function catalogPart(match, entry) {
     ["证据与目录矛盾", entry && entry.conflicts ? list(entry.conflicts, (c) => c.text) : null],
   ])));
   if (match.columns) {
-    out.push(...section(`绑定列（${match.columns.length}）`, columnsGrid(match)));
+    out.push(...section(`绑定列（${match.columns.length}）`, columnsGrid(match, units)));
   }
   if (entry) {
     out.push(...section("关联", entry.joins.length ? grid(["关联列", "标识", "指向", "可关联到", "语料中见过"],
@@ -308,34 +325,106 @@ function partitionText(item) {
   return `${columns}：目录没记录每个分区是不是一份全量，按「取数」读`;
 }
 
-function columnsGrid(match) {
+const GRID_COLUMNS = ["列", "绑定", "指向", "血缘", ""];
+
+/** The code values a bound column carries, as text: its own map, then each code set. */
+export function codeTexts(column) {
+  const parts = [];
+  if (column.code_map) parts.push(Object.entries(column.code_map).map(([k, v]) => `${k}=${v}`).join("、"));
+  for (const set of column.code_sets || []) {
+    parts.push(`${set.name}（${set.id}）` +
+      (set.keys ? `：${set.keys.map((k) => `${k.key}→${k.value}=${k.meaning}`).join("、")}` : ""));
+  }
+  return parts;
+}
+
+/** Everything the filter box looks in for one bound column, folded to lower case. */
+export function columnHaystack(column, unit) {
+  return [
+    column.column, word(BINDING_TEXT, column.to), column.to, column.ref_name, column.ref,
+    column.concept ? column.concept.name : null, column.concept ? column.concept.id : null,
+    column.via, column.derivation, ...codeTexts(column), unit ? unit.text : null,
+  ].filter((part) => part !== null && part !== undefined && part !== "").join("\n").toLowerCase();
+}
+
+/** The positions of the columns a filter keeps: ``needle`` found in a column's words (case
+ * ignored; blank keeps all) and, when ``binding`` is given, bound that way. */
+export function filterColumns(columns, needle, binding, units) {
+  const wanted = String(needle || "").trim().toLowerCase();
+  const kept = [];
+  columns.forEach((column, index) => {
+    if (binding && column.to !== binding) return;
+    if (wanted && !columnHaystack(column, units ? units.get(column.column) : null).includes(wanted)) return;
+    kept.push(index);
+  });
+  return kept;
+}
+
+/** How many columns each binding kind has, in the order they first appear. */
+export function bindingCounts(columns) {
+  const counts = new Map();
+  for (const column of columns) counts.set(column.to, (counts.get(column.to) || 0) + 1);
+  return [...counts.entries()];
+}
+
+function columnsGrid(match, unitAnswer) {
+  const units = new Map(((unitAnswer && unitAnswer.columns) || []).map((u) => [u.column, u]));
   const body = h("tbody", {});
-  for (const column of match.columns) {
+  const rows = match.columns.map((column) => {
+    const unit = units.get(column.column);
     const target = [column.ref_name ? [column.ref_name, " ", code(column.ref)] : null,
       column.concept ? [" · ", conceptLink(column.concept)] : null,
       column.via ? ` · 经由 ${column.via}` : null,
-      column.self_reference ? " · 自关联" : null];
-    const codes = [];
-    if (column.code_map) codes.push(Object.entries(column.code_map).map(([k, v]) => `${k}=${v}`).join("、"));
-    for (const set of column.code_sets || []) {
-      codes.push(h("div", {}, set.name, " ", code(set.id),
-        set.keys ? `：${set.keys.map((k) => `${k.key}→${k.value}=${k.meaning}`).join("、")}` : ""));
-    }
+      column.self_reference ? " · 自关联" : null,
+      unit && unit.text ? h("span", { class: "unit" }, `单位：${unit.text}`) : null];
     const more = h("button", { type: "button" }, "详情");
     const row = h("tr", {},
-      h("td", {}, code(column.column)), h("td", {}, word(BINDING_TEXT, column.to)), h("td", {}, target),
-      h("td", {}, codes.length ? codes : "—"), h("td", {}, text(column.derivation)),
+      h("td", {}, code(column.column)), h("td", {}, word(BINDING_TEXT, column.to)),
+      h("td", {}, column.ref_name || column.concept || column.via || (unit && unit.text) ? target : "—"),
       h("td", {}, column.evidence && column.evidence.expression ? code(column.evidence.expression, true) : "—"),
       h("td", {}, more));
-    more.addEventListener("click", () => toggleColumn(row, more, `${match.table}.${column.column}`));
+    // code values and 口径 only on the columns that have them, on a line under the column
+    const extra = [];
+    const codes = codeTexts(column);
+    if (codes.length) extra.push(h("div", {}, "码值：", joined(codes, "；")));
+    if (column.derivation) extra.push(h("div", {}, "口径：", column.derivation));
+    const extraRow = extra.length
+      ? h("tr", { class: "column-extra" }, h("td", {}), h("td", { colspan: String(GRID_COLUMNS.length - 1) }, extra))
+      : null;
+    if (extraRow) row.classList.add("has-extra");
+    more.addEventListener("click", () => toggleColumn(extraRow || row, more, `${match.table}.${column.column}`, unit));
     body.append(row);
-  }
-  const head = h("tr", {}, ["列", "绑定", "指向", "码值", "口径", "血缘", ""].map((n) => h("th", { scope: "col" }, n)));
-  return h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, head), body));
+    if (extraRow) body.append(extraRow);
+    return { row, extraRow };
+  });
+  const head = h("tr", {}, GRID_COLUMNS.map((n) => h("th", { scope: "col" }, n)));
+  const table = h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, head), body));
+  if (match.columns.length <= 12) return table;
+  // a wide table: a filter over the columns
+  const search = h("input", { type: "search", placeholder: "列名、指向的属性、码值、口径、单位", "aria-label": "筛选列" });
+  const kinds = h("select", { "aria-label": "按绑定筛选" },
+    h("option", { value: "" }, `全部绑定（${match.columns.length}）`),
+    bindingCounts(match.columns).map(([kind, count]) => h("option", { value: kind }, `${word(BINDING_TEXT, kind)}（${count}）`)));
+  const shown = h("span", { class: "muted" });
+  const apply = () => {
+    const kept = new Set(filterColumns(match.columns, search.value, kinds.value, units));
+    rows.forEach(({ row, extraRow }, index) => {
+      const hide = !kept.has(index);
+      row.hidden = hide;
+      if (extraRow) extraRow.hidden = hide;
+      const detail = (extraRow || row).nextElementSibling;
+      if (detail && detail.classList.contains("column-detail")) detail.hidden = hide;
+    });
+    shown.textContent = `显示 ${kept.size} / ${match.columns.length} 列`;
+  };
+  search.addEventListener("input", apply);
+  kinds.addEventListener("change", apply);
+  apply();
+  return [h("div", { class: "column-filter" }, h("label", {}, "筛选列 ", search), kinds, shown), table];
 }
 
 /** One column in full (catalog context --column), in a row under the column's row. */
-async function toggleColumn(row, button, address) {
+async function toggleColumn(row, button, address, unit) {
   const next = row.nextElementSibling;
   if (next && next.classList.contains("column-detail")) {
     next.remove();
@@ -343,12 +432,12 @@ async function toggleColumn(row, button, address) {
     return;
   }
   button.disabled = true;
-  const cell = h("td", { colspan: "7" }, h("span", { class: "muted" }, "正在加载……"));
+  const cell = h("td", { colspan: String(GRID_COLUMNS.length) }, h("span", { class: "muted" }, "正在加载……"));
   row.after(h("tr", { class: "column-detail" }, cell));
   try {
     const pack = await answer("/api/context", { column: address }, { notFoundOk: true });
     const column = pack.columns[0];
-    cell.replaceChildren(column ? columnDetail(column) : h("span", { class: "muted" }, "没有更多信息。"));
+    cell.replaceChildren(column ? columnDetail(column, unit) : h("span", { class: "muted" }, "没有更多信息。"));
     button.textContent = "收起";
   } catch (error) {
     cell.replaceChildren(h("span", { class: "error" }, error.message));
@@ -357,14 +446,15 @@ async function toggleColumn(row, button, address) {
   }
 }
 
-function columnDetail(column) {
+function columnDetail(column, unit) {
   const catalog = column.catalog || {};
   const sem = column.semantics || {};
   const values = (catalog.code_sets || []).map((set) => h("div", {}, code(set.code_set), "：",
     set.values.map((v) => `${v.value}=${v.meaning || "含义待确认"}${v.unconfirmed ? "（待确认）" : ""}`).join("、")));
   return kv([
     ["目录定义", catalog.definition],
-    ["单位", catalog.unit],
+    // the words the context pack prints, with its mark when the material does not give it
+    ["单位", unit && unit.text ? unit.text : catalog.unit],
     ["目录码值", values.length ? values : null],
     ["时间角色", catalog.time_role],
     ["表语义含义", sem.meaning],
@@ -496,23 +586,52 @@ function input(name, label, value, placeholder) {
   return h("label", {}, label, h("input", { name, value: value || "", placeholder: placeholder || "", type: "text" }));
 }
 
+// The orders the table list offers: by name, or by one by-table number (the server sorts
+// the whole filtered list; a table without a table-semantics document comes last).
+// Never a sum of several: there is no score.
+export const TABLE_SORT_CHOICES = [
+  ["", "表名"], ["-table", "表名（倒序）"],
+  ["-measures", "度量列，多的在前"], ["measures", "度量列，少的在前"],
+  ["-unit_unsupported", "单位无材料依据的列，多的在前"], ["unit_unsupported", "单位无材料依据的列，少的在前"],
+  ["-unmapped", "未绑定列，多的在前"], ["unmapped", "未绑定列，少的在前"],
+  ["-watch", "注意事项，多的在前"], ["watch", "注意事项，少的在前"],
+  ["-watch_conflicts", "与材料矛盾的注意事项，多的在前"], ["watch_conflicts", "与材料矛盾的注意事项，少的在前"],
+];
+
 export async function tables(_, params) {
-  const filters = { text: params.get("text"), domain: params.get("domain"), concept: params.get("concept") };
+  const filters = {
+    text: params.get("text"), domain: params.get("domain"), concept: params.get("concept"),
+    sort: params.get("sort"),
+  };
   const offset = offsetOf(params);
   const page = await answer("/api/list", { kind: "tables", ...filters, offset, limit: PAGE });
+  const byTable = page.by_table || null;
+  const columns = byTable ? byTable.columns : [];
   const rows = page.items.map((rep) => [
     tableLink(rep.table), conceptLink(rep.concept), word(REP_KIND_TEXT, rep.kind),
     word(TIME_TEXT, rep.time), String(rep.columns), text(rep.about),
+    ...columns.map((column) => rep.by_table.cells[column.key]),
   ]);
+  const sorts = byTable ? TABLE_SORT_CHOICES : TABLE_SORT_CHOICES.slice(0, 2);
+  const fields = [input("text", "表名包含", filters.text), input("concept", "概念", filters.concept, "id 或名称"),
+    input("domain", "业务域", filters.domain, "domain:…"), select("sort", "排序", sorts, filters.sort)];
   return [
     crumbs("表"),
     h("h1", {}, "表"),
-    filterForm([input("text", "表名包含", filters.text), input("concept", "概念", filters.concept, "id 或名称"),
-      input("domain", "业务域", filters.domain, "domain:…")],
-    (values) => go("tables", null, values)),
-    grid(["表", "概念", "种类", "时间形态", "绑定列", "说明"], rows),
+    filterForm(fields, (values) => go("tables", null, values)),
+    byTable ? h("p", { class: "muted" },
+      "表名之后几列与 index.md「按表看」相同：度量列是绑定到度量属性的列；单位有没有材料依据按属性判断，" +
+      "与取数包标注单位用的是同一条规则。默认按表名排列；按某一列排序时，没有表语义的表排在最后。")
+      : h("p", { class: "muted" }, "服务启动时没有给表语义目录（--semantics），这里没有「按表看」的几列。"),
+    byTable && byTable.note ? h("p", { class: "muted" }, byTable.note) : null,
+    grid(["表", "概念", "种类", "时间形态", "绑定列", "说明", ...columns.map((column) => column.label)], rows),
     pager(page, (next) => go("tables", null, { ...filters, offset: next })),
   ];
+}
+
+function select(name, label, options, current) {
+  return h("label", {}, label, h("select", { name }, options.map(([valueOf, labelOf]) =>
+    h("option", { value: valueOf, selected: valueOf === (current || "") || null }, labelOf))));
 }
 
 export async function metrics(_, params) {
