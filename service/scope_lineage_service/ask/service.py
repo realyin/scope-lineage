@@ -1,0 +1,198 @@
+"""Conversations and runs for the ask endpoints, in server memory only.
+
+A conversation is keyed by an unguessable id (``secrets.token_urlsafe``) and holds its
+questions' runs and the brief the next question carries. It lives in this process: a
+restart loses it, and so does a conversation idle longer than the age limit, or the
+least recently used idle one when the count limit is reached. One question runs at a
+time per conversation, on its own thread; a cancel stops it at the next model event or
+before the next tool call. The page polls a run's events (``events``), waiting on the
+run for the next one, so it sees each step as it happens.
+"""
+
+from __future__ import annotations
+
+import secrets
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Callable
+
+from .loop import Limits, Model, Run, run_question
+from .tools import ToolBox
+from .walk import system_blocks
+
+MAX_QUESTION_CHARS = 4000
+MAX_RUNS_KEPT = 20
+MAX_WAIT = 25.0
+
+
+class AskError(Exception):
+    """A request the ask service refuses: ``status`` and ``kind`` for the HTTP answer."""
+
+    def __init__(self, status: int, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.status, self.kind, self.message = status, kind, message
+
+
+@dataclass
+class Conversation:
+    id: str
+    created: float
+    used: float
+    brief: str | None = None
+    runs: list = field(default_factory=list)
+
+    @property
+    def running(self) -> Run | None:
+        return next((run for run in self.runs if not run.done), None)
+
+
+class AskService:
+    """Asking over one catalog. ``model`` is None when asking cannot work (``reason`` says
+    why); the browse page and every other endpoint keep working."""
+
+    def __init__(
+        self,
+        tools: ToolBox,
+        model: Model | None,
+        *,
+        reason: str | None = None,
+        limits: Limits = Limits(),
+        max_conversations: int = 20,
+        max_idle_seconds: float = 3600.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.tools, self.model, self.reason = tools, model, reason
+        self.limits = limits
+        self.max_conversations = max_conversations
+        self.max_idle_seconds = max_idle_seconds
+        self.clock = clock
+        self.system = system_blocks(tools.pending)
+        self._lock = threading.Lock()
+        self._conversations: dict[str, Conversation] = {}
+
+    # ------------------------------------------------------------------ status
+
+    def status(self) -> dict:
+        model = self.model
+        return {
+            "available": model is not None and self.reason is None,
+            "reason": self.reason,
+            "fake": bool(getattr(model, "fake", False)),
+            "model": getattr(model, "name", None),
+            "effort": getattr(model, "effort", None),
+            "fallback": getattr(model, "fallback", None),
+            "pending": self.tools.pending,
+            "executes_sql": False,
+            "limits": self.limits.as_dict(),
+            "conversations": {
+                "max": self.max_conversations, "max_idle_seconds": self.max_idle_seconds,
+                "kept_in_memory": True,
+            },
+        }
+
+    # ------------------------------------------------------------------ asking
+
+    def ask(self, question: str, conversation_id: str | None = None) -> tuple[Conversation, Run]:
+        if self.model is None or self.reason is not None:
+            raise AskError(503, "ask_unavailable", self.reason or "asking is not available")
+        question = question.strip()
+        if not question:
+            raise AskError(400, "bad_input", "question is empty")
+        if len(question) > MAX_QUESTION_CHARS:
+            raise AskError(400, "bad_input", f"question is longer than {MAX_QUESTION_CHARS} characters")
+        with self._lock:
+            if conversation_id is None:
+                self._expire()
+                conversation = self._new_conversation()
+            else:
+                conversation = self._get(conversation_id)
+            if conversation.running is not None:
+                raise AskError(409, "busy", "a question is still running in this conversation; "
+                                            "wait for it or cancel it")
+            run = Run(secrets.token_urlsafe(12), question, conversation.brief, clock=self.clock)
+            conversation.runs.append(run)
+            del conversation.runs[:-MAX_RUNS_KEPT]
+            conversation.used = self.clock()
+        thread = threading.Thread(target=self._answer, args=(conversation, run), daemon=True,
+                                  name=f"ask-{run.id}")
+        thread.start()
+        return conversation, run
+
+    def _answer(self, conversation: Conversation, run: Run) -> None:
+        try:
+            run_question(run, self.model, self.tools, self.system, self.limits)
+        except Exception as error:  # noqa: BLE001 -- a bug must still end the run for the page
+            if not run.done:
+                run.finish("error", reason="internal", detail=f"{type(error).__name__}: {error}",
+                           usage=None)
+        with self._lock:
+            conversation.used = self.clock()
+            if run.answer is not None:
+                conversation.brief = run.answer["brief"]
+        last = run.events[-1] if run.events else {}
+        if last.get("reason") == "credentials":
+            self.reason = f"the model provider refused the credentials: {last.get('detail')}"
+
+    def events(self, conversation_id: str, run_id: str, after: int, wait: float) -> dict:
+        with self._lock:
+            run = self._run(conversation_id, run_id)
+        events, done = run.wait_events(max(0, after), min(max(0.0, wait), MAX_WAIT))
+        return {"run": run.id, "status": run.status, "done": done, "events": events,
+                "next": after + len(events)}
+
+    def cancel(self, conversation_id: str) -> dict:
+        with self._lock:
+            conversation = self._get(conversation_id)
+            run = conversation.running
+        if run is None:
+            return {"conversation": conversation_id, "cancelled": None}
+        run.cancel()
+        return {"conversation": conversation_id, "cancelled": run.id}
+
+    def conversation(self, conversation_id: str) -> dict:
+        with self._lock:
+            conversation = self._get(conversation_id)
+            return {
+                "conversation": conversation.id,
+                "brief": conversation.brief,
+                "runs": [{"run": run.id, "question": run.question, "status": run.status,
+                          "follow_up": bool(run.brief)} for run in conversation.runs],
+            }
+
+    # ------------------------------------------------------------------ the store
+
+    def _new_conversation(self) -> Conversation:
+        if len(self._conversations) >= self.max_conversations:
+            idle = [c for c in self._conversations.values() if c.running is None]
+            if not idle:
+                raise AskError(503, "too_many_conversations",
+                               "every conversation this server keeps is answering a question")
+            oldest = min(idle, key=lambda c: c.used)
+            del self._conversations[oldest.id]
+        now = self.clock()
+        conversation = Conversation(secrets.token_urlsafe(24), now, now)
+        self._conversations[conversation.id] = conversation
+        return conversation
+
+    def _get(self, conversation_id: str) -> Conversation:
+        self._expire()
+        conversation = self._conversations.get(conversation_id or "")
+        if conversation is None:
+            raise AskError(404, "conversation_gone",
+                           "no such conversation: it expired, or the server restarted "
+                           "(conversations live in server memory only)")
+        return conversation
+
+    def _run(self, conversation_id: str, run_id: str) -> Run:
+        conversation = self._get(conversation_id)
+        run = next((run for run in conversation.runs if run.id == run_id), None)
+        if run is None:
+            raise AskError(404, "run_gone", "no such run in this conversation")
+        return run
+
+    def _expire(self) -> None:
+        now = self.clock()
+        for conversation in list(self._conversations.values()):
+            if conversation.running is None and now - conversation.used > self.max_idle_seconds:
+                del self._conversations[conversation.id]
