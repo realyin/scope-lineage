@@ -156,8 +156,8 @@ only (`format=text` is refused).
   context pack's `单位：` line says. 404 when the catalog has no such table.
 
 The whole-catalog counts behind these (the catalog view, the summary rows, the by-table rows) are computed
-once for the loaded documents and kept until the files change, so a page of a catalog of thousands of tables
-is answered without recounting it. A list is one page (`limit` 1 to 200, default 50, with `offset` and the `total`); the graph is one
+once for the loaded documents and kept until the files change, so a page of a large catalog is answered
+without recounting it. A list is one page (`limit` 1 to 200, default 50, with `offset` and the `total`); the graph is one
 concept's neighbourhood (at most 40 neighbours by default, at most 10 join columns an edge); no endpoint
 sends the whole catalog. An empty page or board is 200; a concept with no match, or a table with no
 semantics document, is 404 with the answer as body.
