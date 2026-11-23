@@ -883,7 +883,7 @@ entry at all unless it has `source_joins`). A JOIN
 
 ```bash
 scope-lineage catalog render out/ontology.json --out out/pages \
-  [--semantics out/pages/semantics]
+  [--semantics out/pages/semantics] [--docs <documents>]
 ```
 
 `render` reads the built document only — never the catalog directory — so the pages show
@@ -911,9 +911,48 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   --semantics out/pages/semantics
 ```
 
+`--docs` names the directory of table-semantics documents (`<db.table>.json`, the directory
+`catalog context --semantics` takes; not the pages `--semantics` takes). With it `index.md`
+also counts what those documents say; without it no number below is shown. The options are
+independent: `--semantics` only links, `--docs` only counts.
+
+`index.md` opens with 用之前先看 (what to look at before using the catalog): one fixed
+sentence that the page states what the catalog has and lacks structurally, and that whether
+answers are right is a matter of acceptance testing; one fixed sentence that question
+answering uses the built catalog file together with the table-semantics documents; then the
+summary of the governance gaps. With `--docs` the summary gains two rows, and a section
+按表看 (by table) follows it:
+
+| Row | How it is counted |
+| --- | --- |
+| 唯一键有血缘证据的表 (unique key with lineage evidence) | tables whose grain lineage proved (`grain_proof.confidence` is `proven`) out of all tables; and how many of those the table's document calls not unique (`summary.row.unique` is `no`). Shown only when the catalog was built with `--lineage` |
+| 单位有材料依据的度量属性 (measure units the material supports) | measure attributes at least one of whose bound columns has a `unit` in its table's document, out of those that can be judged; an attribute none of whose bound columns a document describes cannot be judged and is counted apart |
+
+The by-table section has one row per catalog table, ordered by table name and by nothing
+else (no score, no ranking by problems). The table name links to its table-semantics page
+when `--semantics` gave one.
+
+| Column | Value |
+| --- | --- |
+| 表 | the table |
+| 概念 | the concept it represents, linked |
+| 唯一键的证据 | 已证明 (lineage proved the grain) or 无; only with `--lineage` evidence |
+| 表语义的说法 | the document's `summary.row.unique`: 唯一 / 不唯一 / 未知; only with `--lineage` evidence |
+| 度量列 | columns bound to a measure attribute (counted from the catalog) |
+| 其中单位无材料依据 | of those, the columns whose attribute the material does not support, as a count and a share |
+| 未绑定列 | the table's columns bound to `unmapped`, the same source as the gap summary |
+| 注意事项 | the number of the document's `summary.watch` items, and how many are of kind `conflict` |
+
+The unit is judged per attribute, by the same rule and the same function that mark a unit in
+`catalog context --semantics` (`material_unit`): a column whose unit the context pack marks
+as not given by the material is exactly a column counted under 其中单位无材料依据. When the
+documents cover only some tables, a cell that needs a document shows `—` for a table without
+one, a note under the section says how many tables are covered, and the not-unique count in
+the summary counts only the covered tables and says so.
+
 | File | What it holds |
 | --- | --- |
-| `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, the code sets (and the tables their values live in), a summary of the governance gaps and of the record scopes |
+| `index.md` | first what to look at before using the catalog (the governance gap summary, and with `--docs` two more rows and a row per table); then the concepts by domain (name, kind, definition, number of tables, status), the identifiers, the code sets (and the tables their values live in), and a summary of the record scopes |
 | `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`): a one-page overview, then seven sections as its appendix |
 | `identifiers.md` | every identifier in full, with the columns bound to it |
 | `code_sets.md` | every code set: its values, or the table and condition to look them up by (`lookup`); the attributes it codes (by the rule under Attribute); the columns whose `code_sets` consult it (row 「查它的列」), how each consults them (in order, or each source its own: `code_sets_by`) and what each stores (`holds`) |

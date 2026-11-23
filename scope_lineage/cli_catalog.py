@@ -226,6 +226,14 @@ def _add_render_parser(actions) -> None:
             "concept page lists to its table-semantics page"
         ),
     )
+    render_cmd.add_argument(
+        "--docs",
+        help=(
+            "A directory of table-semantics documents (<db.table>.json, the directory "
+            "`catalog context --semantics` takes): index.md also counts unique keys and "
+            "units against them and lists every table in a row"
+        ),
+    )
 
 
 def _add_build_parser(actions) -> None:
@@ -329,7 +337,15 @@ def _run_render(args: argparse.Namespace) -> int:
     links = _semantic_links(args.semantics, out / CONCEPTS_DIR)
     if isinstance(links, int):
         return links
-    pages = render_catalog_pages(document, links)
+    docs = None
+    if args.docs:
+        if not Path(args.docs).is_dir():
+            print(f"--docs directory does not exist: {args.docs}", file=sys.stderr)
+            return 2
+        docs = _semantics_option(args.docs)
+        if isinstance(docs, int):
+            return docs
+    pages = render_catalog_pages(document, links, docs)
     for name, text in pages.items():
         target = out / name
         target.parent.mkdir(parents=True, exist_ok=True)

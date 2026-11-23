@@ -30,7 +30,8 @@ semantics document says so (``{"present": false}``) rather than carrying empty f
 a reader can tell "nothing to watch" from "nobody wrote it down".
 
 A measure's unit, on a column's binding and on a metric over that measure, is compared
-with the table semantics when they are given (``_unit_mark``): a unit none of the
+with the table semantics when they are given (``_unit_mark``, on the rule
+``catalog_units.unit_support`` keeps for the index page too): a unit none of the
 attribute's bound columns has in the material is marked as not given by it and
 unconfirmed, and a measure with no unit says whether the material gives one
 (``material_unit``). Without semantics nothing is compared and the pack is unchanged.
@@ -55,6 +56,7 @@ from .catalog_joins import (
     uncovered,
 )
 from .catalog_query import find_concepts, find_metrics
+from .catalog_units import SUPPORTED, UNJUDGED, material_documents, unit_support
 from .catalog_view import CatalogView, catalog_table_name, realises
 
 __all__ = ["CONTEXT_FORMAT", "context_pack", "render_context_text"]
@@ -88,9 +90,7 @@ def context_pack(
     columns to them. Neither changes a concept or a column.
     """
     view = CatalogView(document)
-    documents = {
-        catalog_table_name(name).lower(): doc for name, doc in (semantics or {}).items()
-    }
+    documents = material_documents(semantics)
     # what a measure's unit is compared with (``_unit_mark``); None without semantics
     material = documents if semantics is not None else None
     tables = list(tables)
@@ -872,31 +872,20 @@ def _unit_mark(
     """``material_unit`` of a measure's unit (``unit``: the attribute's own, or that of a
     metric over it), or None when there is nothing to mark.
 
-    The material is the table-semantics documents (``material``; None without them). The
-    judgement is the attribute's: when any column bound to it has a ``unit`` in its table's
-    document, a unit is supported and carries no mark. Otherwise a unit is marked
-    ``{"given": false}`` (the catalog filled it in, unconfirmed), and so is no unit; no unit
-    while the material gives one is ``{"given": true, "units": [...]}``. An attribute none of
-    whose bound columns a document describes is not judged, nor is one that is not a measure.
+    The material is the table-semantics documents (``material``; None without them), and
+    the judgement is ``unit_support``'s, the attribute's. A supported unit carries no mark.
+    An unsupported one is marked ``{"given": false}`` (the catalog filled it in,
+    unconfirmed), and so is no unit; no unit while the material gives one is
+    ``{"given": true, "units": [...]}``. An attribute that cannot be judged, or is not a
+    measure, carries no mark.
     """
-    if material is None or attribute.get("category") != "measure":
+    if material is None:
         return None
-    described = False
-    units: list[str] = []
-    for rep, binding in view.bindings_of(attribute["id"]):
-        document = material.get(rep["table"].lower()) or {}
-        folded = binding["column"].casefold()
-        for column in document.get("columns") or []:
-            if str(column.get("column", "")).casefold() != folded:
-                continue
-            described = True
-            given = str(column.get("unit") or "").strip()
-            if given and given not in units:
-                units.append(given)
-    if not described:
+    support = unit_support(view, attribute, material)
+    if support is None or support.outcome == UNJUDGED:
         return None
-    if units:
-        return None if unit else {"given": True, "units": units}
+    if support.outcome == SUPPORTED:
+        return None if unit else {"given": True, "units": list(support.units)}
     return {"given": False}
 
 

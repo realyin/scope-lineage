@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- **Changed: `catalog render`'s `index.md` opens with what to look at before using the catalog.**
+  The governance gap summary moves from the end of the page to before the concept listing, under
+  「用之前先看」, after two fixed sentences: the page states what the catalog has and lacks
+  structurally (whether answers are right is a matter of acceptance testing), and question answering
+  uses the built catalog file together with the table-semantics documents. The rest of the page,
+  and every other page, is unchanged.
+- **New: `catalog render --docs <dir>`** takes the directory of table-semantics documents (the one
+  `catalog context --semantics` takes; `--semantics` keeps meaning the rendered table pages, used for
+  links). With it the summary gains two rows -- tables whose unique key lineage proved, and how many
+  of those their document calls not unique (only for a catalog built with `--lineage`); measure
+  attributes whose unit the material supports -- and a section 「按表看」 lists every table in name
+  order: concept, key evidence and what the document says about uniqueness (with lineage evidence
+  only), measure columns and how many of them have no unit in the material, unmapped columns, and
+  watch items with how many contradict the material. A table no document covers shows `—` in the
+  cells that need one, and the totals say how many tables they count. Without `--docs` nothing is
+  added. Runbook step S10g passes `--docs`.
+- **Changed (internal): the rule deciding whether the material supports a measure's unit lives in
+  `render/catalog_units.py`** and tells supported, not supported and cannot be judged apart; the
+  context pack and the index both use it, and the context pack's output is unchanged.
 - **Changed: a measure whose unit the material does not give gets no unit, instead of a provisional
   one.** The catalog drafting templates (T5, T6 in skill `scope-lineage-ontology`) used to tell the
   drafter to fill in a unit from the column comment when the digest gave none, so a guessed unit read

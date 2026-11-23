@@ -1,8 +1,11 @@
 """``catalog render``: the built ``ontology-json/3`` document as a set of markdown pages.
 
-- ``index.md`` -- the concepts by domain (name, kind, definition, how many tables carry
-  it, status), the identifiers, the code sets and the tables their values are looked up
-  in, and a summary of the governance gaps;
+- ``index.md`` -- first what to look at before using the catalog: what the page is
+  (structure, not whether answers are right), what question answering uses, and the
+  summary of the governance gaps; given the table-semantics documents, two more summary
+  rows and a row per table (``catalog_index_tables``); then the concepts by domain (name,
+  kind, definition, how many tables carry it, status), the identifiers, and the code sets
+  and the tables their values are looked up in;
 - ``concepts/<slug>.md`` -- one page per concept (``catalog_concept_page``): a one-page
   overview in plain Chinese, then the seven detailed sections as its appendix;
 - ``identifiers.md`` -- every identifier in full, with the columns bound to it;
@@ -35,7 +38,9 @@ from .catalog_concept_page import (
     table_row,
 )
 from .catalog_gaps import concept_gaps, conflict_text, share_text
+from .catalog_index_tables import by_table_lines, summary_rows
 from .catalog_scopes import SCOPES_FILENAME, cited_rules, render_scopes
+from .catalog_units import material_documents
 from .catalog_view import (
     BINDING_TEXT,
     KIND_TEXT,
@@ -55,15 +60,22 @@ INDEX_FILENAME = "index.md"
 IDENTIFIERS_FILENAME = "identifiers.md"
 CODE_SETS_FILENAME = "code_sets.md"
 GOVERNANCE_FILENAME = "governance.md"
+USE_FIRST_HEADING = "## 用之前先看"
+STRUCTURE_ONLY = "本页只说明目录在结构上有什么、缺什么；答得对不对要靠验收。"
+ANSWERING_USES = "问数用的是构建出的目录文件，加上表语义文档目录。"
 
 
 def render_catalog_pages(
-    document: Mapping, semantic_pages: Optional[Mapping[str, str]] = None
+    document: Mapping,
+    semantic_pages: Optional[Mapping[str, str]] = None,
+    semantic_docs: Optional[Mapping[str, Mapping]] = None,
 ) -> dict[str, str]:
     """``{relative path: markdown}`` for every page, in a stable order.
 
     ``semantic_pages`` (``db.table -> link relative to concepts/``) links each table a
     concept page lists to its ``semantic render`` page; without it nothing changes.
+    ``semantic_docs`` (``db.table -> table-semantics document``) adds what the index
+    counts from the documents (``catalog_index_tables``); without it nothing changes.
     """
     if document.get("doc_format") != ONTOLOGY_FORMAT:
         raise ValueError(
@@ -71,7 +83,9 @@ def render_catalog_pages(
         )
     view = CatalogView(document, semantic_pages)
     pages = {
-        INDEX_FILENAME: render_index(view),
+        INDEX_FILENAME: render_index(
+            view, None if semantic_docs is None else material_documents(semantic_docs)
+        ),
         IDENTIFIERS_FILENAME: render_identifiers(view),
         CODE_SETS_FILENAME: render_code_sets(view),
         GOVERNANCE_FILENAME: render_governance(view),
@@ -91,17 +105,21 @@ def _concept_link(view: CatalogView, concept_id: str) -> str:
 # -------------------------------------------------------------------- index.md
 
 
-def render_index(view: CatalogView) -> str:
+def render_index(view: CatalogView, docs: Optional[Mapping[str, Mapping]] = None) -> str:
+    """The index; ``docs`` (keyed by ``material_documents``) adds what they let it count."""
     catalog = view.document["catalog"]
     lines = [f"# 本体目录：{catalog['name']}", ""]
     if catalog.get("description"):
         lines += [cell(catalog["description"]), ""]
-    lines += [_index_summary(view), "", "## 概念"]
+    lines += [_index_summary(view), "", USE_FIRST_HEADING, "", STRUCTURE_ONLY, ""]
+    lines += [ANSWERING_USES, "", *_gap_summary(view, docs)]
+    if docs is not None:
+        lines += ["", *by_table_lines(view, docs, lambda c: _concept_link(view, c))]
+    lines += ["", "## 概念"]
     for domain_id in sorted(view.domains):
         lines += ["", *_domain_block(view, domain_id)]
     lines += ["", "## 标识符", "", *_identifier_summary(view)]
     lines += ["", "## 码值集", "", _code_set_summary(view)]
-    lines += ["", "## 治理缺口", "", *_gap_summary(view)]
     lines += ["", "## 记录范围与有效性", "", _scope_summary(view)]
     return "\n".join(lines) + "\n"
 
@@ -168,7 +186,7 @@ def _identifier_summary(view: CatalogView) -> list[str]:
     return lines + ["", f"完整说明见 [{IDENTIFIERS_FILENAME}]({IDENTIFIERS_FILENAME})。"]
 
 
-def _gap_summary(view: CatalogView) -> list[str]:
+def _gap_summary(view: CatalogView, docs: Optional[Mapping[str, Mapping]] = None) -> list[str]:
     all_gaps = [concept_gaps(view, concept_id) for concept_id in sorted(view.concepts)]
     drafted, total = _document_drafted(view)
     rows = [
@@ -188,6 +206,8 @@ def _gap_summary(view: CatalogView) -> list[str]:
             ),
             ("无连接证据的关系", str(len({r for g in all_gaps for r in g.unjoined_relations}))),
         ]
+    if docs is not None:
+        rows += summary_rows(view, docs)
     lines = table_head("缺口", "数量") + [table_row(name, value) for name, value in rows]
     return lines + ["", f"逐项明细见 [{GOVERNANCE_FILENAME}]({GOVERNANCE_FILENAME})。"]
 
