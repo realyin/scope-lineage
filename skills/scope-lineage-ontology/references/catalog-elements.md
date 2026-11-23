@@ -533,6 +533,12 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
   JOIN 读值的列；`read_by` 为空（`read by no column`）的是死关联或只用来过滤行，不是码值集的证据，起草时
   不为它建码值集——码值集只为有列读取的 `where` 组合建。顺序取这些列回退的顺序，不取 JOIN 书写顺序；两列回退顺序相反时保留 JOIN 顺序，并用
   `key_of_order: "unknown"` 标明。
+- `joined_in`：只在度量列上，这个值从哪些 JOIN 的右侧带进来，一项一个 JOIN：`{rule, keys, fan_out}`，`rule` 是血缘里
+  这个 JOIN 的逻辑块 id（与 `lookups[].rule` 同一套编号），`keys` 是它的左侧连接键沿直传对到的**本表**列名，`fan_out` 是
+  按这条语句自己判定的放大状态（`safe` / `risk` / `unknown`，不读表卡片，可能比材料包保守）。只记第一层聚合之上的
+  JOIN（聚合之下的被聚合折叠）；连接键有一个对不到本表的列就不写这一项；几条语句写同一列时各写各的，并带
+  `source`（`<任务>/<语句>`）。不比较、不按 `fan_out` 过滤：键没盖住这张表的行粒度时，同键的多行带同一个值，比较由
+  `catalog_check.py` 做。md 写 `joined in through <rule> on <键> (fan-out: <状态>)`；
 
 什么算：只有经 JOIN 进入（或途经被关联的子查询 / CTE）的值才有条件；条件是与字符串字面量的单个等值比较，
 写在 JOIN 的 `ON` 里、被关联子查询 / CTE 的 `WHERE` 里，或同一查询 `WHERE` 里限定被关联别名本身的位置。
@@ -549,7 +555,7 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 相同）的 `lookups` 项也加上：这个关联挑的是描述同一条记录的行——这个实体的属性行、这次通话的参与方——不是码值
 翻译。读出的列是属性，不是码值集的证据。键是外部标识列的读取不带这个标记，仍可能是别的实体的属性行。
 
-`key`、`lookups_by`、`source`、`other_sources`、`code_set_mismatch` 与 `keyed_by` 不改 `catalog-digest/1`；
+`key`、`lookups_by`、`source`、`other_sources`、`code_set_mismatch`、`keyed_by` 与 `joined_in` 不改 `catalog-digest/1`；
 两处含义收窄：`fallback` 只是同来源内的真回退，已知关联列时 `code_set` 要求关联列匹配。
 
 ```json

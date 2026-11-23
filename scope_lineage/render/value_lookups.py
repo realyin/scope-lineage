@@ -11,6 +11,14 @@ of the scopes a joined value passes through -- but no layer projects it per colu
 module does, for ``catalog digest --lineage`` only; the lineage contract, the profile and
 the packets are unchanged.
 
+It also gives each column ``joined_in``: every JOIN whose right side its value enters
+through, above the first aggregate on the path (a JOIN below an aggregate is folded by it).
+Each entry is the JOIN's rule id, its left keys as columns of the written table -- written
+only when every key reaches one by pass-through steps -- and the fan-out status the
+profile's own judgement gives that JOIN from the statement alone (no table cards). A
+value summed by a coarser key and joined back onto finer rows repeats on the rows that
+share the key; this is the fact that says so, and no comparison is made here.
+
 What counts, and what does not:
 
 - Only a value that enters its scope through a JOIN (or passes through a joined subtree)
@@ -43,6 +51,7 @@ from sqlglot import exp
 
 from ..catalog.digest import bare_table
 from . import semantic_text
+from .semantic_profile import _exposed_target_columns, _fan_out_verdict
 from .glossary_values import (
     CONTEXT_FILTER_EQ,
     VALUE_KIND_LITERAL,
@@ -69,7 +78,8 @@ def column_lookups(
     "written, nothing to add" from "no writing statement". A column's facts are
     ``lookups`` (with ``fallback``) when its value is read through a joined input with
     constant conditions, else ``key_of`` (with ``key_of_order`` when its readers
-    disagree) when it is the join key of such reads; columns with neither are absent.
+    disagree) when it is the join key of such reads; and ``joined_in`` (module docstring)
+    when it has such JOINs. Columns with none of these are absent.
     """
     test = is_partition or (lambda _reference, _conjunct: False)
     tables: dict[str, dict[str, _Column]] = {}
@@ -162,13 +172,28 @@ class _Column:
     lookups: list = field(default_factory=list)
     direct: list = field(default_factory=list)  # (source, db.table.column) stored as read
     key_of: list = field(default_factory=list)
+    joined_in: list = field(default_factory=list)  # (statement, rule, keys, fan-out status)
 
     def published(self, siblings: Mapping[str, "_Column"]) -> dict:
         if self.lookups:
-            return self._published_lookups()
-        if not self.key_of:
-            return {}
-        return self._published_key_of(siblings)
+            facts = self._published_lookups()
+        elif self.key_of:
+            facts = self._published_key_of(siblings)
+        else:
+            facts = {}
+        if self.joined_in:
+            facts["joined_in"] = self._published_joined_in()
+        return facts
+
+    def _published_joined_in(self) -> list[dict]:
+        """One entry a JOIN; ``source`` (``<task>/<statement>``) when several statements
+        write the column."""
+        several = len({statement for statement, *_ in self.joined_in}) > 1
+        return [
+            {"rule": rule, "keys": list(keys), "fan_out": status,
+             **({"source": "/".join(statement)} if several else {})}
+            for statement, rule, keys, status in self.joined_in
+        ]
 
     def _published_lookups(self) -> dict:
         """``lookups`` with ``fallback``; split by source when the rows come from several.
@@ -219,8 +244,10 @@ class _Column:
 class _StatementReader:
     def __init__(self, statement_key: tuple, statement: Mapping, is_partition: PartitionTest):
         self.key = statement_key
+        self.statement = statement
         self.scopes: Mapping = statement.get("scopes") or {}
         self.is_partition = is_partition
+        self._exposed: Optional[dict] = None
         self.refs = {
             scope_id: {
                 str(ref.get("input_ref_id")): ref
@@ -235,6 +262,9 @@ class _StatementReader:
     def read(self, target: str, columns: dict) -> None:
         for name, scope_id, output in self._written(target):
             column = columns.setdefault(name, _Column(name))
+            for hop in self._joined_in(scope_id, output):
+                if hop not in column.joined_in:
+                    column.joined_in.append(hop)
             leaves, visited = self._trace_output(scope_id, output)
             reads = [self._read(leaf) for leaf in leaves]
             lookups = [read for read in reads if read is not None]
@@ -275,6 +305,59 @@ class _StatementReader:
                     if bare_table(table) == target and name not in taken:
                         taken.add(name)
                         yield name, scope_id, output
+
+    # -------------------------------------------------------------- joined in
+
+    def _joined_in(self, scope_id: str, output: Mapping) -> list[tuple]:
+        """``(statement, rule, keys, fan-out status)`` of each JOIN the value enters
+        through from the right side, above the first aggregate, whose left keys all reach
+        a column of the written table (``_exposed_target_columns``)."""
+        found: list[tuple] = []
+        self._walk_joins(scope_id, output, frozenset(), found)
+        return found
+
+    def _walk_joins(self, scope_id: str, output: Mapping, seen: frozenset, found: list) -> None:
+        key = (scope_id, str(output.get("name")).lower())
+        if key in seen or len(seen) > _MAX_DEPTH or output.get("transform") == "AGGREGATE":
+            return
+        for source in output.get("sources") or []:
+            ref_id = str(source.get("input_ref_id") or "")
+            ref = self.refs.get(scope_id, {}).get(ref_id, {})
+            if ref.get("position") == "join":
+                hop = self._hop(scope_id, ref_id)
+                if hop is not None and hop not in found:
+                    found.append(hop)
+            inner = source.get("scope")
+            if inner not in self.scopes:
+                continue
+            column = str(source.get("column") or "").lower()
+            for below in (self.scopes.get(inner) or {}).get("outputs") or []:
+                if str(below.get("name")).lower() == column:
+                    self._walk_joins(inner, below, seen | {key}, found)
+                    break
+
+    def _hop(self, scope_id: str, ref_id: str) -> Optional[tuple]:
+        block = self._join_block(scope_id, ref_id)
+        if not block:
+            return None
+        detail = block.get("join_relation_detail") or {}
+        if self._exposed is None:
+            self._exposed = _exposed_target_columns(dict(self.statement))
+        keys: list[str] = []
+        for pair in detail.get("join_key_pairs") or []:
+            left, right = pair.get("left") or {}, pair.get("right") or {}
+            if str(right.get("input_ref_id")) != ref_id:
+                continue
+            column = self._exposed.get(f"{left.get('scope')}.{left.get('column')}")
+            if column is None:
+                return None
+            if column.lower() not in keys:
+                keys.append(column.lower())
+        if not keys:
+            return None
+        rule = str(block.get("logic_block_id"))
+        status = _fan_out_verdict(dict(self.statement), rule, detail)[0]
+        return (self.key, rule, tuple(keys), status)
 
     # -------------------------------------------------------------- value paths
 

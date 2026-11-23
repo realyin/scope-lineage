@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- **New: `catalog digest --lineage` says which JOINs a measure's value is brought in through
+  (`joined_in`).** Each measure column gains a list of `{rule, keys, fan_out}`: the JOIN whose right side
+  the value enters through (its logic block id, the numbering `lookups[].rule` uses), its left join
+  keys as columns of this table, and the fan-out status the statement alone gives that JOIN (`safe` /
+  `risk` / `unknown`; no table cards). Only JOINs above the first aggregate on the path count, an entry
+  is written only when every key reaches a column of this table, and several statements writing the
+  column add their own entries with `source`. Nothing is compared or filtered; `digest.md` adds
+  `joined in through <rule> on <keys> (fan-out: <status>)` under "Joined inputs read". Contract
+  decision: `catalog-digest/1` does not move (an additive key). Without `--lineage` the digest is
+  unchanged; the runbook always passes `--lineage`, so every drafting input built that way gains
+  these lines.
 - **Changed: a table-semantics document may hold up to eight open questions (was five).** Check 7
   (`sources`) fails above eight. The writer prompt (`table-semantics-prompt@14`) says at most eight,
   ordered by impact, with no padding by questions that do not change how the table is read; the fix

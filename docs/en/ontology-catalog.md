@@ -1586,6 +1586,17 @@ binding's `holds` are written from, so the drafter need not go back to the SQL f
   `key_of_order: "unknown"` says so. A read with an empty `read_by` (`read by no column`) is a
   dead join or a row filter, not evidence for a code set, and drafting builds none for it --
   code sets are built only for the `where` combinations some column reads.
+- `joined_in`: on a measure column only, the JOINs whose right side the value is brought in
+  through, one entry a JOIN: `{rule, keys, fan_out}` -- `rule` the JOIN's logic block id in
+  the lineage (the numbering `lookups[].rule` uses), `keys` its left join keys as the columns
+  of **this** table they reach by pass-through steps, `fan_out` the fan-out status the
+  statement alone gives it (`safe` / `risk` / `unknown`; no table cards, so it may be more
+  cautious than the packet's). Only JOINs above the first aggregate on the path count (one
+  below is folded by it); an entry is written only when every key reaches a column of this
+  table; several statements writing the column add their own entries with `source`
+  (`<task>/<statement>`). Nothing is compared or filtered by `fan_out`: keys that do not cover
+  the table's row grain mean rows sharing the key carry the same value, and `catalog_check.py`
+  makes that comparison. The md says `joined in through <rule> on <keys> (fan-out: <status>)`.
 
 What counts: only a value that enters through a JOIN (or passes through a joined
 subquery / CTE) has conditions; a condition is a single equality with a string literal, in
@@ -1614,7 +1625,7 @@ an attribute, not evidence for a code set. A read keyed by a foreign identifier 
 mark and may still be another entity's attribute row.
 
 `catalog-digest/1` does not move with `key`, `lookups_by`, `source`, `other_sources`,
-`code_set_mismatch` and `keyed_by`; two meanings narrow: `fallback` is a true fallback of the
+`code_set_mismatch`, `keyed_by` and `joined_in`; two meanings narrow: `fallback` is a true fallback of the
 same source only, and `code_set` needs a matching join column when the key is known.
 
 ```json
