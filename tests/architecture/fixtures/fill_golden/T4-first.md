@@ -34,7 +34,7 @@
 
 通过 = `exit=0` 且汇总行 `… 0 with failures …`。只修失败项，**最多 2 轮**。2 轮后仍有 FAIL：停下，不跑 `semantic fixed`，
 不要为了通过改写成 `questions` / `watch`，在回复里原样列出 FAIL（调用方会处理这张表）。WARN 的保留规则同写作（`[10 fan_out]` 推翻句、
-拉链表的 `[9 time]`、`VALUES` 关联键的 `[2 source_columns]`）。
+拉链表、维表或整分区重算而日期过滤只是从上游挑一个版本的表的 `[9 time]`、`VALUES` 关联键的 `[2 source_columns]`）。
 
 **收尾**（提示词第 5 步，必须是最后一步）
 

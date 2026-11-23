@@ -10,14 +10,18 @@ cites, and one line a column. ``context_pack`` returns exactly that, and a named
 full. Provenance (``sources``, ``confidence``), upstream tables and the processing steps stay
 in the document: they explain how the table was built, not how to query it. The tasks and
 tables that read the table are kept, because "what does a change here reach" is a question
-readers ask of a table.
+readers ask of a table. Under a table each constraint on its concept says which tables it
+comes from (``catalog_scopes.constraint_tables``) and how they relate to this table in the
+catalog's lineage evidence (``_table_constraints``), since a condition from an upstream, a
+downstream or an unrelated table means different things here.
 
 Two options shorten a table's pack for an agent that asks many questions. ``brief`` keeps
 every item that decides how to query -- the catalog facts, what a row is, how to read it,
 scope, not-for, watch items, open questions, the text of the cited rules -- and shortens the
 parts that are long and do not: each column is named with its category but not described,
-a cited rule loses its SQL, and a downstream reader is named by the table it writes (its
-task only when it writes none). ``focus`` narrows a table's watch items, open questions and
+a cited rule loses its SQL, a downstream reader is named by the table it writes (its
+task only when it writes none), and a join column's sample JOINs between two tables both
+outside the catalog are counted rather than listed. ``focus`` narrows a table's watch items, open questions and
 cited rules to the requested columns of that table: an item names a column by a
 ``column:<name>`` reference (``refs`` of a watch item, ``about`` of a question), and one that
 names no column is about the whole table and always stays. A rule carries no column
@@ -28,12 +32,22 @@ Both inputs are plain dicts: the built ``ontology-json/3`` document and
 ``{db.table: table-semantics document}``. Nothing is read from disk here. A table with no
 semantics document says so (``{"present": false}``) rather than carrying empty fields, so
 a reader can tell "nothing to watch" from "nobody wrote it down".
+
+A measure's unit, on a column's binding and on a metric over that measure, is compared
+with the table semantics when they are given (``unit_mark``, on the rule
+``catalog_units.unit_support`` keeps for the index page too): a unit none of the
+attribute's bound columns has in the material is marked as not given by it and
+unconfirmed, and a measure with no unit says whether the material gives one
+(``material_unit``). Without semantics nothing is compared and the pack is unchanged.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Optional
+
+from ..catalog.soft_checks import UNIT_LEFT_TO_OWNER
 
 from .catalog_gaps import conflict_text
 from .catalog_joins import (
@@ -49,6 +63,8 @@ from .catalog_joins import (
     uncovered,
 )
 from .catalog_query import find_concepts, find_metrics
+from .catalog_scopes import constraint_tables
+from .catalog_units import SUPPORTED, UNJUDGED, material_documents, unit_support
 from .catalog_view import CatalogView, catalog_table_name, realises
 
 __all__ = ["CONTEXT_FORMAT", "context_pack", "render_context_text"]
@@ -82,9 +98,9 @@ def context_pack(
     columns to them. Neither changes a concept or a column.
     """
     view = CatalogView(document)
-    documents = {
-        catalog_table_name(name).lower(): doc for name, doc in (semantics or {}).items()
-    }
+    documents = material_documents(semantics)
+    # what a measure's unit is compared with (``unit_mark``); None without semantics
+    material = documents if semantics is not None else None
     tables = list(tables)
     expanded, unplaced = _table_columns(view, documents, tables, list(columns), table_columns)
     query: dict = {"tables": tables, "columns": expanded, "concepts": list(concepts)}
@@ -102,7 +118,7 @@ def context_pack(
     }
     focused = _requested_columns(view, query["columns"]) if focus else {}
     for term in pack["query"]["concepts"]:
-        _concept_term(view, term, pack)
+        _concept_term(view, term, pack, material)
     for term in pack["query"]["tables"]:
         rep = view.representation(term)
         if rep is None:
@@ -119,7 +135,7 @@ def context_pack(
             _link(view, a, b) for i, a in enumerate(reps) for b in reps[i + 1:]
         ]
     for term in pack["query"]["columns"]:
-        answer = _column(view, term, documents)
+        answer = _column(view, term, documents, material)
         if answer is None:
             pack["missing"].append({"kind": "column", "term": term})
         else:
@@ -128,7 +144,9 @@ def context_pack(
     return pack
 
 
-def _concept_term(view: CatalogView, term: str, pack: dict) -> None:
+def _concept_term(
+    view: CatalogView, term: str, pack: dict, material: Optional[Mapping] = None
+) -> None:
     """Add the concepts one ``--concept`` term names to the pack, or a ``missing`` entry.
 
     A concept is looked for first (by id, the id without ``concept:`` -- the page name --,
@@ -137,7 +155,9 @@ def _concept_term(view: CatalogView, term: str, pack: dict) -> None:
     first and named in ``via_metric``."""
     found = find_concepts(view, term) or find_concepts(view, f"concept:{term}")
     if found:
-        pack["concepts"].extend(_concept(view, concept) for concept, _ in found)
+        pack["concepts"].extend(
+            _concept(view, concept, material=material) for concept, _ in found
+        )
         return
     metrics = find_metrics(view, term) or find_metrics(view, f"metric:{term}")
     if not metrics:
@@ -149,7 +169,7 @@ def _concept_term(view: CatalogView, term: str, pack: dict) -> None:
                 {"kind": "concept", "term": term, "metric": _metric_ref(metric)}
             )
         else:
-            pack["concepts"].append(_concept(view, concept, via=metric))
+            pack["concepts"].append(_concept(view, concept, via=metric, material=material))
 
 
 def _table_columns(
@@ -240,7 +260,12 @@ def _ref(view: CatalogView, object_id: str) -> dict:
 # ------------------------------------------------------------------ concept
 
 
-def _concept(view: CatalogView, concept: Mapping, via: Optional[Mapping] = None) -> dict:
+def _concept(
+    view: CatalogView,
+    concept: Mapping,
+    via: Optional[Mapping] = None,
+    material: Optional[Mapping] = None,
+) -> dict:
     """A concept's entry; reached through the metric ``via``, that metric comes first."""
     concept_id = concept["id"]
     metrics = view.metrics_on(concept_id)
@@ -258,7 +283,7 @@ def _concept(view: CatalogView, concept: Mapping, via: Optional[Mapping] = None)
             for rep in view.representations_of(concept_id)
         ],
         "constraints": _constraints(view, concept_id),
-        "metrics": [_metric(view, metric) for metric in metrics],
+        "metrics": [_metric(view, metric, material) for metric in metrics],
     }
     if via is not None:
         answer["via_metric"] = _metric_ref(via)
@@ -271,20 +296,101 @@ def _metric_ref(metric: Mapping) -> dict:
     return {"id": metric["id"], "name": metric.get("name") or metric["id"]}
 
 
+def _constraint(view: CatalogView, constraint: Mapping) -> dict:
+    return {
+        "id": constraint["id"],
+        "kind": constraint["kind"],
+        "on": _ref(view, constraint["on"]),
+        "expression": constraint.get("expression"),
+        "strength": constraint.get("strength"),
+    }
+
+
 def _constraints(view: CatalogView, concept_id: str) -> list[dict]:
-    return [
-        {
-            "id": c["id"],
-            "kind": c["kind"],
-            "on": _ref(view, c["on"]),
-            "expression": c.get("expression"),
-            "strength": c.get("strength"),
-        }
-        for c in view.constraints_on(concept_id)
-    ]
+    """A concept's constraints, each with the tables it comes from (``constraint_tables``)
+    when it names any."""
+    found = []
+    for constraint in view.constraints_on(concept_id):
+        entry = _constraint(view, constraint)
+        tables = constraint_tables(view, constraint)
+        if tables:
+            entry["tables"] = tables
+        found.append(entry)
+    return found
 
 
-def _metric(view: CatalogView, metric: Mapping) -> dict:
+# How a constraint's source tables relate to the table it is listed under, in the order
+# a constraint takes the first that holds and the text lists them.
+THIS_TABLE, UPSTREAM, DOWNSTREAM, UNRELATED, OTHER_TABLE = (
+    "this_table", "upstream", "downstream", "unrelated", "other_table",
+)
+
+
+def _table_constraints(view: CatalogView, rep: Mapping) -> tuple[list[dict], dict]:
+    """The constraints on a table's concept, each saying how its sources relate to the
+    table, and ``{relation: n}`` of those from other tables left out for being on an
+    attribute the table binds no column to (one from this table's own rules is always
+    listed, so that segment is what ``catalog query table`` lists).
+
+    A constraint from this table's rules is ``this_table``. Otherwise, with lineage
+    evidence in the catalog, it is ``upstream`` when a source is upstream of this table
+    (``also_downstream`` names its sources that read this table), else ``downstream``,
+    else ``unrelated`` -- upstream and downstream followed through catalog tables only.
+    Without lineage evidence it is ``other_table``. A constraint naming no table is listed
+    as it always was: no ``tables``, no ``relation``.
+    """
+    table = rep["table"]
+    lineage = view.lineage_checked()
+    upstream = _reach(view, table, "upstream_tables") if lineage else set()
+    downstream = _reach(view, table, "downstream_tables") if lineage else set()
+    bound = {b.get("ref") for b in rep["bindings"] if b.get("ref")}
+    listed: list[dict] = []
+    unbound: dict[str, int] = {}
+    for constraint in view.constraints_on(rep["concept"]):
+        entry = _constraint(view, constraint)
+        tables = constraint_tables(view, constraint)
+        if not tables:
+            listed.append(entry)
+            continue
+        if table in tables:
+            relation, both = THIS_TABLE, []
+        elif not lineage:
+            relation, both = OTHER_TABLE, []
+        elif any(t in upstream for t in tables):
+            relation, both = UPSTREAM, [t for t in tables if t in downstream]
+        elif any(t in downstream for t in tables):
+            relation, both = DOWNSTREAM, []
+        else:
+            relation, both = UNRELATED, []
+        if (
+            relation != THIS_TABLE
+            and constraint["on"] in view.attributes
+            and constraint["on"] not in bound
+        ):
+            unbound[relation] = unbound.get(relation, 0) + 1
+            continue
+        entry.update(tables=tables, relation=relation)
+        if both:
+            entry["also_downstream"] = both
+        listed.append(entry)
+    return listed, unbound
+
+
+def _reach(view: CatalogView, table: str, key: str) -> set[str]:
+    """The catalog tables reached from ``table`` by following the lineage evidence's
+    ``upstream_tables`` or ``downstream_tables``, hop after hop, through catalog tables."""
+    found: set[str] = set()
+    todo = [table]
+    while todo:
+        for name in view.rep_evidence(todo.pop()).get(key) or []:
+            rep = view.representation(name)
+            if rep is not None and rep["table"] != table and rep["table"] not in found:
+                found.add(rep["table"])
+                todo.append(rep["table"])
+    return found
+
+
+def _metric(view: CatalogView, metric: Mapping, material: Optional[Mapping] = None) -> dict:
     by_id = {c["id"]: c for c in view.constraints}
     answer = {
         key: metric[key]
@@ -302,12 +408,37 @@ def _metric(view: CatalogView, metric: Mapping) -> dict:
                 f"{rep['table']}.{binding['column']}" for rep, binding in view.bindings_of(measure)
             ],
         }
+        if measure in view.attributes:
+            mark = unit_mark(view, view.attributes[measure][0], metric.get("unit"), material)
+            if mark is not None:
+                answer["material_unit"] = mark
     answer["dimensions"] = [_ref(view, d) for d in metric.get("dimensions") or []]
     answer["constraints"] = [
         {"id": c, "expression": (by_id.get(c) or {}).get("expression")}
         for c in metric.get("constraints") or []
     ]
+    notes = shown_notes(metric.get("notes"), answer.get("material_unit"))
+    if notes:
+        answer["notes"] = notes
     return answer
+
+
+_CLAUSE_END = re.compile(r"(?<=[。；;])")
+
+
+def shown_notes(notes, mark: Optional[Mapping]) -> Optional[str]:
+    """An item's ``notes`` as the answer prints them, or None when there is nothing to say.
+
+    Where the answer already says the material gives no unit (``material_unit`` with
+    ``given: false``), the sentence leaving the unit to the owner says the same and is left
+    out; every other sentence is kept as written."""
+    text = "；".join(str(note) for note in notes) if isinstance(notes, list) else str(notes or "")
+    if mark is not None and not mark.get("given"):
+        text = "".join(
+            clause for clause in _CLAUSE_END.split(text)
+            if clause.strip().rstrip("。；; ") != UNIT_LEFT_TO_OWNER
+        )
+    return text.strip() or None
 
 
 # -------------------------------------------------------------------- links
@@ -601,12 +732,14 @@ def _table(
             if b.get("time_role")
         ],
         **({"partition": _partition(rep)} if partition_reading(rep) else {}),
-        "joins": _joins(view, rep),
-        "constraints": _constraints(view, concept_id),
-        "metrics": [
-            {"id": m["id"], "name": m["name"]} for m in view.metrics_on(concept_id)
-        ],
+        "joins": _joins(view, rep, brief=brief),
     }
+    answer["constraints"], unbound = _table_constraints(view, rep)
+    if unbound:
+        answer["constraints_unbound"] = unbound
+    answer["metrics"] = [
+        {"id": m["id"], "name": m["name"]} for m in view.metrics_on(concept_id)
+    ]
     conflicts = view.rep_evidence(rep["table"]).get("conflicts")
     if conflicts:
         answer["conflicts"] = [
@@ -617,8 +750,11 @@ def _table(
     return answer
 
 
-def _joins(view: CatalogView, rep: Mapping) -> list[dict]:
-    """One entry per foreign-key column: the identifier it holds and where that key lives."""
+def _joins(view: CatalogView, rep: Mapping, *, brief: bool = False) -> list[dict]:
+    """One entry per foreign-key column: the identifier it holds and where that key lives.
+
+    ``brief`` folds the JOINs whose two tables are both outside the catalog into a count
+    (``seen_outside_catalog``); a JOIN involving a catalog table is always listed."""
     found = []
     for binding in rep["bindings"]:
         if binding["to"] != "foreign_identifier" or not binding.get("ref"):
@@ -638,6 +774,10 @@ def _joins(view: CatalogView, rep: Mapping) -> list[dict]:
             "to": sorted(targets, key=lambda t: (t["table"], t["column"])),
             "seen": _seen(view, rep, binding, other),
         }
+        if brief:
+            outside = _fold_outside(view, join)
+            if outside:
+                join["seen_outside_catalog"] = outside
         if binding.get("derivation"):
             join["derivation"] = binding["derivation"]
         found.append(join)
@@ -645,8 +785,27 @@ def _joins(view: CatalogView, rep: Mapping) -> list[dict]:
 
 
 def _seen(view: CatalogView, rep: Mapping, binding: Mapping, other) -> list[dict]:
-    """The JOINs the corpus showed for the relations this column realises."""
-    seen = []
+    """The JOINs the corpus showed for the relations this column realises, kept to the
+    samples that involve this column, one entry for the same evidence.
+
+    The evidence is per relation, so two things went wrong when it was copied under every
+    column: a column naming no ``relation`` realises every parallel relation between the
+    two concepts, and each of them carried the same JOINs (now one entry, ``relations``
+    naming them all); and a relation's samples were listed under each column realising
+    it, whichever column they filled (now only those that involve this one: a JOIN inside
+    a producing task by the column it fills, a JOIN between catalog tables by its two
+    sides).
+
+    ``count`` is this column's: from the build's ``by_column`` when it is there (a column
+    it does not name has no entry; one whose JOINs kept no sample gets an entry with no
+    ``on``). A document built before ``by_column`` existed only has the relation's samples:
+    when they are all its JOINs, ``count`` is how many are this column's; when the build
+    cut them short, the JOINs left unsampled are ``unsampled`` -- whether they are this
+    column's is not recorded -- and when no kept sample is this column's the entry says so
+    (``count`` 0, ``relation_count``) rather than disappearing.
+    """
+    column = f"{rep['table']}.{binding['column']}".casefold()
+    seen: list[dict] = []
     for relation in view.relations_of(rep["concept"]):
         if other not in (relation["from"], relation["to"]):
             continue
@@ -656,14 +815,74 @@ def _seen(view: CatalogView, rep: Mapping, binding: Mapping, other) -> list[dict
             ("between_catalog_tables", view.relation_joins(relation["id"])),
             ("inside_producing_task", view.relation_source_joins(relation["id"])),
         ):
-            if joins and joins.get("count"):
-                seen.append({
-                    "relation": relation["id"],
-                    "where": where,
-                    "count": joins["count"],
-                    "on": [sample["on"] for sample in joins.get("samples") or []],
-                })
+            if not joins or not joins.get("count"):
+                continue
+            entry = _column_joins(joins, column)
+            if entry is None:
+                continue
+            same = next((s for s in seen if _same_evidence(s, where, entry)), None)
+            if same is not None:
+                same.setdefault("relations", [same["relation"]]).append(relation["id"])
+                continue
+            seen.append({"relation": relation["id"], "where": where, **entry})
     return seen
+
+
+def _column_joins(joins: Mapping, column: str) -> Optional[dict]:
+    """``{count, on[, unsampled, relation_count]}`` of one relation's JOINs for one
+    column (``_seen``), or None when they are not this column's."""
+    samples = joins.get("samples") or []
+    mine = [sample for sample in samples if _involves(sample, column)]
+    on = list(dict.fromkeys(sample["on"] for sample in mine))
+    if "by_column" in joins:
+        count = next(
+            (n for name, n in joins["by_column"].items() if str(name).casefold() == column), 0
+        )
+        return {"count": count, "on": on} if count else None
+    unsampled = joins["count"] - len(samples)
+    if samples and unsampled <= 0:
+        return {"count": len(mine), "on": on} if mine else None
+    if not samples:
+        return {"count": joins["count"], "on": []}
+    entry = {"count": len(mine), "on": on, "unsampled": unsampled}
+    if not mine:
+        entry["relation_count"] = joins["count"]
+    return entry
+
+
+def _same_evidence(seen: Mapping, where: str, entry: Mapping) -> bool:
+    keys = ("count", "on", "unsampled", "relation_count")
+    return seen["where"] == where and all(seen.get(k) == entry.get(k) for k in keys)
+
+
+def _involves(sample: Mapping, column: str) -> bool:
+    """Whether a sample JOIN is about ``db.table.column`` (lower case): the column a
+    JOIN inside a producing task fills, else one side of the JOIN's ``a = b``."""
+    if sample.get("column"):
+        return str(sample["column"]).casefold() == column
+    return column in {side.strip().casefold() for side in str(sample.get("on") or "").split(" = ")}
+
+
+def _fold_outside(view: CatalogView, join: dict) -> int:
+    """For ``--brief``: take out of ``join["seen"]`` the samples whose two tables are both
+    outside the catalog, an entry left with none dropped, and return how many there were."""
+    folded = 0
+    kept = []
+    for seen in join["seen"]:
+        inside = [on for on in seen["on"] if _names_catalog_table(view, on)]
+        folded += len(seen["on"]) - len(inside)
+        if inside or not seen["on"]:
+            kept.append({**seen, "on": inside})
+    join["seen"] = kept
+    return folded
+
+
+def _names_catalog_table(view: CatalogView, on: str) -> bool:
+    """Whether either side of ``a.t.c = b.t.c`` is a column of a catalog table."""
+    return any(
+        view.representation(side.strip().rpartition(".")[0]) is not None
+        for side in str(on).split(" = ")
+    )
 
 
 def _semantics(
@@ -757,7 +976,9 @@ def _pick(item: Mapping, keys: tuple) -> dict:
 # ------------------------------------------------------------------- column
 
 
-def _column(view: CatalogView, term: str, documents: Mapping) -> Optional[dict]:
+def _column(
+    view: CatalogView, term: str, documents: Mapping, material: Optional[Mapping] = None
+) -> Optional[dict]:
     address = _address(view, term)
     if address is None:
         return None
@@ -782,7 +1003,7 @@ def _column(view: CatalogView, term: str, documents: Mapping) -> Optional[dict]:
     return {
         "table": table,
         "column": name,
-        "catalog": _binding(view, table, binding) if binding else None,
+        "catalog": _binding(view, table, binding, material) if binding else None,
         "semantics": _described(described) if described else None,
         "watch": [
             _pick(item, ("kind", "text", "refs"))
@@ -809,7 +1030,9 @@ def _described(column: Mapping) -> dict:
     return answer
 
 
-def _binding(view: CatalogView, table: str, binding: Mapping) -> dict:
+def _binding(
+    view: CatalogView, table: str, binding: Mapping, material: Optional[Mapping] = None
+) -> dict:
     answer: dict = {"to": binding["to"]}
     ref = binding.get("ref")
     if ref:
@@ -818,8 +1041,16 @@ def _binding(view: CatalogView, table: str, binding: Mapping) -> dict:
             attribute = view.attributes[ref][0]
             if attribute.get("definition"):
                 answer["definition"] = attribute["definition"]
+            if attribute.get("type"):
+                answer["type"] = attribute["type"]
             if attribute.get("unit"):
                 answer["unit"] = attribute["unit"]
+            mark = unit_mark(view, attribute, attribute.get("unit"), material)
+            if mark is not None:
+                answer["material_unit"] = mark
+            notes = shown_notes(attribute.get("notes"), mark)
+            if notes:
+                answer["notes"] = notes
             values = [
                 {"code_set": code_set["id"], "values": [
                     _pick(value, ("value", "meaning", "retired", "unconfirmed"))
@@ -836,6 +1067,29 @@ def _binding(view: CatalogView, table: str, binding: Mapping) -> dict:
     if expression:
         answer["expression"] = expression
     return answer
+
+
+def unit_mark(
+    view: CatalogView, attribute: Mapping, unit, material: Optional[Mapping]
+) -> Optional[dict]:
+    """``material_unit`` of a measure's unit (``unit``: the attribute's own, or that of a
+    metric over it), or None when there is nothing to mark.
+
+    The material is the table-semantics documents (``material``; None without them), and
+    the judgement is ``unit_support``'s, the attribute's. A supported unit carries no mark.
+    An unsupported one is marked ``{"given": false}`` (the catalog filled it in,
+    unconfirmed), and so is no unit; no unit while the material gives one is
+    ``{"given": true, "units": [...]}``. An attribute that cannot be judged, or is not a
+    measure, carries no mark.
+    """
+    if material is None:
+        return None
+    support = unit_support(view, attribute, material)
+    if support is None or support.outcome == UNJUDGED:
+        return None
+    if support.outcome == SUPPORTED:
+        return None if unit else {"given": True, "units": list(support.units)}
+    return {"given": False}
 
 
 # --------------------------------------------------------------------- text
@@ -906,20 +1160,105 @@ def _metric_lines(metric: Mapping, asked: bool = False) -> list[str]:
         ("aggregation", "聚合"), ("filter", "过滤"), ("time_window", "时间窗"),
         ("additivity", "可加性"), ("unit", "单位"), ("status", "状态"),
     ):
-        if metric.get(key):
+        if key == "unit":
+            lines += [f"  - {line}" for line in _unit_line(metric)]
+        elif metric.get(key):
             lines.append(f"  - {label}：{metric[key]}")
     if metric["dimensions"]:
         lines.append("  - 维度：" + "、".join(d["name"] for d in metric["dimensions"]))
     for constraint in metric["constraints"]:
         lines.append(f"  - 约束 {constraint['id']}：{constraint.get('expression') or ''}")
+    if metric.get("notes"):
+        lines.append(f"  - 备注：{metric['notes']}")
     return lines
 
 
+def _unit_line(item: Mapping) -> list[str]:
+    """The ``单位：…`` line of a binding or a metric with what ``material_unit`` says; none
+    when there is neither a unit nor a mark."""
+    text = unit_text(item)
+    return [f"单位：{text}"] if text is not None else []
+
+
+def unit_text(item: Mapping) -> Optional[str]:
+    """What the ``单位：`` line says of an item's ``unit`` and ``material_unit``; None when
+    there is neither (the browse page shows a table's units in the same words)."""
+    mark = item.get("material_unit")
+    if item.get("unit"):
+        if mark is not None and not mark.get("given"):
+            return f"{item['unit']}（材料未给，目录所填未经确认）"
+        return str(item["unit"])
+    if mark is None:
+        return None
+    if mark.get("given"):
+        return f"{'、'.join(mark.get('units') or [])}（目录未填）"
+    return "材料未给"
+
+
 def _constraint_lines(constraints: list) -> list[str]:
+    """A concept's constraints, each naming the tables it comes from when it has any."""
     return [
-        f"- 约束 {c['id']}（{c['kind']}，针对 {c['on']['name']}）：{c.get('expression') or ''}"
+        f"- 约束 {c['id']}（{c['kind']}，针对 {c['on']['name']}"
+        + (f"；来源 {'、'.join(c['tables'])}" if c.get("tables") else "")
+        + f"）：{c.get('expression') or ''}"
         for c in constraints
     ]
+
+
+# Each relation's heading and the one sentence saying what it means for this table.
+_SEGMENTS = (
+    (THIS_TABLE, "本表的规则带出", ""),
+    (
+        UPSTREAM, "上游表的规则带出",
+        "本表的行若就是从这张上游表来的，条件已经带进来；本表若只是关联它补字段，条件不适用。"
+        "工具分不出是哪一种，按来源表核对",
+    ),
+    (DOWNSTREAM, "下游表的规则带出", "是下游表加工时才做的，本表没有做"),
+    (
+        UNRELATED, "与本表没有血缘关系的表的规则带出",
+        "目录的血缘证据里来源表与本表没有上下游关系，是否对本表成立工具不知道",
+    ),
+    (
+        OTHER_TABLE, "其他表的规则带出",
+        "目录没有合并血缘证据，来源表与本表是什么关系、是否对本表成立工具不知道",
+    ),
+)
+_UNIQUE_UPSTREAM = "  - 上游的唯一性在本表不一定还成立：本表的粒度可能与上游不同"
+
+
+def _table_constraint_lines(table: Mapping) -> list[str]:
+    """A table's constraints: those naming no table as they always were, then one segment
+    a relation, each line naming its sources, an upstream ``unique`` set apart, and a count
+    of those on an attribute the table binds no column to."""
+    constraints = table["constraints"]
+    lines = _constraint_lines([c for c in constraints if not c.get("relation")])
+    unbound = table.get("constraints_unbound") or {}
+    for relation, label, meaning in _SEGMENTS:
+        group = [c for c in constraints if c.get("relation") == relation]
+        if not group and not unbound.get(relation):
+            continue
+        lines.append(f"- 约束（{label}）：{meaning}")
+        unique = [c for c in group if relation == UPSTREAM and c["kind"] == "unique"]
+        lines += [_sourced_line(c, table["table"]) for c in group if c not in unique]
+        if unique:
+            lines += [_UNIQUE_UPSTREAM] + [_sourced_line(c, table["table"]) for c in unique]
+        if unbound.get(relation):
+            lines.append(f"  - 另有 {unbound[relation]} 条约束针对本表没有绑定列的属性，未列出")
+    return lines
+
+
+def _sourced_line(constraint: Mapping, table: str) -> str:
+    if constraint["relation"] == THIS_TABLE:
+        others = [t for t in constraint["tables"] if t != table]
+        source = f"；也来自 {'、'.join(others)}" if others else ""
+    else:
+        source = f"；来源 {'、'.join(constraint['tables'])}"
+        if constraint.get("also_downstream"):
+            source += f"；{'、'.join(constraint['also_downstream'])} 也读本表"
+    return (
+        f"  - 约束 {constraint['id']}（{constraint['kind']}，针对 {constraint['on']['name']}"
+        f"{source}）：{constraint.get('expression') or ''}"
+    )
 
 
 def _table_text(table: Mapping, brief: bool = False) -> list[str]:
@@ -931,8 +1270,7 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
         lines.append(f"- 粒度：{'、'.join(grain['columns'])}（{grain.get('source') or '未说明'}）")
     for conflict in table.get("conflicts") or []:
         lines.append(f"- 证据与目录矛盾：{conflict['text']}")
-    if table.get("time") or table.get("refresh"):
-        lines.append(f"- 时间形态：{table.get('time') or '未说明'}；刷新：{table.get('refresh') or '未说明'}")
+    lines += _refresh_line(table)
     for column in table["time_columns"]:
         lines.append(f"- 时间列：{column['column']}（{column['role']}）")
     if table.get("partition"):
@@ -941,12 +1279,22 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
         lines.append(f"- 范围：{line}")
     for join in table["joins"]:
         lines += _join_lines(table["table"], join)
-    lines += _constraint_lines(table["constraints"])
+    lines += _table_constraint_lines(table)
     if table["metrics"]:
         lines.append(
             "- 这个概念上的指标：" + "、".join(f"{m['name']}（{m['id']}）" for m in table["metrics"])
         )
     return lines + _semantics_text(table["semantics"], brief) + [""]
+
+
+def _refresh_line(table: Mapping) -> list[str]:
+    """The time shape and refresh the catalog records, then the cycle the table-semantics
+    document wrote (often the only place saying on which days a task runs)."""
+    cycle = ((table.get("semantics") or {}).get("refresh") or {}).get("cycle")
+    if not (table.get("time") or table.get("refresh") or cycle):
+        return []
+    line = f"- 时间形态：{table.get('time') or '未说明'}；刷新：{table.get('refresh') or '未说明'}"
+    return [line + (f"；表语义写的周期：{cycle}" if cycle else "")]
 
 
 def _partition_line(item: Mapping) -> str:
@@ -1033,8 +1381,30 @@ def _join_lines(table: str, join: Mapping) -> list[str]:
         lines.append(f"  - 取值：{join['derivation']}")
     places = {"between_catalog_tables": "目录表之间", "inside_producing_task": "产出任务内部"}
     for seen in join["seen"]:
-        lines.append(f"  - 语料中见过 {seen['count']} 次（{places[seen['where']]}）：{'；'.join(seen['on'])}")
+        lines.append(_seen_line(seen, places[seen["where"]]))
+    if join.get("seen_outside_catalog"):
+        lines.append(
+            f"  - 另有 {join['seen_outside_catalog']} 条产出任务内部的连接证据两边的表都不在目录里，"
+            "去掉 --brief 可看"
+        )
     return lines
+
+
+def _seen_line(seen: Mapping, place: str) -> str:
+    """One relation's JOINs under a join column: the count and samples, a count with no
+    sample, or -- from a build that kept no count per column -- what is not recorded."""
+    unknown = "是否涉及本列没有记录（重新 build 可知）"
+    if not seen["count"] and seen.get("unsampled"):
+        return (
+            f"  - {place}见过 {seen['relation_count']} 次连接，留下的样例都是别的列的，"
+            f"其余 {seen['unsampled']} 次{unknown}"
+        )
+    if not seen["on"]:
+        return f"  - 语料中见过 {seen['count']} 次（{place}），没有留下样例"
+    line = f"  - 语料中见过 {seen['count']} 次（{place}）：{'；'.join(seen['on'])}"
+    if seen.get("unsampled"):
+        line += f"；另有 {seen['unsampled']} 次没留样例，{unknown}"
+    return line
 
 
 def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:
@@ -1128,10 +1498,13 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
         bound = f"{ref['name']}（{ref['id']}）" if ref else ""
         lines.append(f"- 目录：{catalog['to']} {bound}".rstrip())
         for key, label in (
-            ("definition", "定义"), ("unit", "单位"), ("derivation", "取值"),
+            ("definition", "定义"), ("type", "类型"), ("unit", "单位"), ("derivation", "取值"),
             ("time_role", "时间角色"), ("via", "经由"), ("expression", "表达式"),
+            ("notes", "备注"),
         ):
-            if catalog.get(key):
+            if key == "unit":
+                lines += [f"  - {line}" for line in _unit_line(catalog)]
+            elif catalog.get(key):
                 lines.append(f"  - {label}：{catalog[key]}")
         if catalog.get("code_map"):
             pairs = "、".join(f"{k}={v}" for k, v in catalog["code_map"].items())

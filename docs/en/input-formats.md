@@ -123,6 +123,63 @@ Other platform fields may stay in the input but are currently not copied into Co
 legacy top-level `{"task_name": "...", "sql": "..."}` format is still supported, but without
 `meta` it produces no declared task dependencies.
 
+### A task's scheduling template and parameter list
+
+`meta.sql` is one run of the task: every scheduler parameter is already replaced, so a value the
+scheduler filled in reads exactly like a constant the author wrote. A task JSON may carry two more
+fields beside it:
+
+```json
+{
+  "meta": {
+    "task_name": "order_daily",
+    "sql": "INSERT OVERWRITE TABLE mart.order_df PARTITION (dt = '20260101') SELECT id FROM ods.order_src WHERE dt = '20260101'",
+    "task_sql": "INSERT OVERWRITE TABLE ${db}.order_df PARTITION (dt = '${bizdate}') SELECT id FROM ods.order_src WHERE dt = '${bizdate}'",
+    "task_parameters": [
+      {"name": "bizdate", "value": "<the scheduler's own expression>", "description": "the business day"},
+      {"name": "db", "value": "mart"}
+    ]
+  }
+}
+```
+
+- `meta.task_sql`: the script as the scheduler stores it, with its `${name}` parameters. When it is a
+  non-empty string, `parse` reads it instead of `meta.sql`; without it (or when it is empty) nothing
+  changes. `meta.sql` is still required.
+- `meta.task_parameters`: the parameter list, as an object `{name: definition}` or a list of
+  `{"name", "value"}` items (`paramKey` / `paramValue` are accepted for the two keys), each with an
+  optional `description` the user writes. A definition is kept verbatim and never interpreted (a date
+  expression is the scheduler's own). It is read only when `meta.task_sql` is there.
+
+Only a parameter the **parser** finds in a table name is bound: the template is parsed as written;
+for each `${name}` in a table id whose value in the list is a plain identifier
+(`^[A-Za-z_][A-Za-z0-9_]*$`), the parameter is replaced on the token stream -- the same parameter in
+a string literal or a comment is left alone, one inside backticks is replaced -- and the script is
+parsed again. The binding is kept only when every table that held the parameter now appears under
+the bound name and the syntax status got no worse; otherwise it is undone and reported as incomplete
+input, as before ([diagnostics-json.md](diagnostics-json.md)). A value with a dot, all digits, missing,
+or a reserved word (the table would drop out or the parse degrade) is not bound. Parameter names are
+case-sensitive. A parameter in no table id (`'${bizdate}'` in a value, `t.${col}`,
+`extract(day from ${d})`) is never touched.
+
+Known boundary: a parameter used both in a table name and bare elsewhere (not in a string) is replaced
+in both places.
+
+With the template, `diagnostics.json`'s `warnings[]` carries one `task_template_sql_used` entry naming
+how many places each bound parameter was replaced. `semantic packet --tasks` reads that entry to decide
+which SQL a packet quotes: the template (bound the same way) when it is there, `meta.sql` when it is
+not (a lineage parsed before this release, or with the switch), so a packet always quotes the SQL its
+lineage was built from. Section 2 of the packet gets one more line, 调度参数, after the 期望日期 line,
+and its date literals are listed as fixed values with no offset from the expected date
+(see [table-semantics.md](table-semantics.md)).
+
+`parse --instance-sql` reads `meta.sql` throughout, and its artifacts are byte-identical to those of a
+task JSON without the two fields; `semantic packet` needs no matching switch.
+
+`meta.task_sql` that is not a string, a malformed parameter list, or one name given two different
+definitions is an input error, never a silent fallback. A legacy task JSON without `meta` does not
+read the two fields. Neither field reaches `lineage.json`'s `task_meta`.
+
 ### Task directory
 
 ```bash
@@ -502,7 +559,7 @@ diagnostics.
 
 ## Input errors versus lineage uncertainty
 
-- A missing file, unreadable JSON, or empty `meta.sql`: an input error, and the CLI fails;
+- A missing file, unreadable JSON, an empty `meta.sql`, a `meta.task_sql` that is not a string, or a malformed `meta.task_parameters`: an input error, and the CLI fails;
 - SQL syntax that forms no supported write statement: `parse_status=failed`;
 - SQL that parses but lacks a Schema, an alias, or a unique field source: lineage artifacts may still exist, with the uncertainty expressed through warnings, `trace_complete=false`, or a fact gap;
 - `--allow-partial` only decides whether a batch command returns non-zero on a local failure; it raises the credibility of no lineage fact.

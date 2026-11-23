@@ -187,6 +187,21 @@ def test_health(server) -> None:
     assert health["status"] == "ok" and health["read_only"] is True
 
 
+def test_health_names_each_input_without_its_directory(server, inputs) -> None:
+    """A server reachable off loopback must not tell callers where its files live."""
+    body = _get(server, "/health")[2].decode("utf-8")
+    health = json.loads(body)
+
+    assert health["ontology"]["path"] == "ontology.json"
+    assert health["semantics"]["path"] == "semantics"
+    assert health["pending"]["path"] == "pending.jsonl"
+    parent = inputs["ontology"].parent
+    # the one slash a healthy body carries is the format name, ontology-json/3
+    text = body.replace(health["ontology"]["doc_format"], "")
+    assert "/" not in text and "\\" not in text
+    assert parent.name not in body and str(parent) not in body
+
+
 def test_endpoint_list_is_machine_readable(server, bare_server) -> None:
     listing = json.loads(_get(server, "/api")[2])
     paths = {(item["method"], item["path"]) for item in listing["endpoints"]}
@@ -313,3 +328,71 @@ def test_an_ontology_broken_after_start_is_503_until_fixed(server, inputs) -> No
     inputs["ontology"].write_text(good, encoding="utf-8")
     os.utime(inputs["ontology"], ns=(stat.st_atime_ns, stat.st_mtime_ns + 20_000_000_000))
     assert _get(server, "/api/query", kind="table", term=LOAN)[0] == 200
+
+
+# ------------------------------------------- error text never names a directory
+#
+# An input that breaks after start is reported in /health ``problem`` and in the error
+# body of every endpoint. The core's message names the file by its full path (the command
+# line keeps it); over HTTP the path is cut to the file or directory name.
+
+
+def _leaks(body: bytes, inputs) -> bool:
+    text = body.decode("utf-8")
+    parent = inputs["ontology"].parent
+    return parent.name in text or str(parent) in text
+
+
+def _assert_quiet(server, inputs) -> None:
+    health = _get(server, "/health")[2]
+    assert json.loads(health)["status"] == "unavailable"
+    assert not _leaks(health, inputs)
+    status, _, body = _get(server, "/api/search", text="客户")
+    assert status == 503
+    assert not _leaks(body, inputs)
+
+
+def test_a_removed_ontology_is_named_without_its_directory(server, inputs) -> None:
+    inputs["ontology"].unlink()
+    _assert_quiet(server, inputs)
+    assert "ontology.json" in json.loads(_get(server, "/health")[2])["problem"]
+
+
+def test_an_ontology_turned_invalid_is_named_without_its_directory(server, inputs) -> None:
+    inputs["ontology"].write_text("{not json", encoding="utf-8")
+    _assert_quiet(server, inputs)
+
+
+def test_a_removed_semantics_directory_is_named_without_its_parent(server, inputs) -> None:
+    import shutil
+
+    shutil.rmtree(inputs["semantics"])
+    _assert_quiet(server, inputs)
+
+
+def test_a_broken_semantics_document_is_skipped_and_names_nothing(server, inputs) -> None:
+    """The core skips an unreadable document without an error: nothing to cut, nothing leaks."""
+    (inputs["semantics"] / "demo_dwd.broken_t.json").write_text("{not json", encoding="utf-8")
+    assert json.loads(_get(server, "/health")[2])["status"] == "ok"
+    for body in (_get(server, "/health")[2], _get(server, "/api/search", text="客户")[2]):
+        assert not _leaks(body, inputs)
+
+
+def test_an_unreadable_pending_file_is_named_without_its_directory(server, inputs) -> None:
+    inputs["pending"].write_bytes(b"\xff\xfe not utf-8")
+    status, _, body = _get(server, "/api/pending")
+    assert status >= 400
+    assert "pending.jsonl" in body.decode("utf-8")
+    assert not _leaks(body, inputs)
+
+
+def test_an_unwritable_pending_path_is_named_without_its_directory(server, inputs) -> None:
+    inputs["pending"].mkdir()
+    status, _, body = _request(
+        server, "POST", "/api/pending",
+        body=json.dumps({"question": "q", "missing": "m"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    assert status >= 400
+    assert "pending.jsonl" in body.decode("utf-8")
+    assert not _leaks(body, inputs)

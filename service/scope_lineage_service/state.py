@@ -39,12 +39,36 @@ def _file_signature(path: Path) -> tuple:
 
 
 def _directory_signature(root: Path) -> tuple:
+    """``(relative path, size, mtime, inode)`` of every ``*.json`` below ``root``, in path
+    order. Walked with ``os.scandir`` and plain strings: with thousands of documents this
+    runs before every answer, and ``Path.rglob`` with ``relative_to`` cost several times
+    as much."""
     if not root.is_dir():
         return ("missing",)
-    return tuple(
-        (path.relative_to(root).as_posix(), *_file_signature(path))
-        for path in sorted(root.rglob("*.json"))
-    )
+    found: list[tuple] = []
+    pending = [("", str(root))]
+    while pending:
+        prefix, directory = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            continue
+        for entry in entries:
+            name = prefix + entry.name
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                is_dir = False
+            if is_dir:
+                pending.append((name + "/", entry.path))
+            if entry.name.endswith(".json"):
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    found.append((name, "missing"))
+                    continue
+                found.append((name, stat.st_size, stat.st_mtime_ns, stat.st_ino))
+    return tuple(sorted(found, key=lambda item: item[0].split("/")))
 
 
 class CatalogState:
@@ -114,10 +138,16 @@ class CatalogState:
     # ------------------------------------------------------------------ browsing
 
     def browse_index(self) -> answers.CatalogAnswer:
-        return answers.browse_index(self.inputs().document)
+        current = self.inputs()
+        return answers.browse_index(current.document, current.semantics)
 
     def browse_list(self, kind: str, **request) -> answers.CatalogAnswer:
-        return answers.browse_list(self.inputs().document, kind, **request)
+        current = self.inputs()
+        return answers.browse_list(current.document, kind, current.semantics, **request)
+
+    def table_units(self, table: str) -> answers.CatalogAnswer:
+        current = self.inputs()
+        return answers.table_units(current.document, current.semantics, table)
 
     def neighbourhood(self, concept: str, **request) -> answers.CatalogAnswer:
         return answers.neighbourhood(self.inputs().document, concept, **request)
@@ -136,6 +166,24 @@ class CatalogState:
                 if self.pending_path.is_file() else ""
             )
         return answers.questions(current.document, current.semantics, text, **request)
+
+    def public_text(self, text: str) -> str:
+        """``text`` with every spelling of the three inputs' paths -- as given, absolute,
+        resolved -- cut to the file or directory name, so a file under the semantics
+        directory reads ``<dir name>/<file>``. The HTTP server passes every error message
+        it sends through this; the core's messages, and the command line, keep full paths.
+        """
+        spellings: dict[str, str] = {}
+        for path in (self.ontology_path, self.semantics_path, self.pending_path):
+            if path is None:
+                continue
+            name = _name(path)
+            for form in (str(path), os.path.abspath(path), str(path.resolve())):
+                if form and form != name:
+                    spellings[form] = name
+        for form in sorted(spellings, key=len, reverse=True):
+            text = text.replace(form, spellings[form])
+        return text
 
     def _require_pending(self) -> Path:
         if self.pending_path is None:
@@ -157,24 +205,30 @@ class CatalogState:
             "read_only": True,
             "executes_sql": False,
             "ontology": {
-                "path": str(self.ontology_path),
+                "path": _name(self.ontology_path),
                 "doc_format": document.get("doc_format"),
                 "catalog": (document.get("catalog") or {}).get("name"),
                 "counts": document.get("counts"),
             },
             "semantics": {
-                "path": str(self.semantics_path) if self.semantics_path else None,
+                "path": _name(self.semantics_path) if self.semantics_path else None,
                 "documents": len(current.semantics) if current and current.semantics else 0,
             },
             "pending": {
                 "configured": self.pending_path is not None,
-                "path": str(self.pending_path) if self.pending_path else None,
+                "path": _name(self.pending_path) if self.pending_path else None,
                 "exists": bool(self.pending_path and os.path.isfile(self.pending_path)),
             },
         }
         if problem:
             report["problem"] = problem
         return report
+
+
+def _name(path) -> str:
+    """The last component of a path: ``/health`` names a file or directory, never where it
+    lives, so a server reachable off loopback does not tell callers the operator's layout."""
+    return os.path.basename(os.path.normpath(str(path)))
 
 
 class PendingNotConfigured(Exception):

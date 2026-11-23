@@ -9,7 +9,7 @@
 
 - `scope-lineage semantic packet` 把写一张表所需的全部事实收成一份**材料包**——表的元数据、每个生产任务
   及其 SQL、输入表、语义画像已经推出的血缘事实；
-- `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验）检查写好的
+- `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验，外加只看文字的第 14 项）检查写好的
   `table-semantics/1` 文档，逐条列出要重写的地方；
 - `scope-lineage semantic confirm` 把人的回答写回文档；
 - `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接；
@@ -55,7 +55,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   --semantics out/pages/semantics
 ```
 
-`validate` 每份文档打印一行（`demo_dwd.dwd_party_customer_info_df: 52/52 checks passed
+`validate` 每份文档打印一行（`demo_dwd.dwd_party_customer_info_df: 53/53 checks passed
 (100.0%)`），最后是合计。示例的 `packet_digest` 对应当前安装的 SQLGlot 渲染出的材料包；换一个 SQLGlot
 版本，摘要检查可能把示例报为过期，其余检查照样通过。演示语料按 `_df` / `_di` 约定给表命名，所以打包时带上示例领域配置，
 由它开启这条约定（见[领域配置](domain-profile.md)）。
@@ -120,7 +120,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   `'yyyy-MM-dd HH:mm:ss'`。SQLGlot 生成 SQL 时省略等于默认值的格式参数，所以 SQL 原文写了这个格式的调用在
   血缘里只剩一个参数；含义不变。
 - 4.2 的「说明」在规则文字之后写规则表达式里本任务日期字面量与期望日期的偏移，如「日期字面量 '20250115'（期望
-  日期 −1 天）」。口径同 2.x 的 `date_literals`：只给偏移，不说哪个是批次日。
+  日期 −1 天）」。口径同 2.x 的 `date_literals`：只给偏移，不说哪个是批次日。SQL 取自调度模板的任务没有偏移，写「写死的日期字面量 '20250115'」：模板里没有被参数替换的值，不随运行日变化。
 
 每张输入表带上第 9 项检查要用的事实：`partition_read`（只取一个分区为 `equality`；每个分区过滤都是等值或全由
 字面量组成的 `IN`、合起来不止一个值时为 `multi_equality`，即读几个固定分区；其余为 `range`；不过滤为
@@ -140,7 +140,12 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 `null_check`。其余（`=`、`>=`、`>`、BETWEEN、认不出的形状）再按它比的是什么分：和批次（这个输入的分区值、
 运行参数 `${…}`、当前日期）按天比较的是 `window`；取批次所在年、季、月的是 `period`；等于一个按规则算出的
 日期（批次上的 CASE、子查询取的最新值）的是 `snapshot_pick`（取输入某一天的快照）；只和固定字面量比的是
-`cutoff`（截取历史）。输入分区列上的条件是读分区，不算业务日期过滤，即使它在 IN 子查询或 OR 里。只有 `window` 算按批次日逐日筛选，检查 9 只对它怀疑 `snapshot`。
+`cutoff`（截取历史）。元数据对这个输入是否分区什么也没说（不知道分区列、也没有分区标记）时，整个条件就是一列
+等于一个调度参数（`dt = '${dt}'`，参数带不带引号、写在哪一边都算；`IN (…)`、带运算的、不等号都不算）的，先于上面
+的分法判成 `parameter_equality`（等于调度参数）：它取参数指定的那一份，该输入有没有分区、参数指哪一天，工具都
+不知道。输入分区列上的条件是读分区，不算业务日期过滤，即使它在 IN 子查询或 OR 里。只有 `window` 算按批次日逐日
+筛选，检查 9 只对它怀疑 `snapshot`；`parameter_equality` 和其余形状一样不算（只认旧取值的读者会把不认识的形状
+当成 `window`，要按新取值更新）。
 
 过滤是否在取分区，逐个合取项判断，因为血缘自己的标记是对整个 `WHERE` 子句的列名规则（`dt = x AND status = 0`
 两半都不会被标记）。每条过滤规则带 `partition_filter` 与它依据的 `partition_basis`：
@@ -193,7 +198,9 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | 位置 | 键 | 内容 |
 | --- | --- | --- |
 | `tasks[]` | `expect_date` | 任务元数据里的期望运行日期 |
-| `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论 |
+| `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论。SQL 取自调度模板的任务只有 `{literal, count}`：模板里没有参数被替换，字面量是写死的值，`packet.md` 第 2 节写「写死的日期字面量（模板里没有被参数替换，不随运行日变化）」，不给偏移 |
+| `tasks[]` | `scheduling_parameters` | 只在 `parse` 读的是任务调度模板（`meta.task_sql`，见 [input-formats.md](input-formats.md)）时出现：`{in_sql, bound}`。`in_sql` 是 SQL 里（注释除外：代码、字符串、加引号的名字里）仍有的每个 `${name}`，`definition` 照 `meta.task_parameters` 原样（参数表没给时为 `null`，即「参数表未给定义」）、`count`，使用者给了 `description` 的带上；`bound` 是 `parse` 代入表名的每个参数和代入了几处。只留在注释里的参数两边都不列。`packet.md` 在「期望日期」一行之后用一行「调度参数」写出；定义是什么意思由调度平台决定，材料包不解读。读运行实例时没有这个键，第 2 节与以前相同 |
+| `tasks[]` | `sql_from_template` | SQL 取自调度模板时为 `true`，模板里留没留参数都算；参数一个都没留、也没代入表名时，第 2 节写「SQL 取自调度模板，没有参数」，不写「SQL 里没有 `${…}` 参数」。读运行实例时没有这个键 |
 | `tasks[]` | `upstream_unmatched` | 登记的上游任务里，按任务名对不上本任务（所有语句）读取的任何表的那些。任务名等于 `表`、`库_表` 或以 `_库_表` 结尾算对上；这是名称启发式，只说「对不上」，不说「没读」 |
 | `tasks[]` | `writes` | 脚本写入不止一条时出现：任务每条写入语句的 `{statement_id, statement_index, table}`，按脚本顺序（含写中间表的语句）。`packet.md` 据此在 SQL 块里每条写入语句前加一行 `-- [stmt:NNN] 写 <表>`；语句原文里找不到该表名时不加 |
 | `inputs[]` | `via` | 同一任务里写目标表之前、经中间表喂给目标语句（可传递）的写入语句读的表，也列为输入：`[{task, statement_id, writes}]` 说明是哪条语句读它、写进哪张中间表。分区读取、日期过滤与列用法照直接输入一样给出；角色不合并（那是中间表的角色）。`packet.md` 在「在本表的作用」行后写「经同任务中间语句读入：`stmt:NNN` 写 `<表>`」 |
@@ -310,7 +317,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | `downstream[]` | 下游 `task`，可选它写的 `table` |
 | `good_for[]` / `not_for[]` | 典型用法与边界 |
 | `watch[]` | 矛盾、风险、废弃与覆盖缺口，每条带 `kind`，可选 `refs`（如 `column:x`、`rule:r2`） |
-| `questions[]` | 给负责人的待确认问题，最多五个：`id`（`q1`…）、`text`、`about`、`status`（`open` / `answered`），回答后有 `answer`、`answered_by`、`answered_on` |
+| `questions[]` | 给负责人的待确认问题，最多八个：`id`（`q1`…）、`text`、`about`、`status`（`open` / `answered`），回答后有 `answer`、`answered_by`、`answered_on` |
 
 ### 字段与规则
 
@@ -325,7 +332,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 ### Schema 留给交叉检查的部分
 
 Schema 只查结构。模型常出错的两个数量故意留给第 7 项检查，让它们进入重写清单、而不是让整份文档失败：
-`sources` 为空，以及问题超过五个。
+`sources` 为空，以及问题超过八个。
 
 ## `semantic validate`
 
@@ -346,7 +353,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 并且它前面至少还有一张表，就把它当作目录收回；最后一个词是别的，按用法错误退出（退出码 2），报错说明目录该放哪里。
 `semantic status`、`semantic fixed` 和 `catalog digest` 对 `--only` 与目录的读法相同。
 
-交叉检查共十三项：
+检查共十四项（前十三项对照材料包，最后一项只看文字）：
 
 | # | 检查 | 失败条件 | 警告条件 |
 | --- | --- | --- | --- |
@@ -356,15 +363,18 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键 | 声称的粒度列与证明的键不同 |
 | 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则。原文本身或它的某个 AND 合取项（去掉注释）以某种形式与过滤相等，才算引用；原文是整句（SELECT、INSERT … SELECT 等）时，它里面每个 WHERE / HAVING / ON（含嵌套子查询的）的合取项也算；只是包含过滤文字的更长原文（CASE 分支、MERGE 条件）不算。带 `right_of` 且 `right_side_kind` 为 `rank_first` 或 `values` 的过滤不要求引用；只带 `right_of` 的仍要用规则引用，提示里写明不要写进 `summary.scope`。修法是照抄这一个条件，不必抄整段 WHERE | 材料包里没有 SQL，无法核对原文 |
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
-| 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过五个 | — |
+| 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过八个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
 | 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤（全量快照靠表名判断，所以要配置了 `table_name_convention` 才可能触发；失败文字写明依据是表名约定） | `refresh.time` 写 `snapshot`，而写入按业务日期筛选（只算形状为 `window` 的日期过滤） |
 | 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名、材料包里只有这一右侧用的别名，或它的关联规则编号 pN；同一右侧不论关联几次只算一项） | 只靠别的右侧也在用的别名点到它（别名只在一个 SELECT 里唯一，各 UNION 分支、子查询常重复用 `b`、`c`）：这句话可能说的是另一处关联，每个右侧一条警告，改用表名或 pN 点名；行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。附带条件并写出反面情形的说法也不算：这句话里说法之前有条件词（若、如果、假如、倘若、假设、只要、只有、一旦、除非、当 / 在…时，以及「X 成立时 / 满足时 / 唯一时 / 不重复时」，「不成立时 / 不唯一时」不算条件词），并且说法之后写了会放大（会 / 可能 + 放大、膨胀、重复，或关联出多行 / 多条）；或者下一句以「若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足」或「不成立时 / 不满足时 / 不唯一时 / 重复时」开头并写了会放大（「重复时」只在句首才算，先写主语再写「… 重复时」的下一句不算）；或者说法之前有条件词、下一句以否则、不然、反之开头并写了会放大。反面情形里点名了这句话到说法为止没提过的关联时仍然警告；只有后置保留语（「注释推出，SQL 未证明」）不算写了反面情形。不在粒度路径上（位于聚合之下）的关联两项都不查 |
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效，紧挨着的否定字或前面几个字里的「未能 / 无法 / 不曾 / 没能」等否定词组会取消它）来自归并多个来源值的分支或 ELSE（多个任务写同一列时按所有能列出来源值的分支合并，列不出的不清空别人的），而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
 | 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对；`0未推送，1已推送` 式紧贴的写法要至少两对、码宽一致、标签互不相同，标签不以天 / 元 / 年 / 月 / 日 / 个 / 次 / % 开头，`近30天活跃标志` 不算，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有成词的限定词（`增值税`、`税`、`手续费`、`测试`，加上 `--domain-profile` 的 `qualifier_terms`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到；头注释描述的是同任务另一张表（`header_facts.about`）时不检查 |
+| 14 | `placeholder` | — | 自由文本里留着没替换的格式占位符：`%s`、`%d`、`%(name)s`、`{}`、`{{` / `}}`，或花括号里只有一个 ASCII 标识符的 `{name}`（`${name}` 不算）；每个占位符一条警告。查的字段：summary 的文字（`what`、`row.text` / `note` / `watch`、`refresh.cycle` / `how_to_read` / `watch`、`scope[]`、`upstream[].provides`、`good_for`、`not_for`、`watch[].text`、`questions[].text` / `answer`）、`steps[]`、`rules[].text` / `watch`、每列的 `meaning`、`null_meaning`、`watch`、`unit` 和 `branches[]`；不查 `rules[].sql` 和 `derivation`。字段里反引号或引号中的文字、紧跟在 `∈`、`in`、`属于` 之后的 `{A}`（集合写法）不算。没有占位符的文档只多一条 `pass`，所以每份干净文档的检查条数比有这项检查之前多 1 |
 
 第 9 项存在的原因：把每日全量快照写成增量，读者就会把多个分区相加，每一行按天数重复计数。
+
+第 14 项只负责发现占位符，占位符来自写作者填文档时用的脚本。它不在写作者可以保留的 WARN 里，写作者要把它改掉。
 
 第 1–9 项核对文档的形式：每一列都覆盖、每个来源都有出处、每段引用都找得到。第 10–13 项核对含义，因为一页
 文档可以通过前九项却依然误导读者：会重复行的关联没有提、派生出来的码值漏了、注释已经解释的值被当成问题、
@@ -399,7 +409,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 格式可直接作为重写提示：
 
 ```text
-demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+demo_dwd.dwd_party_customer_info_df: 47/52 checks passed (90.4%), 5 fail, 1 warn
   无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...

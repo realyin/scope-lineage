@@ -108,6 +108,50 @@ Core 当前消费：
 其他平台字段可以保留在输入中，但当前不会复制到 Core 输出。旧的顶层
 `{"task_name": "...", "sql": "..."}` 格式仍受支持，但没有 `meta` 时不会产生声明式任务依赖。
 
+### 任务 JSON 里的调度模板与参数表
+
+`meta.sql` 是任务的一次运行：调度参数都已替换，调度平台填进去的值和作者写死的常量长得一样。任务 JSON 可以
+在它之外带两个字段：
+
+```json
+{
+  "meta": {
+    "task_name": "order_daily",
+    "sql": "INSERT OVERWRITE TABLE mart.order_df PARTITION (dt = '20260101') SELECT id FROM ods.order_src WHERE dt = '20260101'",
+    "task_sql": "INSERT OVERWRITE TABLE ${db}.order_df PARTITION (dt = '${bizdate}') SELECT id FROM ods.order_src WHERE dt = '${bizdate}'",
+    "task_parameters": [
+      {"name": "bizdate", "value": "<the scheduler's own expression>", "description": "the business day"},
+      {"name": "db", "value": "mart"}
+    ]
+  }
+}
+```
+
+- `meta.task_sql`：调度平台保存的脚本，`${name}` 参数没有替换。它是非空字符串时，`parse` 读它而不是 `meta.sql`；
+  没有这个字段（或为空）时与以前完全相同。`meta.sql` 仍然必须有。
+- `meta.task_parameters`：参数表，写成对象 `{名字: 定义}`，或列表，每项 `{"name", "value"}`（`paramKey` /
+  `paramValue` 作为这两个键的别名也接受），可带一句使用者自己写的 `description`。定义原样保留，工具不解读它
+  （日期写法是调度平台的）。只在有 `meta.task_sql` 时才读。
+
+只代入**解析器认定出现在表名里**的参数：模板原样解析；表 id 里带 `${name}`、参数表给的值是标识符
+（`^[A-Za-z_][A-Za-z0-9_]*$`）的，在 SQL 里按记号把这个参数代入——字符串字面量和注释里的同名参数不动，反引号里
+的照样代入——再解析一遍。代入前带这个参数的每张表，代入后都以「参数换成值」的名字出现、且语法状态没有变差，
+才保留；否则撤销，照旧报「输入信息不全」（[diagnostics-json.md](diagnostics-json.md)）。值带点、是纯数字、没给，
+或是保留字（代入后表会消失或解析降级）的，都不代入。参数名区分大小写。不在任何表 id 里的参数（值里的
+`'${bizdate}'`、`t.${col}`、`extract(day from ${d})`）一律不动。
+
+已知边界：一个参数既在表名里、又在别处裸用（不在字符串里）时，两处都会被代入。
+
+用了模板时，`diagnostics.json` 的 `warnings[]` 有一条 `task_template_sql_used`，写明每个被代入的参数代入了几处。
+`semantic packet --tasks` 按这一条决定材料包读哪份 SQL：有这一条的读模板（同样代入），没有的（升级前解析的，
+或用了开关的）读 `meta.sql`，所以材料包里的 SQL 原文总与血缘出自同一份。材料包第 2 节在「期望日期」之后多一行
+「调度参数」，日期字面量写成写死的值、不带与期望日期的偏移（见 [table-semantics.md](table-semantics.md)）。
+
+`parse --instance-sql` 整体切回读 `meta.sql`，产物与没有这两个字段时逐字相同；`semantic packet` 不需要对应的开关。
+
+`meta.task_sql` 不是字符串、参数表形状不对、同一个名字给了两个不同的定义：都是输入错误，不静默回退。没有 `meta`
+的旧式任务 JSON 不认这两个字段。两个字段都不会进 `lineage.json` 的 `task_meta`。
+
 ### 任务目录
 
 ```bash
@@ -462,7 +506,7 @@ mart.customer_daily,country_code,JP,20
 
 ## 输入错误与血缘不确定性的区别
 
-- 文件不存在、JSON 无法读取、`meta.sql` 为空：输入错误，CLI 返回失败；
+- 文件不存在、JSON 无法读取、`meta.sql` 为空，`meta.task_sql` 不是字符串或 `meta.task_parameters` 形状不对：输入错误，CLI 返回失败；
 - SQL 语法无法形成支持的写表语句：`parse_status=failed`；
 - SQL 可以解析但缺 Schema、alias 或唯一字段来源：可能仍有 Lineage 产物，同时通过 warning、`trace_complete=false` 或 fact gap 表达不确定性；
 - `--allow-partial` 只决定批量命令是否因局部失败返回非零，不会提高任何血缘事实的可信度。

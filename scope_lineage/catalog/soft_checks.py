@@ -18,6 +18,11 @@ STATUS_KINDS = (
     "mapping",
 )
 
+# The sentence the drafting templates (skill scope-lineage-ontology, T5 and T6) tell the
+# drafter to write in a measure's ``notes`` when the material gives no unit; the drafter
+# then writes no ``unit``. The same literal is in that skill's ``catalog_check.py``.
+UNIT_LEFT_TO_OWNER = "待 owner 确认：单位"
+
 
 def status_counts(catalog: Catalog) -> dict[str, int]:
     counts = {"drafted": 0, "confirmed": 0, "deprecated": 0}
@@ -111,12 +116,25 @@ def _state_attributes_without_states(catalog: Catalog) -> list[Finding]:
     return findings
 
 
+def unit_left_to_owner(attribute: dict) -> bool:
+    """Whether the attribute's ``notes`` carry the sentence the drafting templates prescribe
+    when the material gives no unit (``UNIT_LEFT_TO_OWNER``)."""
+    notes = attribute.get("notes")
+    if isinstance(notes, list):
+        notes = "；".join(str(note) for note in notes)
+    return UNIT_LEFT_TO_OWNER in str(notes or "")
+
+
 def _measures_without_unit(catalog: Catalog) -> list[Finding]:
+    """A measure with no unit, unless its notes say the unit is left to the owner: the
+    material gave none, and a unit the drafter made up would read as a confirmed one."""
     return [
         Finding("measure_without_unit", file, attribute["id"], "a measure with no unit")
         for file, concept in catalog.records("concepts")
         for attribute in concept.get("attributes") or []
-        if attribute.get("category") == "measure" and not str(attribute.get("unit") or "").strip()
+        if attribute.get("category") == "measure"
+        and not str(attribute.get("unit") or "").strip()
+        and not unit_left_to_owner(attribute)
     ]
 
 

@@ -14,7 +14,7 @@ deterministic work and never calls a model:
   **material packet** — the table's metadata, each producing task with its SQL, the input
   tables, and the lineage facts the semantic profile already derives;
 - `scope-lineage semantic validate` checks a written `table-semantics/1` document against
-  its JSON Schema and against the packet (thirteen cross checks), and lists per item what to
+  its JSON Schema and against the packet (thirteen cross checks, and a fourteenth on the prose alone), and lists per item what to
   rewrite;
 - `scope-lineage semantic confirm` writes a person's answers back into the documents;
 - `scope-lineage semantic render` renders the documents as one page per table and an
@@ -64,7 +64,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   --semantics out/pages/semantics
 ```
 
-`validate` prints one line per document (`demo_dwd.dwd_party_customer_info_df: 52/52
+`validate` prints one line per document (`demo_dwd.dwd_party_customer_info_df: 53/53
 checks passed (100.0%)`) and a total. The example's `packet_digest` pins the packet as the
 installed SQLGlot renders it; with another SQLGlot version the digest check may report the
 example as stale while every other check still passes. The demo corpus names its tables by the
@@ -148,7 +148,8 @@ does not move and no written document goes stale over it:
 - 4.2's 说明 gives, right after the rule's text, how far each date literal of the task in the
   rule's expression sits from the expected run date, e.g. 「日期字面量 '20250115'（期望日期
   −1 天）」 -- the same reading as 2.x's `date_literals`: an offset, never which literal is the
-  batch date.
+  batch date. For a task whose SQL is its scheduling template there is no offset: it reads
+  「写死的日期字面量 '20250115'」, a value nothing replaced, the same on every run.
 
 Each input carries the facts check 9 needs: `partition_read` (`equality` for a single
 partition; `multi_equality` when every partition filter is an equality or an `IN` list of
@@ -180,10 +181,17 @@ recognised) is split by what it compares with: a day-level comparison with the b
 input's partition value, a run parameter `${…}`, the current date) is `window`; the batch's
 year, quarter or month is `period`; an equality with a day a rule computes (a CASE over the
 batch, the latest value a subquery finds) is `snapshot_pick` (one day's snapshot of the
-input); a fixed literal only is `cutoff` (history from a point on). A condition on the
+input); a fixed literal only is `cutoff` (history from a point on). When the metadata says
+nothing about whether the input is partitioned (no partition columns, no partitioned flag),
+a condition that is wholly one column equal to one scheduling parameter (`dt = '${dt}'`,
+quoted or not, on either side; not an `IN (…)` list, nothing computed, no inequality) is
+`parameter_equality` (等于调度参数) before any of the above: it takes the one slice the
+parameter names, and whether the input is partitioned, or which day the parameter is, the
+tool does not know. A condition on the
 input's partition column reads partitions and is no business-date filter, even inside an
 IN subquery or an OR. Only a `window` selects a batch's rows by date, and only a `window` makes check 9
-doubt `snapshot`.
+doubt `snapshot`; `parameter_equality` does not, like every other shape (a reader that
+knows only the older values and treats an unknown shape as `window` should be updated).
 
 Whether a filter reads partitions is decided per conjunct, because the lineage's own flag
 is a name rule over a whole `WHERE` clause (`dt = x AND status = 0` marks neither half).
@@ -262,7 +270,9 @@ when it has content:
 | Where | Key | Content |
 | --- | --- | --- |
 | `tasks[]` | `expect_date` | the expected run date from the task metadata |
-| `tasks[]` | `date_literals` | every whole-date string literal (`'YYYYMMDD'` / `'YYYY-MM-DD'`) in the SQL outside comments: `{literal, count, days_from_expect_date}`. A corpus exported from run instances carries the batch-date parameter as a literal; the offset is given, no conclusion that it is a parameter is drawn |
+| `tasks[]` | `date_literals` | every whole-date string literal (`'YYYYMMDD'` / `'YYYY-MM-DD'`) in the SQL outside comments: `{literal, count, days_from_expect_date}`. A corpus exported from run instances carries the batch-date parameter as a literal; the offset is given, no conclusion that it is a parameter is drawn. For a task whose SQL is its scheduling template an entry is `{literal, count}` only: nothing in a template was replaced, so a literal is a fixed value, and section 2 of `packet.md` says 写死的日期字面量（模板里没有被参数替换，不随运行日变化） with no offset |
+| `tasks[]` | `scheduling_parameters` | present only for a task `parse` read from its scheduling template (`meta.task_sql`, see [input-formats.md](input-formats.md)): `{in_sql, bound}`. `in_sql` is each `${name}` the SQL still holds outside comments (in code, strings or quoted names), with `definition` quoted verbatim from `meta.task_parameters` (`null` when the list has none -- 参数表未给定义), `count`, and the user's own `description` when given; `bound` is each table-name parameter `parse` replaced, with how many places. A parameter left only in a comment is in neither. `packet.md` says it as one line 调度参数 after the 期望日期 line; what a definition means is the scheduler's, and the packet does not read it. With the run instance the key is absent and section 2 is as before |
+| `tasks[]` | `sql_from_template` | `true` when the task's SQL is its scheduling template, parameters left in it or not; with none left and none bound, section 2 says SQL 取自调度模板，没有参数 instead of SQL 里没有 `${…}` 参数. Absent with the run instance |
 | `tasks[]` | `upstream_unmatched` | the registered upstream tasks whose name matches no table the task reads over all its statements; a task named `tbl`, `db_tbl` or ending in `_db_tbl` matches. A name heuristic: it says "does not match", not "not read" |
 | `tasks[]` | `writes` | present when the script writes more than once: `{statement_id, statement_index, table}` of every write statement of the task, in script order (intermediate tables included). `packet.md` puts a line `-- [stmt:NNN] 写 <table>` above each write statement in the SQL block; a statement whose text does not name the table gets none |
 | `inputs[]` | `via` | a table read by an earlier write of the same task that feeds the target's statements through an intermediate table (transitively) is an input too: `[{task, statement_id, writes}]` names the statement reading it and the intermediate table it writes. Its partition reads, date filters and column usages are given as for a direct input; its roles are not merged (they are the intermediate table's). `packet.md` adds 「经同任务中间语句读入：`stmt:NNN` 写 `<table>`」 to the role line |
@@ -405,7 +415,7 @@ is sourced `confirmed`.
 | `downstream[]` | consuming `task` and optionally the `table` it writes |
 | `good_for[]` / `not_for[]` | typical uses and their limits |
 | `watch[]` | conflicts, risks, deprecations and coverage gaps, each with a `kind` and optional `refs` such as `column:x` or `rule:r2` |
-| `questions[]` | at most five open questions for the owner: `id` (`q1`…), `text`, `about`, `status` (`open` / `answered`), and once answered `answer`, `answered_by`, `answered_on` |
+| `questions[]` | at most eight open questions for the owner: `id` (`q1`…), `text`, `about`, `status` (`open` / `answered`), and once answered `answer`, `answered_by`, `answered_on` |
 
 ### Columns and rules
 
@@ -423,7 +433,7 @@ A rule holds `id` (`r1`…), `kind` (`filter`, `join`, `dedup`, `derive`, `union
 
 The schema checks shape only. Two counts a model often gets wrong are deliberately left to
 check 7 so they land in the rewrite list instead of failing the whole document: an empty
-`sources`, and more than five questions.
+`sources`, and more than eight questions.
 
 ## `semantic validate`
 
@@ -448,7 +458,7 @@ and at least one table stays before it; any other last word is a usage error (ex
 says where to put the directory. `semantic status`, `semantic fixed` and `catalog digest`
 read `--only` and their directory the same way.
 
-The thirteen cross checks:
+The fourteen checks (thirteen against the packet, the last on the prose alone):
 
 | # | Check | Fails when | Warns when |
 | --- | --- | --- | --- |
@@ -458,16 +468,20 @@ The thirteen cross checks:
 | 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet | the claimed grain columns differ from the proven key |
 | 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule. A quote cites a filter when it, or one of its AND conjuncts (comments dropped), equals the filter in some form; when the quote is a whole statement (a SELECT, an INSERT … SELECT), so does each conjunct of every WHERE / HAVING / ON in it, nested subqueries included; a longer quote that merely contains the filter's text (a CASE branch, a MERGE condition) cites nothing. A filter with `right_of` and a `right_side_kind` of `rank_first` or `values` need not be cited; one with `right_of` alone must be, by a rule, and the message says to keep it out of `summary.scope`. The fix quotes that one condition, not the whole WHERE | the packet has no SQL to check a quote against |
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |
-| 7 | `sources` | a sourced item has an empty `sources`, or there are more than five questions | — |
+| 7 | `sources` | a sourced item has an empty `sources`, or there are more than eight questions | — |
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date (a full snapshot is a table-name reading, so this needs a configured `table_name_convention`; the message says it rests on the name convention) | `refresh.time` is `snapshot` while the write filters on a business date (only date filters shaped `window` count) |
 | 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare), by an alias no other right side in the packet carries, or by its join rule's number (pN) — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | it is named only by an alias another right side carries too (an alias is unique within one SELECT only; UNION branches and subqueries reuse `b`, `c`): the sentence may be about the other join, so one warning per right side, asking for the table or the pN; a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. Nor is a phrase made under a condition with its failing case said: a condition word before the phrase in the sentence (若, 如果, 假如, 倘若, 假设, 只要, 只有, 一旦, 除非, 当 / 在 … 时, and "X 成立时 / 满足时 / 唯一时 / 不重复时"; 不成立时 / 不唯一时 is no condition word) and the rows multiplying after it (会 / 可能 + 放大, 膨胀, 重复, or 关联出多行 / 多条); or a next sentence opening with 若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足, or with 不成立时 / 不满足时 / 不唯一时 / 重复时, that says the rows multiply (重复时 counts only as the very opening: a next sentence naming its subject first, "… 重复时", does not); or a condition word before the phrase and a next sentence opening with 否则, 不然 or 反之 that says so. A failing case naming a join the sentence has not named up to the phrase still warns, and a trailing reservation alone (「注释推出，SQL 未证明」) is no failing case. A join off the grain path (below an aggregate) is held to neither |
 | 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效, unless a negating character right before it or a negating phrase such as 未能 / 无法 / 不曾 / 没能 a few characters before takes it back) comes from a branch that gathers several source values or the ELSE (several tasks writing the column merge every branch that lists its source values; one that cannot list them erases no one else's), and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
 | 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs; glued pairs such as `0未推送，1已推送` count only two or more at a time, of one code width, with distinct labels none opening with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %, so `近30天活跃标志` does not, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `测试`, plus the `--domain-profile` `qualifier_terms`) standing as a word in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions; not checked when the header describes another table of the task (`header_facts.about`) |
+| 14 | `placeholder` | — | a free-text field holds a format placeholder nothing filled in: `%s`, `%d`, `%(name)s`, `{}`, `{{` / `}}`, or `{name}` (an ASCII identifier, not `${name}`); one warning per placeholder. Read: the summary's sentences (`what`, `row.text` / `note` / `watch`, `refresh.cycle` / `how_to_read` / `watch`, `scope[]`, `upstream[].provides`, `good_for`, `not_for`, `watch[].text`, `questions[].text` / `answer`), `steps[]`, `rules[].text` / `watch`, and each column's `meaning`, `null_meaning`, `watch`, `unit` and `branches[]`; never `rules[].sql` or `derivation`. Skipped inside a field: text in backticks or quotes, and a `{A}` right after `∈`, `in` or `属于` (a set). A document with none gets one `pass`, so every clean document's count of checks is one higher than before this check existed |
 
 Check 9 exists because a daily full snapshot described as incremental leads a reader to
 add partitions together and count every row once per day.
+
+Check 14 only finds a placeholder; it comes from the script a writer used to fill the
+document. It is not among the WARNs a writer may keep, so the writer replaces it.
 
 Checks 1–9 hold a document's form to the packet: every column covered, every source
 cited, every quote found. Checks 10–13 hold what it means, because a page can pass all of
@@ -520,7 +534,7 @@ failures, one per line, `[N name]` being the check's number and name in the tabl
 in the form a rewrite prompt can take as it stands:
 
 ```text
-demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+demo_dwd.dwd_party_customer_info_df: 47/52 checks passed (90.4%), 5 fail, 1 warn
   无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...

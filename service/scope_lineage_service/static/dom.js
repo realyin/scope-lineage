@@ -131,11 +131,28 @@ export function kv(pairs) {
   return list;
 }
 
-/** A table of rows; each cell is text or a node. */
-export function grid(headers, rows) {
-  const head = h("tr", {}, headers.map((name) => h("th", { scope: "col" }, name)));
-  const body = rows.map((cells) => h("tr", {}, cells.map((cell) => h("td", {}, cell))));
+/** A table of rows; each cell is text or a node. ``classes`` (optional) gives each
+ * column's header and cells a class, for its width rules in app.css. */
+export function grid(headers, rows, classes) {
+  const cls = (index) => (classes && classes[index]) || null;
+  const head = h("tr", {}, headers.map((name, i) => h("th", { scope: "col", class: cls(i) }, name)));
+  const body = rows.map((cells) => h("tr", {}, cells.map((cell, i) => h("td", { class: cls(i) }, cell))));
   return h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, head), h("tbody", {}, body)));
+}
+
+/** A dotted or underscored name cut after each "." and "_": the places it may wrap. */
+export function nameSegments(name) {
+  return String(name).split(/(?<=[._])/);
+}
+
+/** A name as text that may wrap only after a "." or "_" (a <wbr> at each). */
+export function breakableName(name) {
+  const out = [];
+  nameSegments(name).forEach((segment, index) => {
+    if (index) out.push(h("wbr", {}));
+    out.push(segment);
+  });
+  return out;
 }
 
 export function section(title, ...children) {

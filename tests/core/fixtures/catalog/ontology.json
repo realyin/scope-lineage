@@ -2027,7 +2027,11 @@
               "statement_id": "stmt:001",
               "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"
             }
-          ]
+          ],
+          "by_column": {
+            "demo_dwd.dwd_lending_borrower_df.customer_id": 1,
+            "demo_dwd.dwd_lending_loan_df.customer_id": 1
+          }
         }
       },
       "rel:customer_holds_app_account": {
@@ -2039,7 +2043,11 @@
               "statement_id": "stmt:001",
               "on": "demo_dwd.dwd_party_customer_info_df.customer_id = demo_dwd.dwd_party_account_map_df.customer_id"
             }
-          ]
+          ],
+          "by_column": {
+            "demo_dwd.dwd_party_account_map_df.customer_id": 1,
+            "demo_dwd.dwd_party_customer_info_df.customer_id": 1
+          }
         }
       },
       "rel:fee_waiver.borrower": {
@@ -2069,7 +2077,11 @@
               "statement_id": "stmt:001",
               "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"
             }
-          ]
+          ],
+          "by_column": {
+            "demo_dwd.dwd_lending_loan_df.loan_no": 1,
+            "demo_dwd.dwd_lending_repayment_di.loan_no": 1
+          }
         },
         "source_joins": {
           "count": 1,
@@ -2080,7 +2092,10 @@
               "column": "demo_dwd.dwd_lending_repayment_di.loan_no",
               "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"
             }
-          ]
+          ],
+          "by_column": {
+            "demo_dwd.dwd_lending_repayment_di.loan_no": 1
+          }
         }
       },
       "rel:repayment.payer": {

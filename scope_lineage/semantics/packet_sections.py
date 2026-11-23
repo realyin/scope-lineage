@@ -14,7 +14,7 @@ from ..redaction import redact
 from . import packet_facts as facts
 from .names import bare_table
 from .packet_comments import comment_markers
-from .packet_context import date_literals, upstream_unmatched
+from .packet_context import date_literals, scheduling_parameters, upstream_unmatched
 from .packet_leads import (
     declared_key_leads,
     marker_leads,
@@ -113,6 +113,13 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
     reads = corpus.task_reads(task)
     unmatched = upstream_unmatched(meta.get("upstream_tasks"), reads) if reads is not None else []
     dates = date_literals(record.get("sql"), meta.get("expect_date"))
+    parameters = scheduling_parameters(record.get("sql"), record.get("scheduling_parameters"))
+    # The record carries ``scheduling_parameters`` exactly when its SQL is the template
+    # (``cli_semantic._task_records``), parameters left in it or not. Nothing in a template
+    # was replaced by a run's value, so an offset from the expected date means nothing.
+    template = record.get("scheduling_parameters") is not None
+    if template:
+        dates = [{"literal": item["literal"], "count": item["count"]} for item in dates]
     return {
         "name": task,
         "task_id": meta.get("task_id"),
@@ -125,6 +132,8 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
         "downstream_tasks": list(meta.get("downstream_tasks") or []),
         **({"expect_date": meta["expect_date"]} if meta.get("expect_date") else {}),
         **({"date_literals": dates} if dates else {}),
+        **({"scheduling_parameters": parameters} if parameters else {}),
+        **({"sql_from_template": True} if template else {}),
         "header_comments": list(info.get("header_comments") or []),
         "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
                                      table, corpus.tables_written_by(task), columns),
@@ -221,7 +230,8 @@ def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
     return {
         **entry,
         **({"producer_columns": written} if written else {}),
-        **facts.input_time_facts(entry["table"], rules, columns, corpus.name_convention),
+        **facts.input_time_facts(entry["table"], rules, columns, corpus.name_convention,
+                                 partition_known=facts.partition_known(entry)),
         "columns": columns,
     }
 

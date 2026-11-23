@@ -28,6 +28,9 @@
   带 `code_set_mismatch`（md 写 `reverse lookup?`）的是按含义反查回码，写进 `derivation`，不当作码值集的翻译。
   带 `keyed_by: "row_identifier"`（md 写 `keyed by this table's row identifier`）的读取读的是同一条记录的属性行：
   读出的列绑成属性，不建码值集。
+  度量列下的 `joined in through <规则> on <键>`（`digest.json` 里的 `joined_in`）说这个值经哪个连接带进来：键没盖住表的行粒度
+  （Grain）时，新建或已有的度量属性 `notes` 写「在 <库.表> 里同 <键> 的多行带同一个值，按 <键> 每组取一行后再加」，
+  `additivity` 不为这个缘故改；读 SQL 判断不重复的，回复里说明理由，由编排者写 `<属性 id> repeats skip: <理由>`。
   有这一行的列不必为这些事实去读 SQL；标了 `order unknown` 的，或 digest 不是带 `--lineage` 生成的，才读 SQL。
   `key_of` 里写着 `read by no column`（`read_by` 为空）的读取没有任何列读它的值：是死关联或只用来过滤行，
   不是码值集的证据。

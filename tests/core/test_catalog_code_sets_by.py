@@ -179,7 +179,7 @@ def test_query_column_says_each_source_looks_up_its_own_set(by_source: dict) -> 
     assert match["code_sets_by"] == "source"
     keys = list(match)
     assert keys.index("code_sets") + 1 == keys.index("code_sets_by")
-    assert head.endswith(f"（码值：{BY_SOURCE}）")
+    assert head.endswith(f"（码值：{BY_SOURCE}）；类型 string")
     assert "先查" not in head and "查不到" not in head
 
 
@@ -189,7 +189,7 @@ def test_query_column_without_the_key_answers_as_before(root: Path) -> None:
     (match,) = result["matches"]
 
     assert "code_sets_by" not in match
-    assert render_query_text(result).splitlines()[0].endswith("（码值：先查 码值集甲，查不到查 码值集乙）")
+    assert render_query_text(result).splitlines()[0].endswith("（码值：先查 码值集甲，查不到查 码值集乙）；类型 string")
 
 
 # ------------------------------------------------------------------------------ pages

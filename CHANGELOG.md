@@ -31,6 +31,231 @@
 - **Every POST to `scope-lineage-service http` must come from its own origin.** An `Origin` header naming
   another host or port (another port on the same machine included), or a `Sec-Fetch-Site` other than
   `same-origin`, is refused with 403; clients that send neither header are unaffected.
+- **New: a metric's and an attribute's `notes` reach the asking agent.** `catalog context` gives a
+  metric entry (in a `--concept` pack) its `notes`, and a column's full answer the bound attribute's
+  `notes` (`catalog.notes`), each printed as 「备注：…」; `catalog query attribute` gives the attribute's
+  (`notes`, 「备注：…」). `--brief` keeps them. Where the answer already marks the unit as not given by
+  the material (`material_unit` with `given: false`), the sentence 「待 owner 确认：单位」 is left out of the
+  printed notes; every other sentence is kept as written. An item with no notes answers byte for byte
+  as before.
+- **Changed: T5, T6 and the fragment prompt record a measure repeated within its table's grain in
+  `notes`, not in `additivity`.** When the digest gives a measure's column `joined in through … on <keys>`
+  and the keys do not cover the table's grain, the measure attribute's `notes` (and a metric's over it)
+  say 「在 <库.表> 里同 <键> 的多行带同一个值，按 <键> 每组取一行后再加」, the metric keeps finer
+  dimensions of that table out, and `additivity` stays what the definitions give: the value is still
+  additive at its own grain. The line is a lead; a value the SQL shows does not repeat is closed with
+  `<attribute id> repeats skip: <reason>`. Otherwise the derivation is read as before. This replaces the
+  earlier T5 sentence that said to write `non_additive`. The `measure_repeats_within_grain` finding now
+  gives that note (or the skip line) as its remedy. The definitions of the additivity values are
+  unchanged.
+- **New: `catalog_check.py --digest` finding `measure_repeats_within_grain`.** An `additive` measure
+  attribute bound to a column whose digest `joined_in` names a JOIN whose keys leave a grain column of
+  that table out is reported: rows sharing the key carry the same value, so adding across rows counts
+  it again. One finding per attribute lists each such table, column, JOIN, keys, grain (declared,
+  inferred or proven) and fan-out status, and names the `sum` + `additive` metrics over it; an empty
+  grain is not compared, and a table where the keys cover the grain is not listed. Cleared when the
+  attribute is no longer `additive`, when its `notes` name every listed table, or by
+  `<attribute id> repeats skip: <reason>` in `catalog_changes.md`. S10g, S10c and SKILL.md list it.
+- **New: `catalog digest --lineage` says which JOINs a measure's value is brought in through
+  (`joined_in`).** Each measure column gains a list of `{rule, keys, fan_out}`: the JOIN whose right side
+  the value enters through (its logic block id, the numbering `lookups[].rule` uses), its left join
+  keys as columns of this table, and the fan-out status the statement alone gives that JOIN (`safe` /
+  `risk` / `unknown`; no table cards). Only JOINs above the first aggregate on the path count, an entry
+  is written only when every key reaches a column of this table, and several statements writing the
+  column add their own entries with `source`. Nothing is compared or filtered; `digest.md` adds
+  `joined in through <rule> on <keys> (fan-out: <status>)` under "Joined inputs read". Contract
+  decision: `catalog-digest/1` does not move (an additive key). Without `--lineage` the digest is
+  unchanged; the runbook always passes `--lineage`, so every drafting input built that way gains
+  these lines.
+- **Changed: a table-semantics document may hold up to eight open questions (was five).** Check 7
+  (`sources`) fails above eight. The writer prompt (`table-semantics-prompt@14`) says at most eight,
+  ordered by impact, with no padding by questions that do not change how the table is read; the fix
+  prompt is `table-semantics-fix@9` with the same cap. The schema's description and the docs follow.
+  The page, the context pack and `catalog pending` already list every question. Its effect on the
+  quality of the questions is not verified.
+- **New: `semantic validate` check 14 `placeholder`.** A free-text field of a table-semantics document
+  holding a format placeholder nothing filled in (`%s`, `%d`, `%(name)s`, `{}`, `{{` / `}}`, `{name}`)
+  is warned, one WARN per placeholder; text in backticks or quotes, `${param}`, and a set written
+  after `∈` / `in` / `属于` are not. It reads the summary's sentences, `steps`, the rules' text and the
+  columns' explanations, never `rules[].sql` or `derivation`. It only finds the placeholder (the
+  writer's script leaves it), and it is not a WARN a writer may keep. A document with none gets one
+  `pass`, so every clean document's "N/N checks passed" is one higher than before.
+- **Changed: a table rebuilt whole every run may keep its `[9 time]` WARN.** The warning itself says a
+  table rebuilt per batch that only picks a version from upstream or cuts a span of history is still a
+  snapshot, but the keep lists allowed it only on zipper and dimension tables. T1, S5 and T4 now also
+  allow it on a table rebuilt whole each run whose date filter only picks one version from upstream or
+  cuts a span of history, when `how_to_read` says how to read it and which day the filter picks. The
+  review prompt (`table-semantics-review@13`) checks that day, and reads a packet saying SQL 取自调度模板
+  as a template. Wording only; its effect on drafting is not verified.
+- **Changed: a template task's date literals are fixed values in the packet.** In a task whose SQL is
+  its scheduling template nothing was replaced by a run's value, so an offset from the expected run
+  date means nothing. `packet.json` now gives such a task `sql_from_template: true` and `date_literals[]`
+  entries of `{literal, count}` only (no `days_from_expect_date`); section 2 of `packet.md` lists them
+  as 写死的日期字面量（模板里没有被参数替换，不随运行日变化）, and the note beside a rule reads
+  写死的日期字面量 '…'. A template with no parameter left and none bound says SQL 取自调度模板，没有参数
+  instead of SQL 里没有 `${…}` 参数. The fact comes from the task record (its SQL was read from the
+  template), not from whether any parameter remains. Run-instance packets are byte-identical. Packets
+  of template tasks change, so documents written from them read `packet_stale` until rewritten. The
+  writer prompt is `table-semantics-prompt@14`: the template paragraph also applies to a packet saying
+  SQL 取自调度模板.
+- **Changed: the service's `/health` no longer reports where its files live.** `ontology.path`,
+  `semantics.path` and `pending.path` carry only the file or directory name, not the absolute path,
+  so a server reachable off loopback does not reveal the operator's directory layout. Every other field
+  is unchanged. Error text sent over HTTP -- `/health`'s `problem` and every error body -- has the
+  paths of the three inputs (and of files under the semantics directory) cut to their names too; the
+  command line's messages keep full paths.
+- **New: relation evidence counts each column's JOINs (`by_column`).** `catalog build --lineage`
+  adds `by_column` (`db.table.column` → n) to a relation's `source_joins` (the foreign key each JOIN
+  fills) and to its `joins` when it has any (the catalog column on either side), and keeps one sample
+  per column while the limit of three allows. `catalog context` takes a join column's count from it,
+  and a column whose JOINs kept no sample gets a count-only line. A document built before this, whose
+  samples were cut short, no longer drops a column none of whose kept samples is its own: the pack
+  says how many JOINs were not sampled and that whether they are the column's is not recorded
+  (`unsampled`, `relation_count`); rebuild to know. Additive: the schema accepts `by_column`, and older
+  documents still read.
+- **Changed: template T5 checks a measure's summary keys against the row before calling it
+  additive.** When a column's derivation sums by fewer keys than the table's row, the same value
+  repeats across rows: the metric (and its measure attribute) is not written `additive`, its `notes`
+  say which keys to take one row per before adding, and dimensions that would repeat the value stay
+  out. No check enforces it. The answering workflow (`catalog-answers.md`) says which partition to read
+  follows the pack's 「取数」 paragraph.
+- **Fixed: a join column in `catalog context` lists only the JOINs about it, once.** The corpus
+  evidence is per relation, and a foreign-identifier column naming no `relation` realises every
+  parallel relation between the two concepts, so one JOIN was printed once a relation, and a
+  relation's samples were printed under every column realising it whichever column they filled.
+  `joins[].seen` now keeps the samples that involve the column (a JOIN inside a producing task by the
+  column it fills, one between catalog tables by its two sides) and one entry for the same evidence
+  (`relations` names the relations carrying it); `count` is the relation's when every sample is the
+  column's, else the number that are. With `--brief`, samples whose two tables are both outside the
+  catalog are folded into one count (`seen_outside_catalog`); a JOIN involving a catalog table is
+  always listed.
+- **New: a column bound to an attribute shows the attribute's type.** The context pack's column
+  answer (`catalog.type`, printed 「类型：…」), `catalog query table`'s column list and `catalog query
+  column` (`type`, printed 「；类型 …」) give the catalog attribute's `type` for a column bound as
+  `attribute` or `foreign_attribute`. Identifier, technical and unmapped columns have no type in the
+  catalog and print nothing extra. `catalog query attribute` keeps the type in its first line only.
+- **Fixed: a literal `unknown` schedule cycle no longer hides the cron.** Some task exports write
+  `unknown` as `schedule_cycle`; the evidence `catalog build` attaches (`refresh`) and the table card's
+  更新频率 took it as the value. Both now read `table_cards.refresh_cadence`: a missing or `unknown`
+  cycle (any case) gives way to the cron, and `unknown` stays only when there is no cron either; a real
+  cycle reads as before. A catalog built from such task metadata shows the cron after a rebuild. The
+  context pack's 刷新 line adds the cycle the table-semantics document wrote (表语义写的周期), and
+  `catalog query table` prints the representation's `refresh` as a 刷新 line (none without it).
+- **Changed: a table's constraints in `catalog context` say how their source tables relate to it.**
+  Which tables a constraint comes from is now one judgement (`catalog_scopes.constraint_tables`): the
+  tables its `rules` name, or those its `evidence` or expression cites. `catalog query table`,
+  `scopes.md`, the index's count of rules citing a table, `catalog query scope` and the concept page
+  (A6 adds 来源表) all use it; a constraint whose `rules` name a table its evidence does not cite now
+  appears under that table too, and none listed before is dropped. Under a table the pack gives each
+  constraint `tables` and `relation` (`this_table`, `upstream`, `downstream`, `unrelated`; `other_table`
+  without lineage evidence; `also_downstream` for a source on both sides) and prints one segment a
+  relation with what it means for the table: from upstream, carried in when the rows come from that
+  table, not applicable when it is only joined for extra fields; a `unique` from upstream may not hold
+  at this grain. A constraint from another table on an attribute the table binds no column to is
+  counted (`constraints_unbound`), not listed; one from this table's own rules is always listed. A constraint naming no table is listed as before. `--concept`
+  constraints carry `tables`. `doc_format` stays `catalog-context/1`.
+- **New: `parse` reads a task JSON's scheduling template and parameter list.** A task JSON may carry
+  `meta.task_sql` (the script with its `${name}` parameters) and `meta.task_parameters` (an object
+  `{name: definition}`, or a list of `{"name", "value"}` items with `paramKey` / `paramValue` accepted
+  and an optional `description`) beside the run instance `meta.sql`. With a non-empty `task_sql`,
+  `parse` reads it. Only a parameter the parser finds in a table id is bound, when its value is a plain
+  identifier: replaced on the token stream (never in a string or a comment; inside backticks too),
+  parsed again, and kept only when every such table is still there under the bound name and the syntax
+  status got no worse -- otherwise undone and reported as `input_incomplete`, as before. A parameter
+  used bare elsewhere as well is replaced there too. New `warnings[]` type `task_template_sql_used`
+  with `bound_parameters` (`{name: places}`). `parse --instance-sql` reads `meta.sql` as before. A
+  `task_sql` that is not a string, a malformed parameter list, or one name with two definitions is an
+  input error. A task JSON without `task_sql`, or without `meta`, parses exactly as before.
+- **New: packets of a template-read task list its scheduling parameters.** `semantic packet --tasks`
+  takes the SQL a task's lineage was built from, decided by that lineage's `task_template_sql_used`
+  warning (none: the run instance, as before). Section 2 gets a line 调度参数 after 期望日期: each
+  parameter the SQL still holds outside comments with its definition verbatim, its count and the
+  user's description, the bound table-name parameters apart, and 参数表未给定义 for one the list lacks;
+  `packet.json` carries it as `tasks[].scheduling_parameters`. With the run instance section 2 is
+  byte-identical.
+- **New: date-filter shape `parameter_equality` (等于调度参数).** On an input whose partitioning the
+  metadata does not state, a filter that is wholly one column equal to one scheduling parameter
+  (quoted or not, either side; not `IN`, nothing computed, no inequality) is no longer a `window`:
+  without metadata the tool cannot tell it reads a partition, and the parameter's day is the
+  scheduler's. Check 9 and `domain-profile evidence`'s window-filtered writes do not count it; inputs
+  the metadata describes keep their shapes. `read_facts` / `input_time_facts` take
+  `partition_known`.
+- **Changed: prompts `table-semantics-prompt@13` and `table-semantics-review@12`.** A packet that lists
+  scheduling parameters is written from them: dates as parameters, definitions quoted as given (a
+  user's description used when there is one, otherwise 「按任务平台对该参数的定义」), no run's date and
+  no 「推断」; a literal without a parameter is a fixed value noted under `watch`; rule `sql` keeps
+  `${…}`; a parameter without a definition is named, not guessed. Template T8 and runbook S1 say a
+  task JSON may carry the template.
+- **Compatibility, for task JSON carrying the two fields** (none of this applies without them):
+  `lineage.json` keeps its fields but their values change -- normalized SQL, expression text and
+  `target_partition_spec` values read as parameter text where the instance had dates; `glossary.json`
+  no longer records a run's date as a column value, and lists more `parameters`; every packet digest
+  of such a task changes, so its existing documents read `packet_stale` and are rewritten;
+  `packet.json`'s `date_filters[].shape` has one more value, which a reader knowing only the older
+  values would take for `window`; a lineage parsed before this release has no disclosure, so
+  `semantic packet` packs the instance until the task is parsed again; `task_meta` stays a whitelist,
+  so neither field reaches it.
+- **New (service): the browse page shows 「用之前先看」 and 「按表看」.** The home view shows the summary
+  `index.md` opens with (same rows, same numbers, same two sentences; the table-semantics rows only when the
+  server has `--semantics`), and the table list carries the by-table columns with the same definitions and
+  `—` for a table without a document. Both come from the core functions that write `index.md`
+  (`catalog_pages.use_first_rows`, `catalog_index_tables.table_figures` / `figure_cells`, split out of the
+  Markdown writer without changing its output). `GET /api/list` takes `sort` (tables only: the name, or one
+  by-table number, `-` for largest first), applied by the server to the whole filtered list; there is no
+  score and the default stays the table name. Added fields: `use_first` on `/api/browse`; `query.sort` on
+  `/api/list`, and, with `--semantics`, `by_table` on a table list and on each table row. New
+  `GET /api/units` gives a table's measure units with the context pack's 「材料未给」 mark. The
+  whole-catalog counts are computed once per loaded catalog, and the semantics directory's change check
+  walks with `os.scandir` (about 30 ms to 5 ms for 1,700 documents).
+- **Changed (service): the relations graph draws one line and one label per related pair.** Relations of
+  the same two concepts share a line, a label line per relation; a participation is labelled 「参与者」
+  (with the number of roles) instead of its `role_name`, which stays in the tooltip and the table; labels are
+  placed so that none meets another or a concept, and a shortened one keeps its full text in the tooltip.
+  Labels are drawn up to 24 concepts. A wide table's column list gets a filter box and binding choice, shows
+  code values and derivation only under the columns that have them, and shows each measure's unit with the
+  context pack's mark.
+- **Changed: `catalog render`'s `index.md` opens with what to look at before using the catalog.**
+  The governance gap summary moves from the end of the page to before the concept listing, under
+  「用之前先看」, after two fixed sentences: the page states what the catalog has and lacks
+  structurally (whether answers are right is a matter of acceptance testing), and question answering
+  uses the built catalog file together with the table-semantics documents. The rest of the page,
+  and every other page, is unchanged.
+- **New: `catalog render --docs <dir>`** takes the directory of table-semantics documents (the one
+  `catalog context --semantics` takes; `--semantics` keeps meaning the rendered table pages, used for
+  links). With it the summary gains two rows -- tables whose unique key lineage proved, and how many
+  of those their document calls not unique (only for a catalog built with `--lineage`); measure
+  attributes whose unit the material supports -- and a section 「按表看」 lists every table in name
+  order: concept, key evidence and what the document says about uniqueness (with lineage evidence
+  only), measure columns and how many of them have no unit in the material, unmapped columns, and
+  watch items with how many contradict the material. A table no document covers shows `—` in the
+  cells that need one, and the totals say how many tables they count. Without `--docs` nothing is
+  added. Runbook step S10g passes `--docs`.
+- **Changed (internal): the rule deciding whether the material supports a measure's unit lives in
+  `render/catalog_units.py`** and tells supported, not supported and cannot be judged apart; the
+  context pack and the index both use it, and the context pack's output is unchanged.
+- **Changed: a measure whose unit the material does not give gets no unit, instead of a provisional
+  one.** The catalog drafting templates (T5, T6 in skill `scope-lineage-ontology`) used to tell the
+  drafter to fill in a unit from the column comment when the digest gave none, so a guessed unit read
+  like a confirmed one. Now the unit comes from the digest; when no column an attribute is bound to has
+  one, the drafter writes no `unit` and the sentence 「待 owner 确认：单位」 in `notes`, and a metric
+  over such a measure has no unit either. `catalog validate` no longer warns `measure_without_unit`
+  for a measure carrying that sentence (one with neither is warned as before), so the
+  `attribute_unit` coverage of a catalog drafted this way is lower. `catalog_check.py` follows:
+  such a measure, and a metric over it, are no longer findings; they are listed for the owner with a
+  count, beside a new list (with `--digest`) of measures whose unit no bound column has in the
+  digest; a new finding `unit_in_digest` reports a measure carrying the sentence while the digest
+  does give a unit for a column bound to it -- an existing catalog may gain findings from it. The
+  runbook steps S10c, S10d and S10g say who reworks what and that the orchestrator copies both lists
+  into `RESULT.md`'s pending-confirmation summary.
+- **New: `catalog context` marks a measure's unit the table semantics do not give.** With
+  `--semantics`, a `measure` attribute's unit on a column's binding, and a metric's unit over that
+  measure (`--concept` with a concept or a metric), are compared with the table semantics per
+  attribute: a unit no bound column has in the material is printed with
+  「（材料未给，目录所填未经确认）」, no unit with 「单位：材料未给」, and a unit only the material has
+  with 「（目录未填）」; the JSON gains `material_unit` (`doc_format` unchanged). Without `--semantics`
+  the pack is unchanged. The same answer reaches `cli_catalog_answers.context` and the service. The
+  answering workflow (`catalog-answers.md`) now fetches a metric with `--semantics` and treats a unit
+  marked 「材料未给」 as an assumption or a pending item, not a conclusion.
 - **New: a read-only browse page for a built catalog, served by `scope-lineage-service http` at
   `/`.** Domains, concepts, metrics and tables with hash links; a concept's neighbourhood drawn as an
   SVG relations graph with each relation's join conditions; a table's catalog facts beside its

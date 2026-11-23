@@ -9,7 +9,7 @@ import pytest
 from service_paths import CUSTOMER
 
 from scope_lineage.cli_catalog_answers import CatalogAnswerError
-from scope_lineage_service.state import CatalogState
+from scope_lineage_service.state import CatalogState, _directory_signature
 
 
 def _touch_later(path) -> None:
@@ -53,6 +53,21 @@ def test_a_semantics_document_added_later_is_seen(inputs) -> None:
     )
 
     assert set(state.inputs().semantics) == {CUSTOMER, "demo_dwd.another_table"}
+
+
+def test_the_directory_signature_covers_every_json_file_below_it(inputs) -> None:
+    """Each ``*.json`` at any depth (what ``catalog`` reads), and a change to any of them."""
+    root = inputs["semantics"]
+    (root / "nested" / "deeper").mkdir(parents=True)
+    (root / "nested" / "deeper" / "x.json").write_text("{}", encoding="utf-8")
+    (root / "nested" / "notes.txt").write_text("not read", encoding="utf-8")
+    signature = _directory_signature(root)
+
+    expected = sorted(p.relative_to(root).as_posix() for p in root.rglob("*.json"))
+    assert [entry[0] for entry in signature] == expected
+    assert _directory_signature(root) == signature
+    _touch_later(root / "nested" / "deeper" / "x.json")
+    assert _directory_signature(root) != signature
 
 
 def test_an_ontology_broken_after_start_is_reported_until_it_is_fixed(inputs) -> None:

@@ -560,7 +560,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | 规则 | 含义 |
 | --- | --- |
 | `state_attribute_without_states` | 概念有 `state` 类属性且有码值集（按「属性」一节的规则），却没有 `states` |
-| `measure_without_unit` | `measure` 类属性没有 `unit` |
+| `measure_without_unit` | `measure` 类属性没有 `unit`，`notes` 也没写「待 owner 确认：单位」（材料没给单位时起草者写的那句话；写了的不报） |
 | `zipper_without_validity` | `zipper` 表现没有 `time_role: valid_from` 的绑定，或没有 `valid_to` 的绑定 |
 | `participation_without_event` | 手写的 `participation` 关系两端都不是事件 |
 | `generalization_cycle` | `generalization` 关系绕成环（每个环报一次，从环里 id 最小的概念报） |
@@ -687,7 +687,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | 位置 | 键 | 来自 | 含义 |
 | --- | --- | --- | --- |
 | `representations["库.表"]` | `producing_tasks` | `--lineage` | 写这张表的语句所属的任务 |
-| `representations["库.表"]` | `refresh` | `--lineage` | 这些任务的调度周期（或 cron） |
+| `representations["库.表"]` | `refresh` | `--lineage` | 这些任务的调度周期；周期缺失或是字面量 `unknown`（不分大小写）时取 cron；cron 也没有才是 `unknown` |
 | `representations["库.表"]` | `upstream_tables` / `downstream_tables` | `--lineage` | 表级血缘一跳：写它的任务读了什么，读它的任务写了什么 |
 | `representations["库.表"]` | `grain_proof` | `--lineage` | 所有生产语句里证据最强的粒度：`confidence`（`proven` / `candidate` / `none`）、`keys`（目标表的列名，被 WHERE 钉死的键不算）、`basis`、`task` |
 | `representations["库.表"]` | `conflicts` | `--lineage` | `grain_not_proven`（目录声明 `proven`，血缘证明不了）、`grain_not_exposed`（目录声明 `proven`，血缘证明的键没有写到目标列上）、`grain_mismatch`（两边都已证明，列不同）或 `table_identity_ambiguous`（血缘里不是同一张表的几个名字都落到这张目录表上，`names` 列出它们；此时不挂其他血缘证据） |
@@ -696,8 +696,8 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
 | `bindings["库.表.列"]` | `declared_only` | `--tables` | 元数据里有这一列，语料里没有任何任务碰过它 |
 | `code_sets["code:..."]` | `table` / `missing_columns` | `--tables` | 码值集 `lookup` 所指的表有表卡、表卡却没声明其中某些列时：哪些列（只在有这样的列时出现；`build` 同时在 stderr 打一行 `lookup_column_missing` 警告） |
-| `relations["rel:..."]` | `joins` | `--lineage` | 连接两个概念表现表、且两侧连接列绑定到同一个它们的标识符的 JOIN：`count` 与至多三个 `samples` |
-| `relations["rel:..."]` | `source_joins` | `--lineage` | 生产任务内的 JOIN：写某一端表现表的语句里、为填这张表的外键列而做的 JOIN，`count` 与至多三个 `samples`（多一个 `column`：被填的外键列）；与 `joins` 分开计，只在有这样的 JOIN 时出现 |
+| `relations["rel:..."]` | `joins` | `--lineage` | 连接两个概念表现表、且两侧连接列绑定到同一个它们的标识符的 JOIN：`count` 与至多三个 `samples`；`by_column`（`count` 大于 0 时）：其中涉及两侧每个目录列的各有几次，`库.表.列` → 次数；样例在名额内每列至少留一条 |
+| `relations["rel:..."]` | `source_joins` | `--lineage` | 生产任务内的 JOIN：写某一端表现表的语句里、为填这张表的外键列而做的 JOIN，`count` 与至多三个 `samples`（多一个 `column`：被填的外键列），以及 `by_column`：每个外键列被填了几次，`库.表.列` → 次数，样例在名额内每列至少留一条；与 `joins` 分开计，只在有这样的 JOIN 时出现 |
 
 ```json
 {
@@ -724,11 +724,11 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
   },
   "relations": {
     "rel:borrower_owes_loan": {
-      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}]}
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}], "by_column": {"demo_dwd.dwd_lending_borrower_df.customer_id": 1, "demo_dwd.dwd_lending_loan_df.customer_id": 1}}
     },
     "rel:repayment.loan": {
-      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}]},
-      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}]}
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}], "by_column": {"demo_dwd.dwd_lending_loan_df.loan_no": 1, "demo_dwd.dwd_lending_repayment_di.loan_no": 1}},
+      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}], "by_column": {"demo_dwd.dwd_lending_repayment_di.loan_no": 1}}
     }
   }
 }
@@ -772,7 +772,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 
 ```bash
 scope-lineage catalog render out/ontology.json --out out/pages \
-  [--semantics out/pages/semantics]
+  [--semantics out/pages/semantics] [--docs <documents>]
 ```
 
 `render` 只读构建出的文档，从不回读目录文件夹，所以页面展示的就是构建结果（含证据）。标题用中文，
@@ -795,9 +795,40 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   --semantics out/pages/semantics
 ```
 
+`--docs` 指向表语义文档目录（`<db.table>.json`，即 `catalog context --semantics` 收的那种目录；不是 `--semantics`
+收的页面目录）。给了它，`index.md` 还会按这些文档计数；不给时下面这些数都不显示。两个选项互不相干：`--semantics`
+只管链接，`--docs` 只管计数。
+
+`index.md` 开头是「用之前先看」：一句固定说明，本页只说明目录在结构上有什么、缺什么，答得对不对要靠验收；
+一句固定说明，问数用的是构建出的目录文件加表语义文档目录；然后是治理缺口汇总。给了 `--docs` 时汇总多两行，
+其后再跟一节「按表看」：
+
+| 行 | 怎么算 |
+| --- | --- |
+| 唯一键有血缘证据的表 | 血缘证明了粒度的表（`grain_proof.confidence` 为 `proven`）占全部表；以及其中表语义文档说不唯一（`summary.row.unique` 为 `no`）的张数。只在构建时带了 `--lineage` 才显示 |
+| 单位有材料依据的度量属性 | 所绑的列里至少一列在所在表的表语义文档里有 `unit` 的度量属性，占能判断的度量属性；所绑的列没有一列被文档描述的属性没法判断，单独计数 |
+
+「按表看」每张目录表一行，按表名排列，不按别的排（不打分，不按问题多少排）。给了 `--semantics` 时表名链到
+它的表语义页。
+
+| 列 | 取值 |
+| --- | --- |
+| 表 | 表名 |
+| 概念 | 它表现的概念，带链接 |
+| 唯一键的证据 | 已证明（血缘证明了粒度）或 无；只在有 `--lineage` 证据时显示 |
+| 表语义的说法 | 文档的 `summary.row.unique`：唯一 / 不唯一 / 未知；只在有 `--lineage` 证据时显示 |
+| 度量列 | 绑定到度量属性的列（按目录算） |
+| 其中单位无材料依据 | 其中所属属性没有材料依据的列，给个数和占比 |
+| 未绑定列 | 本表绑定到 `unmapped` 的列，与缺口汇总同一来源 |
+| 注意事项 | 文档 `summary.watch` 的条数，及其中 `kind` 为 `conflict` 的条数 |
+
+单位按属性判断，与 `catalog context --semantics` 标注单位（`material_unit`）用的是同一条规则、同一个函数：
+取数包里被标成「材料未给」的列，正好就是「其中单位无材料依据」里数到的列。表语义文档只覆盖部分表时，
+没有文档的表在依赖文档的格子显示 `—`，该节下面写明覆盖了几张表，汇总里「说不唯一」的张数只数覆盖到的表并写明。
+
 | 文件 | 内容 |
 | --- | --- |
-| `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、码值集（及码值所在的表）、治理缺口汇总、记录范围汇总 |
+| `index.md` | 先是用之前先看（治理缺口汇总；给了 `--docs` 时多两行和一张按表的表），然后按域列出概念（名称、种类、定义、表现表数、状态）、标识符、码值集（及码值所在的表）、记录范围汇总 |
 | `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`）：先是一页纸概览，再是附录七节 |
 | `identifiers.md` | 每个标识符的完整说明，及绑定到它的列 |
 | `code_sets.md` | 每个码值集：取值，或去哪张表、按什么条件查（`lookup`）；用它的属性（按「属性」一节的规则）；按 `code_sets` 查它的列（行名「查它的列」）、各列怎么查（按顺序，或按来源各查各的：`code_sets_by`）、各列存什么（`holds`） |
@@ -832,7 +863,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | A3 带本概念标识的表 | 所有概念的表里，把本概念的某个标识符绑定为 `identifier` 或 `foreign_identifier` 的每一列：表、表的概念、列、标识符、方式（自关联单独标出）。没有自己表现表的概念也能看到它从哪些表关联进来；角色没有自己的标识符，指向承担者 |
 | A4 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义；码值在码值表里的写出查找方式；有几个码值集时逐个前缀集名，「A：1=…；B：0=…」）、承载它的每个表列（含码值映射；列按 `code_sets` 查码值集时写「先查 A，查不到查 B」，`code_sets_by: source` 的列写「按来源分别查 A、B」；写了 `holds` 的列再写它存什么，如「存含义（zh）或码」，跟在码值集之后写成「（码值：查 A；存代理键）」；别的表冗余存放的标为「冗余（经 via 列）」，同一概念另一条记录的标为「冗余（同一<概念>的另一条记录，经 via 列）」）、加工口径 |
 | A5 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列——写了 `relation` 的列只列在它指向的那条下，没写的列在每条自关联下——有 `inverse_name` 时读法两个方向都写）；有生产任务内的 JOIN（`source_joins`）时，另写「生产任务内连接 N 次（如 …，填 <外键列>）」，与 JOIN 次数分开；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看实现它的自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
-| A6 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
+| A6 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态；表达式后面写它承接的规则（承接规则）和它来自目录里的哪些表（来源表，与 `catalog query table` 同一判据） |
 | A7 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
 
 凡是来自语料的内容都标「血缘」；没有证据时这些格子写「—」，不猜。
@@ -848,7 +879,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | 分区/快照日期 | `partition` | 分区、快照、`dt`、`ds`、`partition`、`snapshot` |
 | 其他 | `other` | 以上都不像 |
 
-同一页还列出没写 `scope` 的表，以及种类为 `business_rule` / `value_domain`、在 `evidence` 或表达式里引用了某张表现表的约束。表达式按完整表名引用，后面可以紧跟 `.列名`：讲 `db.t_order_refund` 的规则不算引用 `db.t_order`。
+同一页还列出没写 `scope` 的表，以及种类为 `business_rule` / `value_domain`、来自某张表现表的约束：`rules` 点到它（`<库.表>#rN`），或 `evidence`、表达式引用了它。表达式按完整表名引用，后面可以紧跟 `.列名`：讲 `db.t_order_refund` 的规则不算引用 `db.t_order`。
 
 ## 查询：`catalog query`
 
@@ -860,10 +891,10 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | kind | term | 回答 |
 | --- | --- | --- |
 | `concept` | id、名称、同义词或术语 | 身份、标识符、属性、状态、表现表、该读的页面，以及概念页的一页纸概览（`overview`，字段与页面相同） |
-| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念、时间语义与取数方式（`usage`）、表注释与 `notes`、记录范围、引用它的业务规则与值域约束（`constraints`），以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系；码值表（码值集 `lookup` 所指的表）回答它装着哪些码值集及各自的查找方式（`code_sets`），表同时有表现时表现答案多一个 `code_sets`，退出码 `0` |
-| `column` | `库.表.列` | 它承载的属性或标识符及其概念（冗余属性带 `via`，是同一概念另一条记录的属性时另带 `other_instance: true`；写了 `code_sets` 的列按顺序带出码值集及查找方式，`code_sets_by` 为 `source` 时带出这个键（文字读成「按来源分别查 A、B」）；写了 `holds` 的列说出它存什么，如「存含义（zh）或码」，并带 `holds`、`lang`）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写；自关联列带 `self_relations`（它实现的自关联：写了 `relation` 的只有那一条，没写的是全部） |
+| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念、时间语义与取数方式（`usage`）、表现的 `refresh`（「刷新」一行，没有就不出）、表注释与 `notes`、记录范围、来自它的业务规则与值域约束（`constraints`：`rules` 点到这张表，或 `evidence`、表达式引用了它），以及每个绑定列指向什么，带证据（绑定到属性的列带属性的 `type`，打印「；类型 …」）；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系；码值表（码值集 `lookup` 所指的表）回答它装着哪些码值集及各自的查找方式（`code_sets`），表同时有表现时表现答案多一个 `code_sets`，退出码 `0` |
+| `column` | `库.表.列` | 它承载的属性或标识符及其概念（属性还带 `type`，打印「；类型 …」；冗余属性带 `via`，是同一概念另一条记录的属性时另带 `other_instance: true`；写了 `code_sets` 的列按顺序带出码值集及查找方式，`code_sets_by` 为 `source` 时带出这个键（文字读成「按来源分别查 A、B」）；写了 `holds` 的列说出它存什么，如「存含义（zh）或码」，并带 `holds`、`lang`）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写；自关联列带 `self_relations`（它实现的自关联：写了 `relation` 的只有那一条，没写的是全部） |
 | `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
-| `attribute` | id、名称或术语 | 所属概念、码值（码值集有 `lookup` 时 `code_set` 带上查找方式与表；属性自己没写 `code_set` 时答 `code_sets`，即各列写的码值集，每项同 `code_set` 的形状并带 `name`）、口径、每个表列 |
+| `attribute` | id、名称或术语 | 所属概念、有 `notes` 时的备注（打印「备注：…」）、码值（码值集有 `lookup` 时 `code_set` 带上查找方式与表；属性自己没写 `code_set` 时答 `code_sets`，即各列写的码值集，每项同 `code_set` 的形状并带 `name`）、口径、每个表列 |
 | `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系（有 `inverse_name` 的自关联两个方向都读）、事件、参与者、角色、承担者、表、带本概念标识的表（`carriers`）；每条关系与事件带 `carried_together`（同表携带两端的表）与 `evidence`，没有 JOIN 时文本里写出；有生产任务内的 JOIN 时另带 `source_joins`（次数），文本写「生产任务内连接 N 次」，与 `joins` 分开 |
 | `carriers` | 概念的 id、名称、同义词或术语 | 所有概念的表里绑定了本概念标识符的列：表、表的概念、列、标识符、方式 |
 | `scope` | 过滤类别（`validity`/有效记录、`deletion`/删除、`dedup`/去重、`partition`/分区、`other`/其他，类别名或其一半都行）或关键词 | 记录范围或所引约束说到它的表，各带这些行（与其类别）、约束与取数方式 |
@@ -950,11 +981,11 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 
 | 选项 | 给出什么 |
 | --- | --- |
-| `--concept`（id、去掉前缀的 id、名称、同义词或术语；或指标的 id、去掉 `metric:` 的 id、名称或术语） | 定义、标识符、表现表、它和它的属性、标识符、关系上的约束、指标的完整定义（度量与绑定列、聚合、过滤、时间窗、维度、可加性、单位、所引约束的原文）；没有概念对上的词再按指标找，给出指标所在的概念，这个指标排在第一条，`via_metric`（`{id, name}`）写明由哪个指标找来 |
-| `--table`（`库.表`） | 目录侧：承载的概念、粒度列与来源、时间形态与刷新、带角色的时间列、记录范围、每个外部标识符列能连到哪张表的哪一列（`joins`，带语料里见过的 JOIN 及其位置）、约束、概念上的指标名、证据与目录的矛盾；表语义侧（`semantics`）：是什么、一行是什么、怎么取数、范围及其引用的规则（带 SQL）、适用与不适用、注意事项、待确认问题、读这张表的下游任务与表、每列一行的字段一览 |
-| `--column`（`库.表.列`） | 目录侧的绑定（指向什么、定义、单位、码值、取值方式、时间角色、血缘表达式）；表语义侧这一列的含义、加工、分支、码值、空值含义、注意；以及点名这一列的表级注意与待确认问题 |
+| `--concept`（id、去掉前缀的 id、名称、同义词或术语；或指标的 id、去掉 `metric:` 的 id、名称或术语） | 定义、标识符、表现表、它和它的属性、标识符、关系上的约束、指标的完整定义（度量与绑定列、聚合、过滤、时间窗、维度、可加性、单位、所引约束的原文，有 `notes` 时带上）；没有概念对上的词再按指标找，给出指标所在的概念，这个指标排在第一条，`via_metric`（`{id, name}`）写明由哪个指标找来 |
+| `--table`（`库.表`） | 目录侧：承载的概念、粒度列与来源、时间形态与刷新（文本的「刷新」一行后面加上表语义写的周期，「表语义写的周期」）、带角色的时间列、记录范围、每个外部标识符列能连到哪张表的哪一列（`joins`，带语料里见过的 JOIN 及其位置：只留涉及这一列的样例 JOIN——产出任务内部的按它填的列判断，目录表之间的按 JOIN 两边判断——，同一份证据不管几条关系都带着只出一条，`relations` 列出这些关系；`count` 取 build 写的 `by_column` 里这一列的次数，没留下样例的列只写次数；`by_column` 出现之前 build 的文档，样例齐全时数这一列的样例，样例被截断时写明有几次没留样例（`unsampled`）、是否涉及本列没有记录——本列一个样例都没有时，一行写出关系的次数（`relation_count`）——重新 build 可知）、约束、概念上的指标名、证据与目录的矛盾；表语义侧（`semantics`）：是什么、一行是什么、怎么取数、范围及其引用的规则（带 SQL）、适用与不适用、注意事项、待确认问题、读这张表的下游任务与表、每列一行的字段一览 |
+| `--column`（`库.表.列`） | 目录侧的绑定（指向什么、定义、绑定到属性的列带属性的 `type`——标识符、技术列、未映射列没有类型，不打印——、单位、码值、取值方式、时间角色、血缘表达式，所绑属性有 `notes` 时带上，打印「备注：…」）；表语义侧这一列的含义、加工、分支、码值、空值含义、注意；以及点名这一列的表级注意与待确认问题 |
 | `--columns`（`列[,列...]`） | 和 `--column` 一样，但只写列名、逗号分隔，列属于 `--table` 点名的表；要求至少一个 `--table`。只有一个 `--table` 时每个列名都算它的。有几个时，光写列名的归到每张有这一列的请求表（目录在这张表上绑定了它，或这张表的表语义文档写了它；不分大小写），`表.列` 钉在同名的那张请求表上，`库.表.列` 照写；已请求过的不再重复 |
-| `--brief` | 简版 `--table` 包：目录事实、是什么、一行是什么、怎么取数、范围、适用、不适用、注意、待确认问题、被引用规则的文字都留着；字段只列名字、按类别分组（条目只留 `column` 和 `category`），被引用的规则不带 SQL，下游只写它写入的表（不写表时写任务名）；同一个包里已有其表的字段，不再重复表级注意，改为指向表块 |
+| `--brief` | 简版 `--table` 包：目录事实、是什么、一行是什么、怎么取数、范围、适用、不适用、注意、待确认问题、被引用规则的文字都留着；字段只列名字、按类别分组（条目只留 `column` 和 `category`），被引用的规则不带 SQL，下游只写它写入的表（不写表时写任务名）；关联列下两边的表都不在目录里的样例 JOIN 收成一句计数（`seen_outside_catalog`，「另有 n 条产出任务内部的连接证据两边的表都不在目录里」），涉及目录表的 JOIN 一律列出；同一个包里已有其表的字段，不再重复表级注意，改为指向表块 |
 | `--focus` | 配合 `--column`/`--columns`：每张表的注意、待确认问题和被引用的规则只留点名所请求字段的那些；`semantics.focus`（`columns`、`left_out` 计数）写明略去了多少 |
 
 `--table`、`--column`、`--columns`、`--concept` 都可重复，可混用。字段所属的表也用 `--table` 点了名时，字段全文就在同一个包里，
@@ -973,6 +1004,14 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 表语义文档」——读者要能分清「没有要注意的」和「没人写下来」。只在表语义里有、目录没绑定的列照样能用
 `--column` 查到，`catalog` 一项为空。
 
+**度量的单位对照材料。** 带 `--semantics` 时，`measure` 类属性的单位——列的绑定上的，以及以它为度量的指标上的（`--concept`
+给概念或指标）——要和表语义对照。按属性判断：它所绑的列里只要有一列在其表语义文档里有 `unit`，单位就算有依据，照原样打印。
+否则绑定或指标多一个 `material_unit`：有单位时是 `{"given": false}`，打印 `单位：<单位>（材料未给，目录所填未经确认）`（目录填的，
+没人确认过）；没有单位时也是 `{"given": false}`，打印 `单位：材料未给`；目录没有单位、材料却给了的，是
+`{"given": true, "units": [...]}`，打印 `单位：<单位>（目录未填）`。所绑的列没有一列有表语义文档说明的属性不作判断。
+`doc_format` 仍是 `catalog-context/1`。标了材料未给单位时，属性或指标 `notes` 里的「待 owner 确认：单位」一句说的是同一件事，打印的备注里
+去掉这一句，其余句子照留。不带 `--semantics` 时不对照，没确认过的单位读起来和确认过的一样：取指标时也带上 `--semantics`。
+
 ```text
 # 表 demo_dwd.dwd_party_customer_info_df
 
@@ -980,6 +1019,15 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 - 承载概念：客户（concept:customer），表的种类 core
 - 粒度：customer_id（proven）
 ```
+
+**表下面的约束从哪来。** 一张表下面列的是它所属概念上的约束，每条约束来自它 `rules` 点到的表，或它的 `evidence`、表达式引用的表
+（`tables`；`catalog query table`、`scopes.md`、概念页用的是同一个判据，只算目录里的表）。在这张表下面，每条约束按第一个成立的
+关系标出 `relation`：`this_table`（本表是来源之一）；`upstream`（某个来源在血缘证据里是本表的上游，经目录里的表逐跳往上找：本表的行
+若就是从这张表来的，条件已经带进来；本表若只是关联它补字段，条件不适用——证据分不出是哪一种，所以文本两种都写，并注明来源表）；
+`downstream`（是下游表加工时才做的，本表没有做）；`unrelated`（没有血缘关系，是否对本表成立不知道）。来源里既有上游表又有读本表的表的，
+列在上游，并用 `also_downstream` 注明读本表的那些。来自上游的 `unique` 约束单列一句：本表的粒度可能不同，唯一性不一定还成立。目录没有血缘证据时，
+只有 `this_table` 和 `other_table` 两种。文本每种关系一段，每条注明来源表。来自其他表、针对本表没有绑定列的属性的约束不列，只计数（本表规则带出的约束一律列出，这一段与 `catalog query table` 列的一致）
+（`constraints_unbound`，`{关系: 条数}`）；一张表都没点到的约束照旧列出，不带这两个键。`--concept` 的每条约束也带 `tables`。
 
 **两张以上的表：怎么关联。** 给两个以上 `--table` 时，包里每对请求的表多一项（`links`，文本在各表之后多一节
 `# 关联 a ↔ b`），agent 不用自己去推关联列、哪一侧会放大行数、各要哪些过滤：
@@ -1175,7 +1223,9 @@ scope-lineage-service mcp out/ontology.json --semantics semantics/
 HTTP 服务还在 `/` 提供一个只读的浏览页面（浏览器打开 `http://127.0.0.1:8765/`）：业务域、概念、指标和表；把一个概念的邻域画成关系图，每条关系附带
 关联条件；一张表的目录信息与它的表语义文档并排；以及待确认问题看板（表语义文档里的问题和待确认文件里的条目）。列表一页一页地取，再大的目录也
 不会整份发给浏览器。页面用的是 `scope_lineage.cli_catalog_answers` 里专为浏览准备的回答（`browse_index`、`browse_list`、`neighbourhood`、
-`table_semantics`、`questions`），它们没有对应的命令：同样的事实在命令行里仍由 `query`、`context` 和 `render` 给出。
+`table_semantics`、`table_units`、`questions`），它们没有对应的命令：同样的事实在命令行里仍由 `query`、`context` 和 `render` 给出。
+首页给出 `index.md` 的「用之前先看」摘要；带 `--semantics` 启动时，表清单每行带上「按表看」的几列：两者都出自写 `index.md` 的同一组
+函数，数字与同一批表语义下 `catalog render --docs` 给出的相同；表清单默认按表名排列，读者可以选按其中一列排序。
 
 以 `--ask` 启动时，页面还多一个问数面板：服务器上的模型按技能的 `catalog-answers.md` 步骤回答数据问题，只能用上面这些回答作工具；页面显示每一步、
 SQL、每个条件的依据和每个待确认占位（在占位旁填写的定义会追加到待确认文件）。它从不执行 SQL；它会产生费用，并把目录文字发给模型提供方，所以默认关闭。
@@ -1300,6 +1350,16 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
   JOIN 读值的列；`read_by` 为空（`read by no column`）的是死关联或只用来过滤行，不是码值集的证据，起草时
   不为它建码值集——码值集只为有列读取的 `where` 组合建。顺序取这些列回退的顺序，不取 JOIN 书写顺序；两列回退顺序相反时保留 JOIN 顺序，并用
   `key_of_order: "unknown"` 标明。
+- `joined_in`：只在度量列上，这个值从哪些 JOIN 的右侧带进来，一项一个 JOIN：`{rule, keys, fan_out}`，`rule` 是血缘里
+  这个 JOIN 的逻辑块 id（与 `lookups[].rule` 同一套编号），`keys` 是它的左侧连接键沿直传对到的**本表**列名，`fan_out` 是
+  按这条语句自己判定的放大状态（`safe` / `risk` / `unknown`，不读表卡片，可能比材料包保守）。只记第一层聚合之上的
+  JOIN（聚合之下的被聚合折叠）；连接键有一个对不到本表的列就不写这一项；几条语句写同一列时各写各的，并带
+  `source`（`<任务>/<语句>`）。不比较、不按 `fan_out` 过滤：键没盖住这张表的行粒度时，同键的多行带同一个值，比较由
+  `catalog_check.py` 做。md 写 `joined in through <rule> on <键> (fan-out: <状态>)`。起草时，键没盖住粒度、确实重复的，
+  在度量属性和以它为度量的指标的 `notes` 写「在 <库.表> 里同 <键> 的多行带同一个值，按 <键> 每组取一行后再加」，
+  `additivity` 不为此改——这个值在它自己的粒度上仍然可加，错在按本表的行相加；读 SQL 判断不重复的，在
+  `catalog_changes.md` 写 `<属性 id> repeats skip: <理由>`。`catalog_check.py --digest` 的 `measure_repeats_within_grain`
+  报既没这样写 `notes`、也没写 skip 行的 `additive` 度量属性；
 
 什么算：只有经 JOIN 进入（或途经被关联的子查询 / CTE）的值才有条件；条件是与字符串字面量的单个等值比较，
 写在 JOIN 的 `ON` 里、被关联子查询 / CTE 的 `WHERE` 里，或同一查询 `WHERE` 里限定被关联别名本身的位置。
@@ -1316,7 +1376,7 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 相同）的 `lookups` 项也加上：这个关联挑的是描述同一条记录的行——这个实体的属性行、这次通话的参与方——不是码值
 翻译。读出的列是属性，不是码值集的证据。键是外部标识列的读取不带这个标记，仍可能是别的实体的属性行。
 
-`key`、`lookups_by`、`source`、`other_sources`、`code_set_mismatch` 与 `keyed_by` 不改 `catalog-digest/1`；
+`key`、`lookups_by`、`source`、`other_sources`、`code_set_mismatch`、`keyed_by` 与 `joined_in` 不改 `catalog-digest/1`；
 两处含义收窄：`fallback` 只是同来源内的真回退，已知关联列时 `code_set` 要求关联列匹配。
 
 ```json

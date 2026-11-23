@@ -74,6 +74,7 @@ fallback covers 0.2.0):
 | filters that bind a bare `WHERE` column to its source when a SELECT alias shares its name (0.11.0 and older rewrote it into the alias expression) | >= 0.11.1 |
 | row conditions on constant columns closed rather than gaps, GROUP BY keys bound to source columns first, unbound `${…}` table names reported as `input_incomplete`, check 9's date-filter shapes (`period` / `snapshot_pick` / `cutoff`), and a runbook that runs from a pip install (`SKILL` / `SCHEMAS`) | >= 0.11.2 |
 | writing SQL from the catalog (`catalog search` / `context` / `check-sql` / `pending`, the walk in `workflows/catalog-answers.md`) | the release after 0.13.0 (0.13.0 has none of the four) |
+| a task JSON's scheduling template and parameter list (`meta.task_sql` / `meta.task_parameters`, `parse --instance-sql`), the packet's 调度参数 line and the `parameter_equality` date-filter shape, prompts `@13` / `@12` / `@8` | the release after 0.15.0 (0.15.0 reads `meta.sql` only; the prompts still work on its packets) |
 
 When unsure which workflows the session will need, require >= 0.11.2 (the runbook's S0, in
 `scope-lineage-ontology`). A table-semantics run directory made with an older release: rebuild its packets; every document whose packet changed

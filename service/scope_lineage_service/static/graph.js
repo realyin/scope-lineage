@@ -1,8 +1,25 @@
 // The relations graph of one concept's neighbourhood, drawn as SVG by hand: the concept in
-// the middle, its neighbours on a ring, every relation between two drawn concepts as a
-// curve (spread apart when two concepts share several, a loop for a concept related to
-// itself). ``layoutGraph`` is a pure function (no DOM) so its geometry can be checked;
-// ``drawGraph`` turns its result into SVG. Labels are text nodes; nothing is markup.
+// the middle, its neighbours on a ring, and one line for each pair of drawn concepts that
+// are related (a loop for a concept related to itself). The relations between one pair
+// share that line and one label, a line per relation, so a concept with many relations
+// to the same neighbour does not stack curves and labels on top of each other.
+//
+// ``layoutGraph`` is a pure function (no DOM) so its geometry can be checked; ``drawGraph``
+// turns its result into SVG. Labels are text nodes; nothing is markup.
+//
+// Labels: a relation is labelled with its name. A participation (an event's participant,
+// derived by ``catalog build`` from the event's ``participants``) has as its name the
+// participant's ``role_name``, an identifier the catalog author wrote, not a reading: its
+// label is the word the command line prints for it, 「参与者」, with how many roles when the
+// event has several participants of the same concept; each role name stays in the line's
+// tooltip and in the table under the graph. A role is labelled 「角色」.
+//
+// Limits: every neighbour is placed on the ring however many there are (the ring widens
+// until no two boxes touch; a wide drawing scrolls inside its box). Labels are drawn while
+// the graph has at most EDGE_LABELS_UP_TO concepts; each is placed by searching outward
+// from the middle of its line for a spot that meets no concept and no other label, so two
+// labels never overlap. Past that many concepts the lines carry no labels and the page
+// says so: the table under the graph lists every relation.
 
 import { KIND_TEXT, RELATION_KIND_TEXT, href, word } from "./dom.js";
 
@@ -11,12 +28,13 @@ const NODE_H = 40;
 const NODE_FONT = 14;
 const SUB_FONT = 11;
 const LABEL_FONT = 12;
-const LABEL_H = 17;
-const LABEL_CHARS = 12;
-const EDGE_LABEL_CHARS = 10;
-const EDGE_LABELS_UP_TO = 16; // with more nodes, edge labels crowd: the table below has them
-const PARALLEL_GAP = 44; // how far apart the curves between the same two concepts run
+const LABEL_LINE = 16;
+const LABEL_CHARS = 12; // a concept's name in its box; the box's tooltip has it whole
+const EDGE_LINE_CHARS = 18; // one line of an edge label; the label's tooltip has it whole
+const EDGE_LINES = 4; // lines of one edge label; past that the last says how many more
+export const EDGE_LABELS_UP_TO = 24; // concepts; with more, the table carries the names
 const PAD = 16;
+const LEADER_FROM = 26; // a label further than this from its line gets a leader line
 
 function clip(value, limit) {
   const textValue = String(value || "");
@@ -39,8 +57,9 @@ export function overlaps(a, b, margin = 2) {
     a.y < b.y + b.h + margin && b.y < a.y + a.h + margin;
 }
 
-function contains(b, point) {
-  return point.x >= b.x && point.x <= b.x + b.w && point.y >= b.y && point.y <= b.y + b.h;
+function inside(b, point, margin = 0) {
+  return point.x >= b.x - margin && point.x <= b.x + b.w + margin &&
+    point.y >= b.y - margin && point.y <= b.y + b.h + margin;
 }
 
 /** Where a line from ``from`` towards a box's centre meets the box's border. */
@@ -58,8 +77,8 @@ function boxEdge(from, node) {
 function placeNodes(graph) {
   const others = graph.nodes.filter((node) => !node.centre);
   const n = others.length;
-  let ry = Math.max(95, Math.min(300, n * 24));
-  let rx = Math.max(n > 1 ? 210 : 0, Math.min(430, ry * 1.6));
+  let ry = Math.max(110, Math.min(320, n * 26));
+  let rx = Math.max(n > 1 ? 230 : 0, Math.min(460, ry * 1.6));
   const start = -Math.PI / 2 + (n > 0 ? Math.PI / n : 0); // two neighbours: left and right
   const placed = new Map();
   for (const node of graph.nodes) {
@@ -69,88 +88,142 @@ function placeNodes(graph) {
     placed.set(node.id, { id: node.id, name: node.name, centre: !!node.centre, x: 0, y: 0, w, h: NODE_H, label, sub });
   }
   const ring = [...placed.values()].filter((node) => !node.centre);
-  // widen the ring until no two boxes touch (a crowded neighbourhood draws larger, and
-  // the box scrolls it)
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  // widen the ring until no two boxes come close (a crowded neighbourhood draws larger,
+  // and the box scrolls it); room between them is room for the labels
+  for (let attempt = 0; attempt < 60; attempt += 1) {
     ring.forEach((node, index) => {
       const angle = start + (2 * Math.PI * index) / Math.max(1, n);
       node.x = Math.cos(angle) * rx;
       node.y = Math.sin(angle) * (n === 1 ? 130 : ry);
     });
     const boxes = [...placed.values()].map((node) => box(node.x, node.y, node.w, node.h));
-    const crowded = boxes.some((a, i) => boxes.slice(i + 1).some((b) => overlaps(a, b, 6)));
+    const crowded = boxes.some((a, i) => boxes.slice(i + 1).some((b) => overlaps(a, b, 24)));
     if (!crowded) break;
-    rx *= 1.12;
-    ry *= 1.12;
+    rx *= 1.1;
+    ry *= 1.1;
   }
   return placed;
 }
 
+/** The text of one relation on its line's label. */
+export function relationLabel(edge) {
+  if (edge.kind === "role") return "角色";
+  if (edge.kind === "participation") return "参与者";
+  return String(edge.name || word(RELATION_KIND_TEXT, edge.kind));
+}
+
+/** The lines of one label for the relations of one pair: participations to the same
+ * concept as one line with how many roles, the others one line each, in document order. */
+export function bundleLines(edges) {
+  const lines = [];
+  const participants = new Map();
+  for (const edge of edges) {
+    if (edge.kind === "participation") {
+      const key = `${edge.from}\u0000${edge.to}`;
+      if (!participants.has(key)) {
+        participants.set(key, { count: 0 });
+        lines.push(participants.get(key));
+      }
+      participants.get(key).count += 1;
+    } else {
+      lines.push(relationLabel(edge));
+    }
+  }
+  const texts = lines.map((line) => (typeof line === "string" ? line
+    : line.count > 1 ? `参与者（${line.count} 个角色）` : "参与者"));
+  const shown = texts.length > EDGE_LINES
+    ? [...texts.slice(0, EDGE_LINES - 1), `等 ${texts.length} 条关系`] : texts;
+  return { lines: shown.map((line) => clip(line, EDGE_LINE_CHARS)), full: texts };
+}
+
+/** Points along a path given as {from, control, to} (a quadratic curve), for the checks. */
+function samples(curve, count = 14) {
+  const out = [];
+  for (let k = 1; k < count; k += 1) {
+    const t = k / count;
+    const u = 1 - t;
+    out.push({
+      x: u * u * curve.from.x + 2 * u * t * curve.control.x + t * t * curve.to.x,
+      y: u * u * curve.from.y + 2 * u * t * curve.control.y + t * t * curve.to.y,
+    });
+  }
+  return out;
+}
+
 /**
- * The geometry of a neighbourhood answer: {width, height, viewBox, nodes, edges}. Each edge
- * has ``path`` and, when labels are shown, ``label`` {x, y, w, h, text} placed beside its
- * curve, clear of every node and every other label where the tried positions allow.
+ * The geometry of a neighbourhood answer: {width, height, viewBox, nodes, edges, labelled}.
+ * ``edges`` has one entry per pair of related concepts: ``indexes`` (the relations it
+ * draws, into ``graph.edges``), ``path``, ``mid``, ``forward`` / ``backward`` (whether a
+ * relation runs from the first end to the second, or back), and, when labels are shown,
+ * ``label`` {x, y, w, h, cx, cy, lines, full, leader}.
  */
 export function layoutGraph(graph) {
   const placed = placeNodes(graph);
   const nodeBoxes = [...placed.values()].map((node) => box(node.x, node.y, node.w, node.h));
-  const showLabels = graph.nodes.length <= EDGE_LABELS_UP_TO;
-  const pairKey = (edge) => [edge.from, edge.to].sort().join("\u0000");
-  const pairTotal = new Map();
-  for (const edge of graph.edges) pairTotal.set(pairKey(edge), (pairTotal.get(pairKey(edge)) || 0) + 1);
-  const pairSeen = new Map();
-  const labels = [];
-  const extents = [];
-  const edges = [];
+  const labelled = graph.nodes.length <= EDGE_LABELS_UP_TO;
+  const bundles = new Map();
   graph.edges.forEach((edge, index) => {
-    const a = placed.get(edge.from);
-    const b = placed.get(edge.to);
-    if (!a || !b) return;
-    const key = pairKey(edge);
-    const i = pairSeen.get(key) || 0;
-    pairSeen.set(key, i + 1);
-    const total = pairTotal.get(key);
+    if (!placed.has(edge.from) || !placed.has(edge.to)) return;
+    const [p, q] = edge.from <= edge.to ? [edge.from, edge.to] : [edge.to, edge.from];
+    const key = `${p}\u0000${q}`;
+    if (!bundles.has(key)) bundles.set(key, { p, q, indexes: [] });
+    bundles.get(key).indexes.push(index);
+  });
+  const edges = [];
+  const curves = [];
+  const extents = [];
+  for (const bundle of bundles.values()) {
+    const a = placed.get(bundle.p);
+    const b = placed.get(bundle.q);
+    const members = bundle.indexes.map((i) => graph.edges[i]);
     let path;
     let mid;
-    let normal;
-    let side;
-    if (edge.from === edge.to) {
-      const lift = 40 + i * 22;
+    let curve = null;
+    if (a === b) {
       const top = a.y - a.h / 2;
-      path = `M ${a.x - 16} ${top} C ${a.x - 46} ${top - lift}, ${a.x + 46} ${top - lift}, ${a.x + 16} ${top}`;
-      mid = { x: a.x, y: top - lift * 0.75 };
-      normal = { x: 0, y: -1 };
-      side = 1;
-      extents.push(box(a.x, top - lift * 0.75, 70, 2));
+      path = `M ${a.x - 16} ${top} C ${a.x - 46} ${top - 44}, ${a.x + 46} ${top - 44}, ${a.x + 16} ${top}`;
+      mid = { x: a.x, y: top - 33 };
+      extents.push(box(a.x, top - 33, 70, 2));
     } else {
-      // the edges of one pair spread symmetrically about the straight line, and an edge's
-      // direction does not change which side it takes
-      const [p, q] = edge.from < edge.to ? [a, b] : [b, a];
-      const dx = q.x - p.x;
-      const dy = q.y - p.y;
-      const length = Math.hypot(dx, dy) || 1;
-      normal = { x: -dy / length, y: dx / length };
-      const bend = (i - (total - 1) / 2) * PARALLEL_GAP;
-      const cx = (a.x + b.x) / 2 + normal.x * bend * 2;
-      const cy = (a.y + b.y) / 2 + normal.y * bend * 2;
-      const end = boxEdge({ x: cx, y: cy }, b);
-      path = `M ${a.x} ${a.y} Q ${cx} ${cy} ${end.x} ${end.y}`;
-      mid = { x: 0.25 * a.x + 0.5 * cx + 0.25 * b.x, y: 0.25 * a.y + 0.5 * cy + 0.25 * b.y };
-      side = bend < 0 ? -1 : 1;
+      // a line between two neighbours bends away from the centre, so it does not cross
+      // the concept in the middle; a line from the centre runs straight
+      let control = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (!a.centre && !b.centre) {
+        const length = Math.hypot(control.x, control.y);
+        const reach = Math.max(80, Math.hypot(b.x - a.x, b.y - a.y) * 0.3);
+        const out = length > 1 ? { x: control.x / length, y: control.y / length }
+          : { x: -(b.y - a.y), y: b.x - a.x };
+        const norm = Math.hypot(out.x, out.y) || 1;
+        control = { x: control.x + (out.x / norm) * reach, y: control.y + (out.y / norm) * reach };
+      }
+      const from = boxEdge(control, a);
+      const to = boxEdge(control, b);
+      curve = { from, control, to };
+      path = `M ${from.x} ${from.y} Q ${control.x} ${control.y} ${to.x} ${to.y}`;
+      mid = { x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x, y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y };
+      curves.push({ bundle: edges.length, points: samples(curve) });
     }
-    const result = {
-      index, id: edge.id || null, kind: edge.kind, from: edge.from, to: edge.to, path, mid,
-      joined: Boolean((edge.joins && edge.joins.count) || (edge.keys && edge.keys.length)),
+    edges.push({
+      indexes: bundle.indexes, from: bundle.p, to: bundle.q, path, mid,
+      forward: members.some((e) => e.kind !== "role" && e.from === bundle.p && e.to === bundle.q),
+      backward: members.some((e) => e.kind !== "role" && e.from === bundle.q && e.to === bundle.p),
+      role: members.every((e) => e.kind === "role"),
+      joined: members.some((e) => Boolean((e.joins && e.joins.count) || (e.keys && e.keys.length))),
       label: null,
-    };
-    if (showLabels && (edge.name || edge.kind === "role")) {
-      const text = clip(edge.kind === "role" ? "角色" : edge.name, EDGE_LABEL_CHARS);
-      result.label = placeLabel(text, mid, normal, side, nodeBoxes, labels);
-      labels.push(result.label);
-    }
-    edges.push(result);
-  });
-  const all = [...nodeBoxes, ...labels, ...extents];
+    });
+  }
+  const labels = [];
+  if (labelled) {
+    edges.forEach((edge, index) => {
+      const { lines, full } = bundleLines(edge.indexes.map((i) => graph.edges[i]));
+      const others = curves.filter((curve) => curve.bundle !== index).flatMap((curve) => curve.points);
+      edge.label = placeLabel(lines, full, edge.mid, nodeBoxes, labels, others);
+      labels.push(edge.label);
+    });
+  }
+  const leaders = labels.filter((label) => label.leader)
+    .map((label) => box(label.leader.x, label.leader.y, 1, 1));
+  const all = [...nodeBoxes, ...labels, ...extents, ...leaders];
   const minX = Math.min(...all.map((b) => b.x)) - PAD;
   const minY = Math.min(...all.map((b) => b.y)) - PAD;
   const maxX = Math.max(...all.map((b) => b.x + b.w)) + PAD;
@@ -159,35 +232,51 @@ export function layoutGraph(graph) {
   const height = Math.ceil(maxY - minY);
   return {
     width, height, viewBox: `${Math.floor(minX)} ${Math.floor(minY)} ${width} ${height}`,
-    nodes: [...placed.values()], edges,
+    nodes: [...placed.values()], edges, labelled,
   };
 }
 
-/** The first position beside the curve's middle (its own side first, then the other, then
- * further out, then slid along it) whose box meets no node and no label already placed. */
-function placeLabel(text, mid, normal, side, nodeBoxes, labels) {
-  const w = textWidth(text, LABEL_FONT) + 8;
-  const h = LABEL_H;
-  // how far the box reaches along the normal: past that it cannot cover its own line
-  const reach = Math.abs(normal.x) * (w / 2) + Math.abs(normal.y) * (h / 2) + 4;
-  const tangent = { x: normal.y, y: -normal.x };
-  const tries = [];
-  for (const out of [0, 16, 32, 48]) {
-    for (const slide of [0, 24, -24, 48, -48]) {
-      for (const s of [side, -side]) tries.push({ distance: s * (reach + out), slide });
+/**
+ * A label's box: on its own line's middle when that spot is free, else the nearest free
+ * spot found walking outward in rings. A spot is free when the box meets no concept and
+ * no label already placed; within the first rings it must also keep off the other lines.
+ * The walk goes on until it finds one: past every box drawn, every spot is free, so a
+ * label is always placed and never on another.
+ */
+function placeLabel(lines, full, mid, nodeBoxes, labels, otherPoints) {
+  const w = Math.max(...lines.map((line) => textWidth(line, LABEL_FONT))) + 10;
+  const h = lines.length * LABEL_LINE + 4;
+  const free = (candidate, strict) => {
+    if (nodeBoxes.some((b) => overlaps(candidate, b, 4))) return false;
+    if (labels.some((b) => overlaps(candidate, b, 3))) return false;
+    return !strict || !otherPoints.some((point) => inside(candidate, point, 2));
+  };
+  const at = (radius, step, steps) => {
+    const angle = (2 * Math.PI * step) / steps;
+    const x = mid.x + Math.cos(angle) * radius;
+    const y = mid.y + Math.sin(angle) * radius;
+    return { ...box(x, y, w, h), cx: x, cy: y };
+  };
+  let found = null;
+  for (const strict of [true, false]) {
+    for (let ring = 0; !found && ring < (strict ? 12 : 4000); ring += 1) {
+      const radius = ring * 10;
+      const steps = ring === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * radius) / 18));
+      for (let step = 0; step < steps; step += 1) {
+        const candidate = at(radius, step, steps);
+        if (free(candidate, strict)) {
+          found = candidate;
+          break;
+        }
+      }
     }
+    if (found) break;
   }
-  let first = null;
-  for (const { distance, slide } of tries) {
-    const x = mid.x + normal.x * distance + tangent.x * slide;
-    const y = mid.y + normal.y * distance + tangent.y * slide;
-    const candidate = { ...box(x, y, w, h), text, cx: x, cy: y };
-    if (!first) first = candidate;
-    if (contains(candidate, mid)) continue;
-    if (nodeBoxes.some((b) => overlaps(candidate, b)) || labels.some((b) => overlaps(candidate, b))) continue;
-    return candidate;
+  const label = { ...found, lines, full, leader: null };
+  if (Math.hypot(label.cx - mid.x, label.cy - mid.y) > LEADER_FROM) {
+    label.leader = { x: mid.x, y: mid.y };
   }
-  return first;
+  return label;
 }
 
 function el(tag, attrs, ...children) {
@@ -199,10 +288,13 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
-function edgeTitle(edge, names) {
-  const kind = word(RELATION_KIND_TEXT, edge.kind);
+/** One relation in words, for a tooltip: participations name their role. */
+export function relationTitle(edge, names) {
   const from = names.get(edge.from) || edge.from;
   const to = names.get(edge.to) || edge.to;
+  if (edge.kind === "role") return `${from} 是 ${to} 承担的角色${edge.name ? `（${edge.name}）` : ""}`;
+  if (edge.kind === "participation") return `${from} 的参与者：${to}（角色名 ${edge.name || "—"}）`;
+  const kind = word(RELATION_KIND_TEXT, edge.kind);
   return `${from} ${edge.name || ""} ${to}（${kind}）`;
 }
 
@@ -224,20 +316,25 @@ export function drawGraph(graph) {
     el("path", { d: "M 0 0 L 10 5 L 0 10 z", class: "arrow" }))));
   const lines = el("g", {});
   const labels = el("g", {});
-  layout.edges.forEach((placed) => {
-    const edge = graph.edges[placed.index];
-    const cls = "edge" + (placed.kind === "role" ? " role" : "") + (placed.joined ? " joined" : "");
+  for (const placed of layout.edges) {
+    const title = placed.indexes.map((i) => relationTitle(graph.edges[i], names)).join("\n");
+    const cls = "edge" + (placed.role ? " role" : "") + (placed.joined ? " joined" : "");
     const line = el("path", { d: placed.path, class: cls });
-    if (placed.kind !== "role") line.setAttribute("marker-end", "url(#arrow)");
-    lines.append(el("g", {}, el("title", {}, edgeTitle(edge, names)), line));
-    if (placed.label) {
-      const label = placed.label;
-      labels.append(el("g", { class: "edge-label" },
-        el("title", {}, edgeTitle(edge, names)),
-        el("rect", { x: label.x, y: label.y, width: label.w, height: label.h, rx: 3 }),
-        el("text", { x: label.cx, y: label.cy + 4, "text-anchor": "middle" }, label.text)));
+    if (placed.forward) line.setAttribute("marker-end", "url(#arrow)");
+    if (placed.backward) line.setAttribute("marker-start", "url(#arrow)");
+    lines.append(el("g", {}, el("title", {}, title), line));
+    const label = placed.label;
+    if (!label) continue;
+    const group = el("g", { class: "edge-label" }, el("title", {}, title));
+    if (label.leader) {
+      group.append(el("line", { x1: label.leader.x, y1: label.leader.y, x2: label.cx, y2: label.cy, class: "leader" }));
     }
-  });
+    group.append(el("rect", { x: label.x, y: label.y, width: label.w, height: label.h, rx: 3 }));
+    label.lines.forEach((text, i) => {
+      group.append(el("text", { x: label.cx, y: label.y + 2 + LABEL_LINE * (i + 1) - 4, "text-anchor": "middle" }, text));
+    });
+    labels.append(group);
+  }
   svg.append(lines);
   const nodes = el("g", {});
   for (const node of layout.nodes) {

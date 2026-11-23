@@ -129,3 +129,53 @@ def test_the_warning_says_a_window_is_not_proof_of_an_increment() -> None:
     assert result["status"] == "warn"
     assert "按批次日" in result["message"]
     assert "不要只为消除这条提示改成 incremental" in result["message"]
+
+
+# An input the metadata says nothing about: its ``dt`` is no known partition column, so a
+# condition reading one partition stays among the date filters. Equal to one scheduling
+# parameter, it takes whatever day the parameter names -- not necessarily the batch, and
+# not necessarily a business date -- so it is a ``parameter_equality``, never a window.
+UNKNOWN = [{"name": "dt", "type": None, "partition": False},
+           {"name": "order_time", "type": "string", "partition": False}]
+
+
+def _unknown_shape(expression: str, column: str = "dt", *, partition_known: bool = False) -> str:
+    facts = input_time_facts(TABLE, [_rule(expression, column=column)], UNKNOWN,
+                             partition_known=partition_known)
+    [date_filter] = facts["date_filters"]
+    return date_filter["shape"]
+
+
+@pytest.mark.parametrize("expression", [
+    "`o`.`dt` = '${dt}'",
+    "`o`.`dt` = ${dt}",
+    "'${dt}' = `o`.`dt`",
+    "${run_day} = `o`.`dt`",
+    "dt = \"${dt}\"",
+])
+def test_one_column_equal_to_one_parameter_on_an_unknown_input_is_a_parameter_equality(
+    expression: str,
+) -> None:
+    assert _unknown_shape(expression) == "parameter_equality"
+
+
+@pytest.mark.parametrize(("expression", "shape"), [
+    ("`o`.`dt` IN ('${dt}')", "window"),
+    ("`o`.`dt` = CONCAT(SUBSTRING('${dt}', 1, 6), '05')", "period"),
+    ("`o`.`dt` >= '${dt}'", "window"),
+    ("`o`.`dt` <= '${dt}'", "upper_bound"),
+    ("`o`.`dt` = '20261018'", "cutoff"),
+])
+def test_anything_else_on_an_unknown_input_keeps_its_shape(expression: str, shape: str) -> None:
+    assert _unknown_shape(expression) == shape
+
+
+def test_an_input_whose_partitioning_is_known_keeps_the_window() -> None:
+    assert _unknown_shape("`o`.`order_time` = '${dt}'", column="order_time",
+                          partition_known=True) == "window"
+
+
+def test_a_snapshot_over_parameter_equalities_passes() -> None:
+    (result,) = check_time(_snapshot(), _packet("parameter_equality"))
+
+    assert result["status"] == "pass"
