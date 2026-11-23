@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **Changed: a table rebuilt whole every run may keep its `[9 time]` WARN.** The warning itself says a
+  table rebuilt per batch that only picks a version from upstream or cuts a span of history is still a
+  snapshot, but the keep lists allowed it only on zipper and dimension tables. T1, S5 and T4 now also
+  allow it on a table rebuilt whole each run whose date filter only picks one version from upstream or
+  cuts a span of history, when `how_to_read` says how to read it and which day the filter picks. The
+  review prompt (`table-semantics-review@13`) checks that day, and reads a packet saying SQL 取自调度模板
+  as a template. Wording only; its effect on drafting is not verified.
 - **Changed: a template task's date literals are fixed values in the packet.** In a task whose SQL is
   its scheduling template nothing was replaced by a run's value, so an offset from the expected run
   date means nothing. `packet.json` now gives such a task `sql_from_template: true` and `date_literals[]`
