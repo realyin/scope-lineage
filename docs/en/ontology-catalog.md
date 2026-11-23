@@ -1407,7 +1407,11 @@ each relation; a table's catalog facts beside its table-semantics document; and 
 (the table-semantics documents' and the pending file's). Lists arrive a page at a time, so a large catalog
 is never sent whole. The page is built on browse answers in
 `scope_lineage.cli_catalog_answers` (`browse_index`, `browse_list`, `neighbourhood`, `table_semantics`,
-`questions`) that no command prints: the command line keeps `query`, `context` and `render` for the same facts.
+`table_units`, `questions`) that no command prints: the command line keeps `query`, `context` and `render` for
+the same facts. The home view shows the 「用之前先看」 summary of `index.md` and, with `--semantics`, the table
+list carries the 「按表看」 columns: both come from the functions that write `index.md`, so the numbers are
+the same as `catalog render --docs` gives for the same documents; the list stays in name order unless the
+reader sorts it by one of those columns.
 
 ## Drafting: `catalog digest` and `catalog merge`
 

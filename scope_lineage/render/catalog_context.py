@@ -30,7 +30,7 @@ semantics document says so (``{"present": false}``) rather than carrying empty f
 a reader can tell "nothing to watch" from "nobody wrote it down".
 
 A measure's unit, on a column's binding and on a metric over that measure, is compared
-with the table semantics when they are given (``_unit_mark``, on the rule
+with the table semantics when they are given (``unit_mark``, on the rule
 ``catalog_units.unit_support`` keeps for the index page too): a unit none of the
 attribute's bound columns has in the material is marked as not given by it and
 unconfirmed, and a measure with no unit says whether the material gives one
@@ -91,7 +91,7 @@ def context_pack(
     """
     view = CatalogView(document)
     documents = material_documents(semantics)
-    # what a measure's unit is compared with (``_unit_mark``); None without semantics
+    # what a measure's unit is compared with (``unit_mark``); None without semantics
     material = documents if semantics is not None else None
     tables = list(tables)
     expanded, unplaced = _table_columns(view, documents, tables, list(columns), table_columns)
@@ -320,7 +320,7 @@ def _metric(view: CatalogView, metric: Mapping, material: Optional[Mapping] = No
             ],
         }
         if measure in view.attributes:
-            mark = _unit_mark(view, view.attributes[measure][0], metric.get("unit"), material)
+            mark = unit_mark(view, view.attributes[measure][0], metric.get("unit"), material)
             if mark is not None:
                 answer["material_unit"] = mark
     answer["dimensions"] = [_ref(view, d) for d in metric.get("dimensions") or []]
@@ -845,7 +845,7 @@ def _binding(
                 answer["definition"] = attribute["definition"]
             if attribute.get("unit"):
                 answer["unit"] = attribute["unit"]
-            mark = _unit_mark(view, attribute, attribute.get("unit"), material)
+            mark = unit_mark(view, attribute, attribute.get("unit"), material)
             if mark is not None:
                 answer["material_unit"] = mark
             values = [
@@ -866,7 +866,7 @@ def _binding(
     return answer
 
 
-def _unit_mark(
+def unit_mark(
     view: CatalogView, attribute: Mapping, unit, material: Optional[Mapping]
 ) -> Optional[dict]:
     """``material_unit`` of a measure's unit (``unit``: the attribute's own, or that of a
@@ -971,16 +971,23 @@ def _metric_lines(metric: Mapping, asked: bool = False) -> list[str]:
 def _unit_line(item: Mapping) -> list[str]:
     """The ``单位：…`` line of a binding or a metric with what ``material_unit`` says; none
     when there is neither a unit nor a mark."""
+    text = unit_text(item)
+    return [f"单位：{text}"] if text is not None else []
+
+
+def unit_text(item: Mapping) -> Optional[str]:
+    """What the ``单位：`` line says of an item's ``unit`` and ``material_unit``; None when
+    there is neither (the browse page shows a table's units in the same words)."""
     mark = item.get("material_unit")
     if item.get("unit"):
         if mark is not None and not mark.get("given"):
-            return [f"单位：{item['unit']}（材料未给，目录所填未经确认）"]
-        return [f"单位：{item['unit']}"]
+            return f"{item['unit']}（材料未给，目录所填未经确认）"
+        return str(item["unit"])
     if mark is None:
-        return []
+        return None
     if mark.get("given"):
-        return [f"单位：{'、'.join(mark.get('units') or [])}（目录未填）"]
-    return ["单位：材料未给"]
+        return f"{'、'.join(mark.get('units') or [])}（目录未填）"
+    return "材料未给"
 
 
 def _constraint_lines(constraints: list) -> list[str]:

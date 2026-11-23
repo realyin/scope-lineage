@@ -187,6 +187,17 @@ def _identifier_summary(view: CatalogView) -> list[str]:
 
 
 def _gap_summary(view: CatalogView, docs: Optional[Mapping[str, Mapping]] = None) -> list[str]:
+    rows = use_first_rows(view, docs)
+    lines = table_head("缺口", "数量") + [table_row(name, value) for name, value in rows]
+    return lines + ["", f"逐项明细见 [{GOVERNANCE_FILENAME}]({GOVERNANCE_FILENAME})。"]
+
+
+def use_first_rows(
+    view: CatalogView, docs: Optional[Mapping[str, Mapping]] = None
+) -> list[tuple[str, str]]:
+    """``(row, value)`` of the summary under 「用之前先看」, as plain text; ``docs`` (keyed by
+    ``material_documents``, or None without the documents) adds the rows they let it count.
+    The index prints them and the browse page shows them (``catalog_browse``)."""
     all_gaps = [concept_gaps(view, concept_id) for concept_id in sorted(view.concepts)]
     drafted, total = _document_drafted(view)
     rows = [
@@ -208,8 +219,7 @@ def _gap_summary(view: CatalogView, docs: Optional[Mapping[str, Mapping]] = None
         ]
     if docs is not None:
         rows += summary_rows(view, docs)
-    lines = table_head("缺口", "数量") + [table_row(name, value) for name, value in rows]
-    return lines + ["", f"逐项明细见 [{GOVERNANCE_FILENAME}]({GOVERNANCE_FILENAME})。"]
+    return rows
 
 
 def _document_drafted(view: CatalogView) -> tuple[int, int]:

@@ -163,17 +163,93 @@ def test_the_endpoint_list_names_the_browse_endpoints(server) -> None:
     listing = json.loads(_get(server, "/api")[2])
     paths = {(item["method"], item["path"]) for item in listing["endpoints"]}
     for path in ("/api/browse", "/api/list", "/api/neighbourhood", "/api/semantics",
-                 "/api/questions"):
+                 "/api/units", "/api/questions"):
         assert ("GET", path) in paths
 
 
-def test_browse_is_the_core_answer(server, inputs) -> None:
+def _facade_bytes(answer) -> bytes:
+    return (answer.json_text() + "\n").encode("utf-8")
+
+
+def test_browse_is_the_core_answer(server, bare_server, inputs) -> None:
     document = answers.load_ontology(str(inputs["ontology"]))
+    semantics = answers.load_semantics(str(inputs["semantics"]))
     status, headers, body = _get(server, "/api/browse")
 
     assert status == 200
-    assert body == (answers.browse_index(document).json_text() + "\n").encode("utf-8")
+    assert body == _facade_bytes(answers.browse_index(document, semantics))
     assert headers["X-Scope-Lineage-Exit-Code"] == "0"
+    assert _get(bare_server, "/api/browse")[2] == _facade_bytes(answers.browse_index(document))
+
+
+def _index_summary(page: str) -> list[list[str]]:
+    section = page.split("## 用之前先看", 1)[1].split("\n## ", 1)[0]
+    rows = [line for line in section.splitlines() if line.startswith("| ")][2:]
+    return [[cell.strip() for cell in row.strip("|").split(" | ")] for row in rows]
+
+
+def test_the_home_summary_is_what_catalog_render_prints(server, bare_server, inputs, tmp_path):
+    from scope_lineage.cli import main
+
+    for httpd, docs in ((server, ["--docs", str(inputs["semantics"])]), (bare_server, [])):
+        out = tmp_path / ("with" if docs else "without")
+        assert main(["catalog", "render", str(inputs["ontology"]), "--out", str(out), *docs]) == 0
+        page = (out / "index.md").read_text(encoding="utf-8")
+        _, index = _json(httpd, "/api/browse")
+        rows = [[row["name"], row["value"]] for row in index["use_first"]["rows"]]
+        assert rows == _index_summary(page)
+        for note in index["use_first"]["notes"]:
+            assert f"\n{note}\n" in page
+    assert "唯一键有血缘证据的表" not in json.dumps(_json(bare_server, "/api/browse")[1],
+                                                   ensure_ascii=False)
+
+
+def test_a_table_list_with_semantics_is_the_core_answer(server, bare_server, inputs) -> None:
+    document = answers.load_ontology(str(inputs["ontology"]))
+    semantics = answers.load_semantics(str(inputs["semantics"]))
+    for params in ({}, {"sort": "-measures"}, {"sort": "unmapped", "text": "dwd", "limit": "3"}):
+        request = {"offset": 0, "limit": 50, **params}
+        request["limit"] = int(request["limit"])
+        status, _, body = _get(server, "/api/list", kind="tables", **params)
+        assert status == 200
+        assert body == _facade_bytes(answers.browse_list(document, "tables", semantics, **request))
+    _, page = _json(server, "/api/list", kind="tables")
+    assert page["by_table"]["covered"] == 1 and "by_table" in page["items"][0]
+    _, bare = _json(bare_server, "/api/list", kind="tables")
+    assert "by_table" not in bare and "by_table" not in bare["items"][0]
+
+
+def test_a_sort_is_over_the_whole_list_not_a_page(server) -> None:
+    _, whole = _json(server, "/api/list", kind="tables", sort="-measures", limit=200)
+    paged = []
+    for offset in range(0, whole["total"], 2):
+        _, page = _json(server, "/api/list", kind="tables", sort="-measures", offset=offset,
+                        limit=2)
+        paged += [item["table"] for item in page["items"]]
+    measures = [item["by_table"]["measures"] for item in whole["items"]]
+    assert paged == [item["table"] for item in whole["items"]]
+    assert measures == sorted(measures, reverse=True)
+
+
+def test_sorting_by_a_by_table_column_needs_semantics(bare_server) -> None:
+    status, body = _json(bare_server, "/api/list", kind="tables", sort="measures")
+    assert status == 400 and "--semantics" in body["error"]["message"]
+    status, page = _json(bare_server, "/api/list", kind="tables", sort="-table", limit=200)
+    assert status == 200
+    names = [item["table"] for item in page["items"]]
+    assert names == sorted(names, reverse=True)
+
+
+def test_the_units_of_a_table(server, bare_server, inputs) -> None:
+    document = answers.load_ontology(str(inputs["ontology"]))
+    semantics = answers.load_semantics(str(inputs["semantics"]))
+    status, _, body = _get(server, "/api/units", table=LOAN)
+    assert status == 200 and body == _facade_bytes(answers.table_units(document, semantics, LOAN))
+    assert [c["column"] for c in json.loads(body)["columns"]] == ["principal_amt", "penalty_amt"]
+    _, bare = _json(bare_server, "/api/units", table=LOAN)
+    assert bare["checked"] is False and all("material_unit" not in c for c in bare["columns"])
+    status, missing = _json(server, "/api/units", table="nowhere.nothing")
+    assert status == 404 and missing["in_catalog"] is False
 
 
 def test_list_pages_tables(server, inputs) -> None:
@@ -211,6 +287,13 @@ def test_an_empty_page_is_still_200(server) -> None:
         ("/api/list", {"kind": "tables", "offset": "-1"}),
         ("/api/list", {"kind": "tables", "offset": "x"}),
         ("/api/list", {"kind": "tables", "sort": "name"}),
+        ("/api/list", {"kind": "tables", "sort": "score"}),
+        ("/api/list", {"kind": "tables", "sort": "--measures"}),
+        ("/api/list", {"kind": "tables", "sort": ["measures", "watch"]}),
+        ("/api/list", {"kind": "concepts", "sort": "table"}),
+        ("/api/units", {}),
+        ("/api/units", {"table": LOAN, "format": "text"}),
+        ("/api/units", {"table": LOAN, "column": "x"}),
         ("/api/list", {"kind": "tables", "format": "text"}),
         ("/api/list", {"kind": ["tables", "concepts"]}),
         ("/api/neighbourhood", {}),
@@ -279,6 +362,7 @@ def test_the_browse_endpoints_write_nothing(server, inputs) -> None:
         ("/", {}), ("/api/browse", {}), ("/api/list", {"kind": "tables"}),
         ("/api/neighbourhood", {"concept": "concept:loan"}),
         ("/api/semantics", {"table": CUSTOMER}), ("/api/questions", {"status": "all"}),
+        ("/api/units", {"table": LOAN}), ("/api/list", {"kind": "tables", "sort": "-watch"}),
     ):
         _get(server, path, **params)
     assert not inputs["pending"].exists()
@@ -293,9 +377,10 @@ def test_the_browse_endpoints_write_nothing(server, inputs) -> None:
 def large_server(tmp_path):
     tables = 3000
     ontology = tmp_path / "ontology.json"
-    ontology.write_text(json.dumps(synthetic_catalog(tables), ensure_ascii=False), encoding="utf-8")
+    document = synthetic_catalog(tables, measures=3, lineage=True)
+    ontology.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     semantics = tmp_path / "semantics"
-    synthetic_semantics(tables, semantics)
+    synthetic_semantics(tables, semantics, measures=3)
     httpd = _start(CatalogState(str(ontology), semantics=str(semantics)))
     yield httpd
     httpd.shutdown()
@@ -309,6 +394,7 @@ def test_a_large_catalog_is_answered_a_page_at_a_time(large_server) -> None:
         ("domain", "/api/list", {"kind": "concepts", "domain": "domain:d01"}),
         ("tables", "/api/list", {"kind": "tables", "concept": "concept:c0001"}),
         ("all_tables", "/api/list", {"kind": "tables"}),
+        ("sorted_tables", "/api/list", {"kind": "tables", "sort": "-watch_conflicts"}),
         ("graph", "/api/neighbourhood", {"concept": "concept:c0001"}),
         ("board", "/api/questions", {}),
     ):
@@ -318,6 +404,17 @@ def test_a_large_catalog_is_answered_a_page_at_a_time(large_server) -> None:
 
     _, page = _json(large_server, "/api/list", kind="tables")
     assert page["total"] == 3000 and len(page["items"]) == 50
+    assert page["by_table"]["covered"] == 1000
+    _, index = _json(large_server, "/api/browse")
+    assert [row["value"] for row in index["use_first"]["rows"]][-2:] == [
+        "1500/3000；其中表语义说不唯一的 166 张（只数表语义覆盖到的 1000 张表）",
+        "200/600",
+    ]
+    # the last page of a sort by a document's number holds tables without a document
+    _, last = _json(large_server, "/api/list", kind="tables", sort="-watch", offset=2950)
+    assert all(item["by_table"]["watch"] is None for item in last["items"])
+    _, first = _json(large_server, "/api/list", kind="tables", sort="-watch")
+    assert all(item["by_table"]["watch"] == 2 for item in first["items"])
     _, board = _json(large_server, "/api/questions")
     assert board["total"] == 1000 and len(board["items"]) == 50
     assert all(size < 64_000 for size in sizes.values()), sizes

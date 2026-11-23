@@ -106,6 +106,8 @@ READERS: frozenset[str] = frozenset({
     "render/catalog_evidence.py:grain_conflicts",
     "render/catalog_gaps.py:conflict_text",
     "render/catalog_index_tables.py:_proven",
+    "render/catalog_index_tables.py:table_figures",
+    "render/catalog_index_tables.py:figure_cells",
     "render/ontology.py:_right_is_grouped",
     "render/ontology.py:_tier_of",
     "render/ontology.py:_contradicts",
