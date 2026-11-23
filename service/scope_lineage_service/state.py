@@ -187,24 +187,30 @@ class CatalogState:
             "read_only": True,
             "executes_sql": False,
             "ontology": {
-                "path": str(self.ontology_path),
+                "path": _name(self.ontology_path),
                 "doc_format": document.get("doc_format"),
                 "catalog": (document.get("catalog") or {}).get("name"),
                 "counts": document.get("counts"),
             },
             "semantics": {
-                "path": str(self.semantics_path) if self.semantics_path else None,
+                "path": _name(self.semantics_path) if self.semantics_path else None,
                 "documents": len(current.semantics) if current and current.semantics else 0,
             },
             "pending": {
                 "configured": self.pending_path is not None,
-                "path": str(self.pending_path) if self.pending_path else None,
+                "path": _name(self.pending_path) if self.pending_path else None,
                 "exists": bool(self.pending_path and os.path.isfile(self.pending_path)),
             },
         }
         if problem:
             report["problem"] = problem
         return report
+
+
+def _name(path) -> str:
+    """The last component of a path: ``/health`` names a file or directory, never where it
+    lives, so a server reachable off loopback does not tell callers the operator's layout."""
+    return os.path.basename(os.path.normpath(str(path)))
 
 
 class PendingNotConfigured(Exception):

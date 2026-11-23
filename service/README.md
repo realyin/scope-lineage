@@ -35,7 +35,9 @@ scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE] \
 ```
 
 `GET /api` lists the endpoints with their parameters (machine-readable); `GET /health` says whether
-the files load now.
+the files load now. It names the ontology file, the table-semantics directory and the pending file by
+their last path component only (`ontology.path`, `semantics.path`, `pending.path`), never the
+directories they live in, so a server bound off loopback does not reveal the operator's layout.
 
 | Method | Path | Parameters | Same as |
 | --- | --- | --- | --- |

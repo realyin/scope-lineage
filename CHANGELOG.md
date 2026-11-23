@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Changed: the service's `/health` no longer reports where its files live.** `ontology.path`,
+  `semantics.path` and `pending.path` carry only the file or directory name, not the absolute path,
+  so a server reachable off loopback does not reveal the operator's directory layout. Every other field
+  is unchanged.
 - **New: relation evidence counts each column's JOINs (`by_column`).** `catalog build --lineage`
   adds `by_column` (`db.table.column` → n) to a relation's `source_joins` (the foreign key each JOIN
   fills) and to its `joins` when it has any (the catalog column on either side), and keeps one sample

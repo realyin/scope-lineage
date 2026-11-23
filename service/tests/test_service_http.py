@@ -187,6 +187,21 @@ def test_health(server) -> None:
     assert health["status"] == "ok" and health["read_only"] is True
 
 
+def test_health_names_each_input_without_its_directory(server, inputs) -> None:
+    """A server reachable off loopback must not tell callers where its files live."""
+    body = _get(server, "/health")[2].decode("utf-8")
+    health = json.loads(body)
+
+    assert health["ontology"]["path"] == "ontology.json"
+    assert health["semantics"]["path"] == "semantics"
+    assert health["pending"]["path"] == "pending.jsonl"
+    parent = inputs["ontology"].parent
+    # the one slash a healthy body carries is the format name, ontology-json/3
+    text = body.replace(health["ontology"]["doc_format"], "")
+    assert "/" not in text and "\\" not in text
+    assert parent.name not in body and str(parent) not in body
+
+
 def test_endpoint_list_is_machine_readable(server, bare_server) -> None:
     listing = json.loads(_get(server, "/api")[2])
     paths = {(item["method"], item["path"]) for item in listing["endpoints"]}
