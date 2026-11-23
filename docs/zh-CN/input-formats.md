@@ -145,7 +145,7 @@ Core 当前消费：
 用了模板时，`diagnostics.json` 的 `warnings[]` 有一条 `task_template_sql_used`，写明每个被代入的参数代入了几处。
 `semantic packet --tasks` 按这一条决定材料包读哪份 SQL：有这一条的读模板（同样代入），没有的（升级前解析的，
 或用了开关的）读 `meta.sql`，所以材料包里的 SQL 原文总与血缘出自同一份。材料包第 2 节在「期望日期」之后多一行
-「调度参数」（见 [table-semantics.md](table-semantics.md)）。
+「调度参数」，日期字面量写成写死的值、不带与期望日期的偏移（见 [table-semantics.md](table-semantics.md)）。
 
 `parse --instance-sql` 整体切回读 `meta.sql`，产物与没有这两个字段时逐字相同；`semantic packet` 不需要对应的开关。
 

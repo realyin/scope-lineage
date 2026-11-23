@@ -114,6 +114,12 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
     unmatched = upstream_unmatched(meta.get("upstream_tasks"), reads) if reads is not None else []
     dates = date_literals(record.get("sql"), meta.get("expect_date"))
     parameters = scheduling_parameters(record.get("sql"), record.get("scheduling_parameters"))
+    # The record carries ``scheduling_parameters`` exactly when its SQL is the template
+    # (``cli_semantic._task_records``), parameters left in it or not. Nothing in a template
+    # was replaced by a run's value, so an offset from the expected date means nothing.
+    template = record.get("scheduling_parameters") is not None
+    if template:
+        dates = [{"literal": item["literal"], "count": item["count"]} for item in dates]
     return {
         "name": task,
         "task_id": meta.get("task_id"),
@@ -127,6 +133,7 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
         **({"expect_date": meta["expect_date"]} if meta.get("expect_date") else {}),
         **({"date_literals": dates} if dates else {}),
         **({"scheduling_parameters": parameters} if parameters else {}),
+        **({"sql_from_template": True} if template else {}),
         "header_comments": list(info.get("header_comments") or []),
         "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
                                      table, corpus.tables_written_by(task), columns),

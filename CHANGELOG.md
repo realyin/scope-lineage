@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- **Changed: a template task's date literals are fixed values in the packet.** In a task whose SQL is
+  its scheduling template nothing was replaced by a run's value, so an offset from the expected run
+  date means nothing. `packet.json` now gives such a task `sql_from_template: true` and `date_literals[]`
+  entries of `{literal, count}` only (no `days_from_expect_date`); section 2 of `packet.md` lists them
+  as 写死的日期字面量（模板里没有被参数替换，不随运行日变化）, and the note beside a rule reads
+  写死的日期字面量 '…'. A template with no parameter left and none bound says SQL 取自调度模板，没有参数
+  instead of SQL 里没有 `${…}` 参数. The fact comes from the task record (its SQL was read from the
+  template), not from whether any parameter remains. Run-instance packets are byte-identical. Packets
+  of template tasks change, so documents written from them read `packet_stale` until rewritten. The
+  writer prompt is `table-semantics-prompt@14`: the template paragraph also applies to a packet saying
+  SQL 取自调度模板.
 - **Changed: the service's `/health` no longer reports where its files live.** `ontology.path`,
   `semantics.path` and `pending.path` carry only the file or directory name, not the absolute path,
   so a server reachable off loopback does not reveal the operator's directory layout. Every other field

@@ -169,7 +169,8 @@ With the template, `diagnostics.json`'s `warnings[]` carries one `task_template_
 how many places each bound parameter was replaced. `semantic packet --tasks` reads that entry to decide
 which SQL a packet quotes: the template (bound the same way) when it is there, `meta.sql` when it is
 not (a lineage parsed before this release, or with the switch), so a packet always quotes the SQL its
-lineage was built from. Section 2 of the packet gets one more line, 调度参数, after the 期望日期 line
+lineage was built from. Section 2 of the packet gets one more line, 调度参数, after the 期望日期 line,
+and its date literals are listed as fixed values with no offset from the expected date
 (see [table-semantics.md](table-semantics.md)).
 
 `parse --instance-sql` reads `meta.sql` throughout, and its artifacts are byte-identical to those of a

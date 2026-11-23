@@ -120,7 +120,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   `'yyyy-MM-dd HH:mm:ss'`。SQLGlot 生成 SQL 时省略等于默认值的格式参数，所以 SQL 原文写了这个格式的调用在
   血缘里只剩一个参数；含义不变。
 - 4.2 的「说明」在规则文字之后写规则表达式里本任务日期字面量与期望日期的偏移，如「日期字面量 '20250115'（期望
-  日期 −1 天）」。口径同 2.x 的 `date_literals`：只给偏移，不说哪个是批次日。
+  日期 −1 天）」。口径同 2.x 的 `date_literals`：只给偏移，不说哪个是批次日。SQL 取自调度模板的任务没有偏移，写「写死的日期字面量 '20250115'」：模板里没有被参数替换的值，不随运行日变化。
 
 每张输入表带上第 9 项检查要用的事实：`partition_read`（只取一个分区为 `equality`；每个分区过滤都是等值或全由
 字面量组成的 `IN`、合起来不止一个值时为 `multi_equality`，即读几个固定分区；其余为 `range`；不过滤为
@@ -198,8 +198,9 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | 位置 | 键 | 内容 |
 | --- | --- | --- |
 | `tasks[]` | `expect_date` | 任务元数据里的期望运行日期 |
-| `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论 |
+| `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论。SQL 取自调度模板的任务只有 `{literal, count}`：模板里没有参数被替换，字面量是写死的值，`packet.md` 第 2 节写「写死的日期字面量（模板里没有被参数替换，不随运行日变化）」，不给偏移 |
 | `tasks[]` | `scheduling_parameters` | 只在 `parse` 读的是任务调度模板（`meta.task_sql`，见 [input-formats.md](input-formats.md)）时出现：`{in_sql, bound}`。`in_sql` 是 SQL 里（注释除外：代码、字符串、加引号的名字里）仍有的每个 `${name}`，`definition` 照 `meta.task_parameters` 原样（参数表没给时为 `null`，即「参数表未给定义」）、`count`，使用者给了 `description` 的带上；`bound` 是 `parse` 代入表名的每个参数和代入了几处。只留在注释里的参数两边都不列。`packet.md` 在「期望日期」一行之后用一行「调度参数」写出；定义是什么意思由调度平台决定，材料包不解读。读运行实例时没有这个键，第 2 节与以前相同 |
+| `tasks[]` | `sql_from_template` | SQL 取自调度模板时为 `true`，模板里留没留参数都算；参数一个都没留、也没代入表名时，第 2 节写「SQL 取自调度模板，没有参数」，不写「SQL 里没有 `${…}` 参数」。读运行实例时没有这个键 |
 | `tasks[]` | `upstream_unmatched` | 登记的上游任务里，按任务名对不上本任务（所有语句）读取的任何表的那些。任务名等于 `表`、`库_表` 或以 `_库_表` 结尾算对上；这是名称启发式，只说「对不上」，不说「没读」 |
 | `tasks[]` | `writes` | 脚本写入不止一条时出现：任务每条写入语句的 `{statement_id, statement_index, table}`，按脚本顺序（含写中间表的语句）。`packet.md` 据此在 SQL 块里每条写入语句前加一行 `-- [stmt:NNN] 写 <表>`；语句原文里找不到该表名时不加 |
 | `inputs[]` | `via` | 同一任务里写目标表之前、经中间表喂给目标语句（可传递）的写入语句读的表，也列为输入：`[{task, statement_id, writes}]` 说明是哪条语句读它、写进哪张中间表。分区读取、日期过滤与列用法照直接输入一样给出；角色不合并（那是中间表的角色）。`packet.md` 在「在本表的作用」行后写「经同任务中间语句读入：`stmt:NNN` 写 `<表>`」 |

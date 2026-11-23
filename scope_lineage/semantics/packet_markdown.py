@@ -179,7 +179,12 @@ def _unmatched(task: dict) -> str:
 
 
 def _run_dates(task: dict) -> list[str]:
-    """The expected run date and how far each date literal sits from it; no conclusion."""
+    """The expected run date and how far each date literal sits from it; no conclusion.
+
+    For a task whose SQL is its template the literals are fixed values: listed as such,
+    with no offset, and a template with no parameter left says it is one."""
+    if task.get("sql_from_template"):
+        return _template_dates(task)
     if not task.get("expect_date"):
         return []
     parts = [f"- 期望日期：{_text(task['expect_date'])}"]
@@ -191,6 +196,20 @@ def _run_dates(task: dict) -> list[str]:
             f"{_code(item['literal'])} ×{item['count']}（{_offset(item['days_from_expect_date'])}）"
             for item in literals))
     return ["；".join(parts)]
+
+
+def _template_dates(task: dict) -> list[str]:
+    parts = [f"期望日期：{_text(task['expect_date'])}"] if task.get("expect_date") else []
+    if not task.get("scheduling_parameters"):
+        parts.append("SQL 取自调度模板，没有参数")
+    literals = task.get("date_literals") or []
+    if literals:
+        parts.append(f"{FIXED_LITERALS}（模板里没有被参数替换，不随运行日变化）：" + "、".join(
+            f"{_code(item['literal'])} ×{item['count']}" for item in literals))
+    return ["- " + "；".join(parts)]
+
+
+FIXED_LITERALS = "写死的日期字面量"
 
 
 def _scheduling_parameters(task: dict) -> list[str]:
@@ -698,18 +717,22 @@ def _note_text(rule: dict, _context: dict) -> list[str]:
 
 
 def _note_dates(rule: dict, context: dict) -> list[str]:
-    """D-G6: how far each date literal of the rule sits from its task's expected run date.
+    """D-G6: how far each date literal of the rule sits from its task's expected run date
+    (in a template, that each is a fixed value).
 
     The offsets 2.x gives for the task's ``date_literals``, matched by string literal; an
     offset only -- which literal is the batch date is the writer's call (E1).
     """
-    literals = next((task.get("date_literals") or [] for task in context["tasks"]
-                     if task.get("name") == rule.get("task")), [])
-    offsets = {item["literal"]: item["days_from_expect_date"] for item in literals}
-    said = [f"{literal}（{_offset(offsets[literal])}）"
-            for literal in dict.fromkeys(string_literals(rule.get("expression")))
-            if literal in offsets]
-    return [f"日期字面量 {'、'.join(said)}"] if said else []
+    task = next((task for task in context["tasks"] if task.get("name") == rule.get("task")), {})
+    literals = {item["literal"]: item for item in task.get("date_literals") or []}
+    named = [literal for literal in dict.fromkeys(string_literals(rule.get("expression")))
+             if literal in literals]
+    if not named:
+        return []
+    if task.get("sql_from_template"):
+        return [f"{FIXED_LITERALS} {'、'.join(named)}"]
+    said = [f"{literal}（{_offset(literals[literal]['days_from_expect_date'])}）" for literal in named]
+    return [f"日期字面量 {'、'.join(said)}"]
 
 
 def _note_position(rule: dict, _context: dict) -> list[str]:

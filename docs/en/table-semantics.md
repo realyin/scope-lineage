@@ -148,7 +148,8 @@ does not move and no written document goes stale over it:
 - 4.2's 说明 gives, right after the rule's text, how far each date literal of the task in the
   rule's expression sits from the expected run date, e.g. 「日期字面量 '20250115'（期望日期
   −1 天）」 -- the same reading as 2.x's `date_literals`: an offset, never which literal is the
-  batch date.
+  batch date. For a task whose SQL is its scheduling template there is no offset: it reads
+  「写死的日期字面量 '20250115'」, a value nothing replaced, the same on every run.
 
 Each input carries the facts check 9 needs: `partition_read` (`equality` for a single
 partition; `multi_equality` when every partition filter is an equality or an `IN` list of
@@ -269,8 +270,9 @@ when it has content:
 | Where | Key | Content |
 | --- | --- | --- |
 | `tasks[]` | `expect_date` | the expected run date from the task metadata |
-| `tasks[]` | `date_literals` | every whole-date string literal (`'YYYYMMDD'` / `'YYYY-MM-DD'`) in the SQL outside comments: `{literal, count, days_from_expect_date}`. A corpus exported from run instances carries the batch-date parameter as a literal; the offset is given, no conclusion that it is a parameter is drawn |
+| `tasks[]` | `date_literals` | every whole-date string literal (`'YYYYMMDD'` / `'YYYY-MM-DD'`) in the SQL outside comments: `{literal, count, days_from_expect_date}`. A corpus exported from run instances carries the batch-date parameter as a literal; the offset is given, no conclusion that it is a parameter is drawn. For a task whose SQL is its scheduling template an entry is `{literal, count}` only: nothing in a template was replaced, so a literal is a fixed value, and section 2 of `packet.md` says 写死的日期字面量（模板里没有被参数替换，不随运行日变化） with no offset |
 | `tasks[]` | `scheduling_parameters` | present only for a task `parse` read from its scheduling template (`meta.task_sql`, see [input-formats.md](input-formats.md)): `{in_sql, bound}`. `in_sql` is each `${name}` the SQL still holds outside comments (in code, strings or quoted names), with `definition` quoted verbatim from `meta.task_parameters` (`null` when the list has none -- 参数表未给定义), `count`, and the user's own `description` when given; `bound` is each table-name parameter `parse` replaced, with how many places. A parameter left only in a comment is in neither. `packet.md` says it as one line 调度参数 after the 期望日期 line; what a definition means is the scheduler's, and the packet does not read it. With the run instance the key is absent and section 2 is as before |
+| `tasks[]` | `sql_from_template` | `true` when the task's SQL is its scheduling template, parameters left in it or not; with none left and none bound, section 2 says SQL 取自调度模板，没有参数 instead of SQL 里没有 `${…}` 参数. Absent with the run instance |
 | `tasks[]` | `upstream_unmatched` | the registered upstream tasks whose name matches no table the task reads over all its statements; a task named `tbl`, `db_tbl` or ending in `_db_tbl` matches. A name heuristic: it says "does not match", not "not read" |
 | `tasks[]` | `writes` | present when the script writes more than once: `{statement_id, statement_index, table}` of every write statement of the task, in script order (intermediate tables included). `packet.md` puts a line `-- [stmt:NNN] 写 <table>` above each write statement in the SQL block; a statement whose text does not name the table gets none |
 | `inputs[]` | `via` | a table read by an earlier write of the same task that feeds the target's statements through an intermediate table (transitively) is an input too: `[{task, statement_id, writes}]` names the statement reading it and the intermediate table it writes. Its partition reads, date filters and column usages are given as for a direct input; its roles are not merged (they are the intermediate table's). `packet.md` adds 「经同任务中间语句读入：`stmt:NNN` 写 `<table>`」 to the role line |
