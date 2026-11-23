@@ -14,7 +14,7 @@ deterministic work and never calls a model:
   **material packet** — the table's metadata, each producing task with its SQL, the input
   tables, and the lineage facts the semantic profile already derives;
 - `scope-lineage semantic validate` checks a written `table-semantics/1` document against
-  its JSON Schema and against the packet (thirteen cross checks), and lists per item what to
+  its JSON Schema and against the packet (thirteen cross checks, and a fourteenth on the prose alone), and lists per item what to
   rewrite;
 - `scope-lineage semantic confirm` writes a person's answers back into the documents;
 - `scope-lineage semantic render` renders the documents as one page per table and an
@@ -64,7 +64,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   --semantics out/pages/semantics
 ```
 
-`validate` prints one line per document (`demo_dwd.dwd_party_customer_info_df: 52/52
+`validate` prints one line per document (`demo_dwd.dwd_party_customer_info_df: 53/53
 checks passed (100.0%)`) and a total. The example's `packet_digest` pins the packet as the
 installed SQLGlot renders it; with another SQLGlot version the digest check may report the
 example as stale while every other check still passes. The demo corpus names its tables by the
@@ -458,7 +458,7 @@ and at least one table stays before it; any other last word is a usage error (ex
 says where to put the directory. `semantic status`, `semantic fixed` and `catalog digest`
 read `--only` and their directory the same way.
 
-The thirteen cross checks:
+The fourteen checks (thirteen against the packet, the last on the prose alone):
 
 | # | Check | Fails when | Warns when |
 | --- | --- | --- | --- |
@@ -475,9 +475,13 @@ The thirteen cross checks:
 | 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效, unless a negating character right before it or a negating phrase such as 未能 / 无法 / 不曾 / 没能 a few characters before takes it back) comes from a branch that gathers several source values or the ELSE (several tasks writing the column merge every branch that lists its source values; one that cannot list them erases no one else's), and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
 | 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs; glued pairs such as `0未推送，1已推送` count only two or more at a time, of one code width, with distinct labels none opening with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %, so `近30天活跃标志` does not, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `测试`, plus the `--domain-profile` `qualifier_terms`) standing as a word in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions; not checked when the header describes another table of the task (`header_facts.about`) |
+| 14 | `placeholder` | — | a free-text field holds a format placeholder nothing filled in: `%s`, `%d`, `%(name)s`, `{}`, `{{` / `}}`, or `{name}` (an ASCII identifier, not `${name}`); one warning per placeholder. Read: the summary's sentences (`what`, `row.text` / `note` / `watch`, `refresh.cycle` / `how_to_read` / `watch`, `scope[]`, `upstream[].provides`, `good_for`, `not_for`, `watch[].text`, `questions[].text` / `answer`), `steps[]`, `rules[].text` / `watch`, and each column's `meaning`, `null_meaning`, `watch`, `unit` and `branches[]`; never `rules[].sql` or `derivation`. Skipped inside a field: text in backticks or quotes, and a `{A}` right after `∈`, `in` or `属于` (a set). A document with none gets one `pass`, so every clean document's count of checks is one higher than before this check existed |
 
 Check 9 exists because a daily full snapshot described as incremental leads a reader to
 add partitions together and count every row once per day.
+
+Check 14 only finds a placeholder; it comes from the script a writer used to fill the
+document. It is not among the WARNs a writer may keep, so the writer replaces it.
 
 Checks 1–9 hold a document's form to the packet: every column covered, every source
 cited, every quote found. Checks 10–13 hold what it means, because a page can pass all of
@@ -530,7 +534,7 @@ failures, one per line, `[N name]` being the check's number and name in the tabl
 in the form a rewrite prompt can take as it stands:
 
 ```text
-demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+demo_dwd.dwd_party_customer_info_df: 47/52 checks passed (90.4%), 5 fail, 1 warn
   无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...

@@ -300,7 +300,7 @@ def test_every_check_has_a_chinese_label_on_the_page(validation: dict) -> None:
     assert labels == [
         "1 字段覆盖", "2 来源列", "3 码值", "4 粒度", "5 规则", "6 上下游", "7 来源",
         "8 材料包摘要", "9 时间语义", "10 关联放大", "11 派生码值", "12 注释已写明的含义",
-        "13 头注释事实",
+        "13 头注释事实", "14 没替换的占位符",
     ]
 
 

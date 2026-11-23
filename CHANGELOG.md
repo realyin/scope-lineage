@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **New: `semantic validate` check 14 `placeholder`.** A free-text field of a table-semantics document
+  holding a format placeholder nothing filled in (`%s`, `%d`, `%(name)s`, `{}`, `{{` / `}}`, `{name}`)
+  is warned, one WARN per placeholder; text in backticks or quotes, `${param}`, and a set written
+  after `∈` / `in` / `属于` are not. It reads the summary's sentences, `steps`, the rules' text and the
+  columns' explanations, never `rules[].sql` or `derivation`. It only finds the placeholder (the
+  writer's script leaves it), and it is not a WARN a writer may keep. A document with none gets one
+  `pass`, so every clean document's "N/N checks passed" is one higher than before.
 - **Changed: a table rebuilt whole every run may keep its `[9 time]` WARN.** The warning itself says a
   table rebuilt per batch that only picks a version from upstream or cuts a span of history is still a
   snapshot, but the keep lists allowed it only on zipper and dimension tables. T1, S5 and T4 now also

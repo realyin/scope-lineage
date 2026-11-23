@@ -5,7 +5,8 @@ with the path of the item (``columns[2].source_columns[0]``) and, when it is not
 a sentence saying what to change. A document reaches these only once it is legal under
 the schema, so every key the schema requires is present. Checks 1-9 hold the document's
 form to the packet (``checks``, ``checks_context``); checks 10-13 hold what it means
-(``checks_meaning``, ``checks_documented``).
+(``checks_meaning``, ``checks_documented``); check 14 reads the prose alone
+(``checks_text``).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ CHECKS = (
     "derived_codes",
     "documented_meaning",
     "header_facts",
+    "placeholder",
 )
 MAX_QUESTIONS = 5
 

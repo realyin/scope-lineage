@@ -1,4 +1,4 @@
-"""``semantic validate``: schema first, then the thirteen cross checks, then one report.
+"""``semantic validate``: schema first, then the fourteen checks, then one report.
 
 A table's pass rate is the share of checked items that did not fail (a ``warn`` is
 listed but does not count against it). The failure list -- every ``fail`` and ``warn``
@@ -28,6 +28,7 @@ from .checks_context import (
 )
 from .checks_documented import QUALIFIER_TERMS, check_documented_meaning, check_header_facts
 from .checks_meaning import check_derived_codes, check_fan_out
+from .checks_text import check_placeholder
 from .schema import DOC_FORMAT, schema_errors
 
 REPORT_FORMAT = "table-semantics-validation/1"
@@ -46,6 +47,7 @@ _CHECK_FUNCTIONS = (
     check_derived_codes,
     check_documented_meaning,
     check_header_facts,
+    check_placeholder,
 )
 _STATUSES = ("pass", "warn", "fail")
 
@@ -55,7 +57,7 @@ def validate_document(
 ) -> dict:
     """The cross-check report of one schema-valid document against its packet (or None).
 
-    Every failure carries its check's ``number`` (1-13, as the text summary prints it);
+    Every failure carries its check's ``number`` (1-14, as the text summary prints it);
     ``not_reported`` lists the checks that ran and found nothing to check -- they have no
     key in ``checks``. Without a packet no check runs but the digest one, so none is listed.
     ``qualifier_terms`` are the qualifiers check 12 looks for: the generic ones, plus any a

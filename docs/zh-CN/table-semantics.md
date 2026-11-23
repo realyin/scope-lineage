@@ -9,7 +9,7 @@
 
 - `scope-lineage semantic packet` 把写一张表所需的全部事实收成一份**材料包**——表的元数据、每个生产任务
   及其 SQL、输入表、语义画像已经推出的血缘事实；
-- `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验）检查写好的
+- `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验，外加只看文字的第 14 项）检查写好的
   `table-semantics/1` 文档，逐条列出要重写的地方；
 - `scope-lineage semantic confirm` 把人的回答写回文档；
 - `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接；
@@ -55,7 +55,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   --semantics out/pages/semantics
 ```
 
-`validate` 每份文档打印一行（`demo_dwd.dwd_party_customer_info_df: 52/52 checks passed
+`validate` 每份文档打印一行（`demo_dwd.dwd_party_customer_info_df: 53/53 checks passed
 (100.0%)`），最后是合计。示例的 `packet_digest` 对应当前安装的 SQLGlot 渲染出的材料包；换一个 SQLGlot
 版本，摘要检查可能把示例报为过期，其余检查照样通过。演示语料按 `_df` / `_di` 约定给表命名，所以打包时带上示例领域配置，
 由它开启这条约定（见[领域配置](domain-profile.md)）。
@@ -353,7 +353,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 并且它前面至少还有一张表，就把它当作目录收回；最后一个词是别的，按用法错误退出（退出码 2），报错说明目录该放哪里。
 `semantic status`、`semantic fixed` 和 `catalog digest` 对 `--only` 与目录的读法相同。
 
-交叉检查共十三项：
+检查共十四项（前十三项对照材料包，最后一项只看文字）：
 
 | # | 检查 | 失败条件 | 警告条件 |
 | --- | --- | --- | --- |
@@ -370,8 +370,11 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效，紧挨着的否定字或前面几个字里的「未能 / 无法 / 不曾 / 没能」等否定词组会取消它）来自归并多个来源值的分支或 ELSE（多个任务写同一列时按所有能列出来源值的分支合并，列不出的不清空别人的），而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
 | 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对；`0未推送，1已推送` 式紧贴的写法要至少两对、码宽一致、标签互不相同，标签不以天 / 元 / 年 / 月 / 日 / 个 / 次 / % 开头，`近30天活跃标志` 不算，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有成词的限定词（`增值税`、`税`、`手续费`、`测试`，加上 `--domain-profile` 的 `qualifier_terms`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到；头注释描述的是同任务另一张表（`header_facts.about`）时不检查 |
+| 14 | `placeholder` | — | 自由文本里留着没替换的格式占位符：`%s`、`%d`、`%(name)s`、`{}`、`{{` / `}}`，或花括号里只有一个 ASCII 标识符的 `{name}`（`${name}` 不算）；每个占位符一条警告。查的字段：summary 的文字（`what`、`row.text` / `note` / `watch`、`refresh.cycle` / `how_to_read` / `watch`、`scope[]`、`upstream[].provides`、`good_for`、`not_for`、`watch[].text`、`questions[].text` / `answer`）、`steps[]`、`rules[].text` / `watch`、每列的 `meaning`、`null_meaning`、`watch`、`unit` 和 `branches[]`；不查 `rules[].sql` 和 `derivation`。字段里反引号或引号中的文字、紧跟在 `∈`、`in`、`属于` 之后的 `{A}`（集合写法）不算。没有占位符的文档只多一条 `pass`，所以每份干净文档的检查条数比有这项检查之前多 1 |
 
 第 9 项存在的原因：把每日全量快照写成增量，读者就会把多个分区相加，每一行按天数重复计数。
+
+第 14 项只负责发现占位符，占位符来自写作者填文档时用的脚本。它不在写作者可以保留的 WARN 里，写作者要把它改掉。
 
 第 1–9 项核对文档的形式：每一列都覆盖、每个来源都有出处、每段引用都找得到。第 10–13 项核对含义，因为一页
 文档可以通过前九项却依然误导读者：会重复行的关联没有提、派生出来的码值漏了、注释已经解释的值被当成问题、
@@ -406,7 +409,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 格式可直接作为重写提示：
 
 ```text
-demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+demo_dwd.dwd_party_customer_info_df: 47/52 checks passed (90.4%), 5 fail, 1 warn
   无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...

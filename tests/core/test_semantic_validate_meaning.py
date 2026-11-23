@@ -64,7 +64,7 @@ def _column(document: dict, name: str) -> dict:
 
 
 def test_the_meaning_checks_follow_the_first_nine() -> None:
-    assert CHECKS[9:] == ("fan_out", "derived_codes", "documented_meaning", "header_facts")
+    assert CHECKS[9:13] == ("fan_out", "derived_codes", "documented_meaning", "header_facts")
 
 
 def test_the_example_raises_nothing_under_the_meaning_checks(document: dict, packet: dict) -> None:
