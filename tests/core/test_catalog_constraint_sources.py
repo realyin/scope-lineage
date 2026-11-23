@@ -253,6 +253,23 @@ def test_a_constraint_on_an_attribute_the_table_has_no_column_for_is_counted(
     assert "  - 另有 1 条约束针对本表没有绑定列的属性，未列出" in text
 
 
+def test_this_tables_own_rule_is_listed_even_on_an_attribute_it_has_no_column_for(
+    document: dict,
+) -> None:
+    """The own segment always matches ``catalog query table``: nothing of it is only counted."""
+    changed = _with(
+        document,
+        _constraint("cons:own_unbound", "attr:loan.principal", rules=[f"{SUMMARY}#r1"]),
+    )
+    entry = _table(changed, SUMMARY)
+    assert _by_id(entry)["cons:own_unbound"]["relation"] == "this_table"
+    assert "this_table" not in entry.get("constraints_unbound", {})
+    (match,) = query_catalog(changed, "table", SUMMARY)["matches"]
+    own = {c["id"] for c in entry["constraints"] if c.get("relation") == "this_table"}
+    assert own == {c["id"] for c in match["constraints"]} == {"cons:own_unbound"}
+    assert "  - 约束 cons:own_unbound（business_rule，针对 本金）" in _text(changed, SUMMARY)
+
+
 def test_without_lineage_evidence_only_this_table_and_others_are_told_apart(
     document: dict,
 ) -> None:

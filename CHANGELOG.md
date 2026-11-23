@@ -39,8 +39,8 @@
   without lineage evidence; `also_downstream` for a source on both sides) and prints one segment a
   relation with what it means for the table: from upstream, carried in when the rows come from that
   table, not applicable when it is only joined for extra fields; a `unique` from upstream may not hold
-  at this grain. A constraint on an attribute the table binds no column to is counted
-  (`constraints_unbound`), not listed. A constraint naming no table is listed as before. `--concept`
+  at this grain. A constraint from another table on an attribute the table binds no column to is
+  counted (`constraints_unbound`), not listed; one from this table's own rules is always listed. A constraint naming no table is listed as before. `--concept`
   constraints carry `tables`. `doc_format` stays `catalog-context/1`.
 - **New: `parse` reads a task JSON's scheduling template and parameter list.** A task JSON may carry
   `meta.task_sql` (the script with its `${name}` parameters) and `meta.task_parameters` (an object

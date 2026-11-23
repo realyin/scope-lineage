@@ -1184,8 +1184,8 @@ downstream table is built, not here); `unrelated` (no lineage relation, so wheth
 A constraint with a source on each side is listed upstream, and `also_downstream` names its sources that read this table. A `unique` constraint from
 upstream gets its own sentence: the table's grain may differ, so uniqueness may not hold. Without lineage
 evidence in the catalog the only relations are `this_table` and `other_table`. The text prints one segment a
-relation, each line naming its sources. A constraint on an attribute the table binds no column to is not listed
-but counted (`constraints_unbound`, `{relation: n}`), and a constraint naming no table is listed as before with
+relation, each line naming its sources. A constraint from another table on an attribute this table binds no column to is not listed
+but counted (one from this table's own rules is always listed, so that segment is what `catalog query table` lists) (`constraints_unbound`, `{relation: n}`), and a constraint naming no table is listed as before with
 neither key. With `--concept`, each constraint names its `tables` too.
 
 **Two or more tables: how they join.** With two or more `--table` values the pack adds one entry per pair of

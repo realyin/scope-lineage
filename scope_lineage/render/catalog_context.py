@@ -325,8 +325,9 @@ THIS_TABLE, UPSTREAM, DOWNSTREAM, UNRELATED, OTHER_TABLE = (
 
 def _table_constraints(view: CatalogView, rep: Mapping) -> tuple[list[dict], dict]:
     """The constraints on a table's concept, each saying how its sources relate to the
-    table, and ``{relation: n}`` of those left out for being on an attribute the table
-    binds no column to.
+    table, and ``{relation: n}`` of those from other tables left out for being on an
+    attribute the table binds no column to (one from this table's own rules is always
+    listed, so that segment is what ``catalog query table`` lists).
 
     A constraint from this table's rules is ``this_table``. Otherwise, with lineage
     evidence in the catalog, it is ``upstream`` when a source is upstream of this table
@@ -358,7 +359,11 @@ def _table_constraints(view: CatalogView, rep: Mapping) -> tuple[list[dict], dic
             relation, both = DOWNSTREAM, []
         else:
             relation, both = UNRELATED, []
-        if constraint["on"] in view.attributes and constraint["on"] not in bound:
+        if (
+            relation != THIS_TABLE
+            and constraint["on"] in view.attributes
+            and constraint["on"] not in bound
+        ):
             unbound[relation] = unbound.get(relation, 0) + 1
             continue
         entry.update(tables=tables, relation=relation)
