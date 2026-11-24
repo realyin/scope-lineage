@@ -35,6 +35,7 @@
      找不到这样的列，就把编码列绑 `foreign_identifier`、名称列按普通属性绑，并在回复「需要编排者处理」里写明。
    - 列名以 `_cd`、`_id`、`_no`、`_code` 结尾、指向另一个概念（有那个概念的标识符）的列绑成 `foreign_identifier`，不要绑成普通属性；
      只是本表自己的编码值的，属性带上 `code_set`。
+   - 分给本组的表里，表语义的粒度来源是 `observed`（digest 的 Grain 行写 `observed in <分区> on <日期> (query <查询>, …): no duplicate by (…) -- not a definition`）的表，粒度是平台查询在那几个分区里数出来的，不是定义：表现的 `grain.source` 写 `inferred`，不写 `declared`，也不写 `proven`（目录格式没有「观测」这种来源）；在这个表现自己的 `notes`（字符串）里写「观测（查询 <查询>，分区 <分区>，<日期> 执行）：按 (<列>) 无重复」（数到重复的写「有重复」），只说这些分区。这一句写在表现上，不进片段顶层的 `notes` 列表。
 4. 片段的 `notes` 每条都以「待 owner 确认：」开头（例如「待 owner 确认：remark 是否有业务属性」）；不要自己写「owner 确认」。
    目录里已标 `source: owner` 的条目是 owner 的决定，照它绑定，不要再提问。
 

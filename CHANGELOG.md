@@ -69,6 +69,28 @@
   knows `grain_source: observed` and shows the same words. The wording lives in the new leaf module
   `scope_lineage/observation_words.py` that `semantic facts` and these readers share. Without observations
   every output is byte for byte as before.
+- **Changed: the writers, reviewers and the runbook know the observations.** The writer prompt is
+  `table-semantics-prompt@16`: a new 「观测事实」 section says an observation is no definition and gives its
+  sentence forms -- the row's 「观测（查询 …，分区 …，… 执行）：本表按 (k) 无重复；只说明这些分区，不是定义」 and the join's
+  「观测（查询 …，分区 …，… 执行）：T 按 (k) 无重复，pN 在该分区内不放大；别的分区未观测，若出现重复会放大行数」, the form
+  check 10 relaxes for (one join per sentence, a pN is enough without the table's name, 该分区 in every no-fan-out
+  clause, no 都 / 所有, no 已证明 / 保证 / 一定 / 必然); an observation counted under a condition (「条件 …」) keeps
+  the condition; never `proven`, never a bare 唯一; an observation is no proof, so a pN still listed as unproven
+  beside it is no contradiction; observed values are no codes, a value seen only in the data is written
+  `unconfirmed: true` with a question; the observation slots are the tool's. T1 and T4 say the same of the 「观测：」
+  lines in FACTS; T4's check mode covers a written-back observation and may also change what `rules[].text` /
+  `rules[].watch` say about whether that join multiplies rows (`rules[].sql` stays untouched). The review prompt is
+  `table-semantics-review@14`: item 14 records a medium finding for an observation written as a definition, carried
+  to other partitions or tables, a join claim without its query, partition and date, a value seen only in the data
+  written as a code, prose that contradicts an observation without both sides, or a conditioned observation written
+  unconditionally -- not for a pN kept as unproven beside an observation; T2, T3 and T9 point to it. S5 keeps two more
+  WARNs without a T1 round: 「声明与观测不一致」 when the note already states both side by side with a `conflict`
+  watch, and 「有观测取值、没有码值表」 on a column that is no code column. T5 and T6 (and the fragment prompt) write an observed grain into the catalog as
+  `grain.source: inferred` with a note 「观测（查询 …，分区 …，… 执行）：按 (k) 无重复」, never `declared`, and an observed
+  grain is no proof of a global identifier. S12 lists the three observation targets as confirmation entries and how a
+  pasted query result (`sql_id, status, run_on, bizdate, …`) becomes one; such an entry sends the table to one T4
+  round like any structured confirmation. Every `semantic facts` call of the runbook passes `--documents "$RUN/docs"`.
+  With no FACTS the rendered templates change only by these static sentences.
 - **Changed: the runbook passes the owner's confirmations to every writer and reviewer, replays them after
   every write, and a confirmed slot sends a table to one revision.** The skill's T1 (write, rewrite, repair),
   T2 / T9 (review), T3 (re-review) and T4 (fix) prompts take `FACTS=@<file>` written by `semantic facts
