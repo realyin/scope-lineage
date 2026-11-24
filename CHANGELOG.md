@@ -37,8 +37,8 @@
   name). A server other machines can reach (a
   non-loopback `--host` or any `--allow-host`) refuses answers unless started with
   `--answers-allow-remote`, which warns at start. `/health` now lists the files the server writes
-  (`writes`) instead of `read_only: true`; without `--answers` every other output is unchanged. The service
-  now needs `scope-lineage` 0.17.
+  (`writes`) instead of `read_only: true`; without `--answers` every other output is unchanged. The page's
+  answers need the core from this release (until it ships, install the core from the same checkout).
 - **Fixed: the ask panel puts the newest question first (`scope-lineage-service`).** Each new question
   was added below the earlier ones, so its answer sat at the bottom of the page. The newest question is
   now directly under the form, and once a question has an answer its steps fold into one line that opens
