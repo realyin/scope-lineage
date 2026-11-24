@@ -21,6 +21,14 @@ It never recomputes a table's stage. It reads ``$RUN/status.json`` as ``semantic
 script cannot tell whether their content is right -- each step's completion test in the
 runbook still decides that.
 
+After a catalog exists, confirmation (S12) writes answers into ``docs/`` in place. A digest
+older than any document of the run's tables is rebuilt (S10b, no model); the catalog is not
+re-drafted but edited by hand (S10f: ``catalog_changes.md`` older than the digest, with the
+digest's answered questions listed) and then rebuilt and checked (S10g: ``onto/ontology.json``
+or ``catalog_check.txt`` older than ``catalog_changes.md``). The signal is file mtimes, as for
+``status.json``: the digest format stays as it is, a rewritten document always has a newer
+mtime, and a false alarm (a copied run directory) costs one deterministic rerun.
+
   next_step.py RUN
 
 Exit 0 with the report on stdout; exit 2 when RUN is not a directory. Read-only; standard
@@ -165,6 +173,29 @@ def _newest(run: Path, pages: Path) -> float:
     return newest
 
 
+def _stale_digest(run: Path, tables: list[str]) -> list[str]:
+    """The documents of ``tables`` newer than ``digest.md`` or ``digest.json``, whichever is older."""
+    digest = [path.stat().st_mtime for path in (run / "digest").glob("digest.*")
+              if path.name in ("digest.md", "digest.json")]
+    built = min(digest) if digest else 0.0
+    return [f"docs/{table}.json" for table in tables
+            if (run / "docs" / f"{table}.json").is_file()
+            and (run / "docs" / f"{table}.json").stat().st_mtime > built]
+
+
+def _answered_questions(run: Path) -> list[str]:
+    """``<table> qN: <question> -> <answer>`` for every answered question in digest.json."""
+    try:
+        digest = json.loads((run / "digest" / "digest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [
+        f"  {entry.get('table')} {question.get('id')}: {question.get('text')} -> {question.get('answer')}"
+        for entry in digest.get("tables") or [] if isinstance(entry, dict)
+        for question in entry.get("answered_questions") or [] if isinstance(question, dict)
+    ]
+
+
 def _table_action(run: Path, row: dict, passes: int = 1) -> tuple[str, str]:
     """Appendix A: (step, action) for one table's stage and flags."""
     table, stage, flags = row["table"], row["stage"], set(row.get("flags") or [])
@@ -207,6 +238,47 @@ def _table_action(run: Path, row: dict, passes: int = 1) -> tuple[str, str]:
     if stage == "rendered":
         return "S10a", "完成"
     return "S4", f"未知阶段 {stage}：照附录 A 判断"
+
+
+def _catalog_step(run: Path, tables: list[str]) -> tuple[str, str, list[str]] | None:
+    """S10b–S10g once the starting catalog exists: (step, reason, lines), or None when all are done."""
+    if not (run / "digest" / "digest.md").is_file():
+        return "S10b", "缺 digest/digest.md", []
+    stale = _stale_digest(run, tables)
+    if stale:
+        return "S10b", ("这些文档比 digest 新（多半是 S12 确认回写或之后的修订改了它们）："
+                        + "、".join(stale) + "。重跑 S10b（确定性命令，不派模型）；目录已经起草过的不回 S10c，"
+                        "之后到 S10f 手改"), []
+    plan = run / "catalog_plan.md"
+    if not plan.is_file():
+        return "S10c", "缺 catalog_plan.md", []
+    groups = GROUP.findall(plan.read_text(encoding="utf-8"))
+    no_fragment = [group for group in groups if not (run / "fragments" / f"{group}.json").is_file()]
+    if not groups or no_fragment:
+        return "S10d", "这些组还没有片段：" + ("、".join(no_fragment) or "catalog_plan.md 里没有「## 组 …」"), []
+    if not (run / "merged").is_dir() or not (run / "merge_report.txt").is_file():
+        return "S10e", "缺 merged/ 或 merge_report.txt", []
+    changes = run / "catalog_changes.md"
+    if not changes.is_file():
+        return "S10f", "缺 catalog_changes.md（没有要改的也写一行「无改动」）", []
+    if changes.stat().st_mtime < (run / "merge_report.txt").stat().st_mtime:
+        # S10c may have opened it (skip lines, incremental changes); S10f writes it after the merge.
+        return "S10f", "catalog_changes.md 还是合并前写的：S10f 做完要在末尾记改动（没有就加一行「无改动」）", []
+    if changes.stat().st_mtime < (run / "digest" / "digest.md").stat().st_mtime:
+        # Only a digest rebuilt after the merge (S12 → S10b) is newer than catalog_changes.md.
+        answered = _answered_questions(run)
+        return "S10f", ("digest 在目录合并之后重建过（S12 确认回写后重跑了 S10b）：逐条看下面 digest 里已回答的问题，"
+                        "涉及标识符（唯一范围、编号对应）或关系的，按 S10f 手改 merged/ 并在 catalog_changes.md 记一行；"
+                        "没有要改的在末尾加一行「确认后无改动」"
+                        + ("" if answered else "（digest.json 里没有已回答的问题）")), answered
+    if not (run / "onto" / "ontology.json").is_file() or not (run / "site" / "concepts").is_dir():
+        return "S10g", "缺 onto/ontology.json 或 site/concepts/", []
+    if not (run / "catalog_check.txt").is_file():
+        return "S10g", "缺 catalog_check.txt（S10g 最后一条：漏做检查）", []
+    built = min((run / name).stat().st_mtime for name in ("onto/ontology.json", "catalog_check.txt"))
+    if built < changes.stat().st_mtime:
+        return "S10g", "catalog_changes.md 比 onto/ontology.json 或 catalog_check.txt 新：S10f 改过目录，重新构建、渲染并检查", []
+    return None
 
 
 def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
@@ -255,27 +327,9 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
 
     if not any((run / "catalog" / name).is_file() for name in ("catalog.json", "catalog.yaml", "catalog.yml")):
         return "S10a", "catalog/ 里还没有 catalog.json 或 catalog.yaml", [], skipped
-    if not (run / "digest" / "digest.md").is_file():
-        return "S10b", "缺 digest/digest.md", [], skipped
-    plan = run / "catalog_plan.md"
-    if not plan.is_file():
-        return "S10c", "缺 catalog_plan.md", [], skipped
-    groups = GROUP.findall(plan.read_text(encoding="utf-8"))
-    no_fragment = [group for group in groups if not (run / "fragments" / f"{group}.json").is_file()]
-    if not groups or no_fragment:
-        return "S10d", "这些组还没有片段：" + ("、".join(no_fragment) or "catalog_plan.md 里没有「## 组 …」"), [], skipped
-    if not (run / "merged").is_dir() or not (run / "merge_report.txt").is_file():
-        return "S10e", "缺 merged/ 或 merge_report.txt", [], skipped
-    changes = run / "catalog_changes.md"
-    if not changes.is_file():
-        return "S10f", "缺 catalog_changes.md（没有要改的也写一行「无改动」）", [], skipped
-    if changes.stat().st_mtime < (run / "merge_report.txt").stat().st_mtime:
-        # S10c may have opened it (skip lines, incremental changes); S10f writes it after the merge.
-        return "S10f", "catalog_changes.md 还是合并前写的：S10f 做完要在末尾记改动（没有就加一行「无改动」）", [], skipped
-    if not (run / "onto" / "ontology.json").is_file() or not (run / "site" / "concepts").is_dir():
-        return "S10g", "缺 onto/ontology.json 或 site/concepts/", [], skipped
-    if not (run / "catalog_check.txt").is_file():
-        return "S10g", "缺 catalog_check.txt（S10g 最后一条：漏做检查）", [], skipped
+    catalog_step = _catalog_step(run, tables)
+    if catalog_step:
+        return (*catalog_step, skipped)
     unscored = [path.name for path in rounds if not any((path / "score").glob("*"))]
     if "S11" not in skipped and not rounds:
         return "S11", "env.sh 里 Q 不为空，round1/score/ 还是空的", [], skipped
@@ -346,7 +400,8 @@ def main(argv: list[str]) -> int:
         out.append(f"原因：{reason}")
         out.append(f"做法：读 {STEP_FILES}/{current}.md（手册 references/runbook.md 的「{current}」一步），照前提检查、命令、完成判据做；做完再跑一次本脚本。")
     if lines:
-        out.append("每张表的下一步（附录 A）：")
+        out.append("digest 里已回答的问题（表 问题 id: 问题 -> 回答）：" if current == "S10f"
+                   else "每张表的下一步（附录 A）：")
         out.extend(lines)
     print("\n".join(out))
     return 0

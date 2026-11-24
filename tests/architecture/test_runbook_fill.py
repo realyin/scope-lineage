@@ -464,3 +464,29 @@ def test_every_replay_of_the_run_requires_asked():
                if "sl semantic confirm " in line]
     assert {name for name, _ in replays} >= {"S4.md", "S5.md", "S12.md", "T4.md"}, replays
     assert all("--require-asked" in line for _, line in replays), replays
+
+
+def _prompt(name: str) -> str:
+    return (REFS / name).read_text(encoding="utf-8").split("----8<----", 2)[1]
+
+
+def test_the_drafter_follows_the_owners_answers_in_the_digest():
+    """``catalog digest`` prints ``- Answered qN: <question> -> <answer>``. Measured with a
+    real model, T5 used such an answer only when told to, and went on asking 「待 owner 确认」
+    on points already answered; an answer in tension with the table's SQL was dropped."""
+    body = _prompt("templates/T5.md")
+    rule = body[body.index("**已回答的问题**"):]
+    rule = rule[: rule.index("\n**义务清单**")]
+    assert "- Answered qN" in rule
+    for sentence in ("依据 digest Answered qN", "不写「待 owner 确认」", "只用于本表", "与 SQL 有张力"):
+        assert sentence in rule, sentence
+    assert "Answered" in body[body.index("**回复**"):]
+
+
+def test_after_confirmation_the_digest_is_rebuilt_and_the_catalog_edited_by_hand():
+    s12 = (REFS / "steps" / "S12.md").read_text(encoding="utf-8")
+    after = s12[s12.index("**下一步**"):]
+    assert "S10b" in after and "S10f" in after and "不回 S10c" in after
+    assert "标识符" in after and "关系" in after
+    s10b = (REFS / "steps" / "S10b.md").read_text(encoding="utf-8")
+    assert "Answered" in s10b and "S10f" in s10b[s10b.index("**下一步**"):]

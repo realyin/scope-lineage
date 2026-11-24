@@ -14,6 +14,23 @@
   that cannot be read (exit 1); older versions read every reply line that way. The service's
   `list_pending` / `GET /api/pending` follow `list`'s default; its question board counts a replied pending
   item as answered and the page shows the reply. The service writes no replies.
+- **Added: `catalog digest` carries an answered question with its answer.** A question answered by
+  `semantic confirm` used to leave the digest altogether: only `open` questions were listed, so the drafter of
+  a catalog saw less after the owner answered than before. Each table now has `answered_questions`
+  (`[{id, text, answer}]`, plus `answered_by` and `answered_on` when recorded), printed in `digest.md` as
+  `- Answered q1: <question> -> <answer> (<by>, <on>)`. A table with no answered question has no such key and
+  no such line, so its digest is byte for byte what it was; a question marked `answered` without answer text
+  carries nothing. Only answers written into the documents count: one a browsing page still holds in its
+  record file is not read.
+- **Changed (runbook): the catalog drafter follows those answers, and confirmation rebuilds the digest.** T5
+  takes an `- Answered` line as the owner's answer for that table only: it writes `scope`, `maps_to` and the
+  rest accordingly with 「依据 digest Answered qN」 in `notes`, asks no 「待 owner 确认」 on a point already
+  answered, and follows an answer in tension with the table's SQL while recording the tension; its reply
+  counts the answers used. After S12, a run that already has a catalog reruns S10b (no model) and edits the
+  catalog by hand in S10f instead of re-drafting at S10c, then S10g. `next_step.py` sends the run back to S10b
+  when a document of the run's tables is newer than `digest.md` or `digest.json`, to S10f (listing the
+  digest's answered questions) when `catalog_changes.md` is older than the digest, and to S10g when
+  `onto/ontology.json` or `catalog_check.txt` is older than `catalog_changes.md`.
 - **Added: observed facts -- what a platform query found -- as three confirmation targets that `semantic
   confirm` replays into slots of their own.** `summary.row.observed` writes `summary.row.observed` and turns an
   `inferred` grain into the new `grain_source: observed` (grain columns: the columns the query counted, unless
