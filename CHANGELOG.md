@@ -12,6 +12,22 @@
   and a column `unwritten: [...]`, its text adding 「（页面填写，尚未写回）」. Without slot keys, and for an overlay
   of `question:` entries only, every output is as before. The overlay has no groups; the docs say that a replay
   under `--require-asked` applies a structured entry whose question was rewritten.
+- **Added (service): structured answers on the browse page.** Beside 一句话, a card answers with 行粒度
+  (`summary.row` `{unique, grain_columns}`), 列含义 (`column:<c>.meaning`) or 码值 (`column:<c>.code_values`, 1--50
+  `{value, meaning}`); the server writes the question's sentence from the value (「否：按 (a, b) 不唯一」, 「列 c 的
+  含义：…」, 「列 c 的码值：1=…；2=…」) and an optional note follows it. `question-answers/1` records gain the optional
+  `target`, `value` and `slot_base` (the slot on disk when answered); the judgement holds the slot too (written
+  back: sentence and slot on disk; in effect: question and slot unchanged; a column gone: missing). Guards: the
+  table's own columns, 1--8 grain columns, no code values on identifier columns, and no row answer on a
+  `proven` grain (400, D-H1); `POST /api/answers` takes `target`, `value` and `seen.slot` (409 when the slot
+  shown is not the slot now); a slot another question's page answer holds is refused (400), and of two such
+  records in a file only the first is overlaid. A record's slot and question entries are overlaid together:
+  refusals are traced to records by entry and the overlay repeats until nothing is refused (capped). The export
+  writes one single-object entry per code value, then the `question:` entry; structured entries carry no
+  `asked`. The pack marks overlaid slots, `/api/semantics` adds `unwritten_slots`, and the board's summary adds
+  `export_notes` when a code value's meaning on disk was changed (a replay cannot withdraw it: remove the old
+  entry). A code value the SQL never writes fails at validation (「确认与 SQL 矛盾，交回 owner」), not before; the
+  README and S12 say so. Without structured records every output is byte for byte as before.
 - **Added: observed facts -- what a platform query found -- as three confirmation targets that `semantic
   confirm` replays into slots of their own.** `summary.row.observed` writes `summary.row.observed` and turns an
   `inferred` grain into the new `grain_source: observed` (grain columns: the columns the query counted, unless

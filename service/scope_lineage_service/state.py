@@ -21,6 +21,13 @@ it re-judges the records without reading the ontology or the semantics directory
 Only the process started as the file's writer (``answers_writer``: ``http``) writes it --
 the page's answers, and the deletion of records the disk has caught up with -- always
 under the one lock ``inputs`` holds; any other process overlays it read-only.
+
+A structured answer (the row's grain, a column's meaning, code values) overlays its slot
+and its question together (``answers.overlay_records``): the page states then also mark
+the slot (``(table, slot)``: ``{"written": False}``), the table's semantics answer lists it
+in ``unwritten_slots``, and the board's summary carries ``export_notes`` when the export
+must say something beside the file (a changed code value). Without structured records
+every output is what it was.
 """
 
 from __future__ import annotations
@@ -48,6 +55,7 @@ class AnswersView:
     unmatched: list = field(default_factory=list)  # Judged, not matched or not overlaid
     effective: list = field(default_factory=list)  # Judged answers and notes in effect
     overlaid: frozenset = frozenset()  # (table, question) of the answers overlaid
+    slots: frozenset = frozenset()  # (table, slot) of the structured answers overlaid
     problem: str | None = None  # why written-back records could not be deleted
 
     def live(self) -> list[dict]:
@@ -204,30 +212,31 @@ class CatalogState:
                 judgement = records_file.judge_all(kept, disk)
         effective = judgement.of(records_file.EFFECTIVE)
         answered = [item.record for item in effective if item.record["kind"] == records_file.ANSWER]
-        overlaid, refused = answers.overlay_answers(
-            disk, [records_file.confirmation(record) for record in answered]
-        )
-        refused_keys = {(bare_table(item.get("table")), str(item.get("target")).split(":", 1)[-1]):
-                        item.get("reason") for item in refused}
+        # a record's entries stand or fall together; refusals come back per record
+        overlaid, refused = records_file.overlay_records(disk, answered)
         unmatched = judgement.of(records_file.UNMATCHED)
         states: dict = {}
-        in_effect, written_false = [], set()
+        in_effect, written_false, slots = [], set(), set()
         for item in effective:
             key = (item.record["table"], item.record["question"])
-            if key in refused_keys:
+            if id(item.record) in refused:
                 unmatched.append(records_file.Judged(
                     item.record, records_file.UNMATCHED, records_file.NOT_APPLIED, item.now,
-                    f"{records_file.REASON_TEXT[records_file.NOT_APPLIED]}：{refused_keys[key]}",
+                    f"{records_file.REASON_TEXT[records_file.NOT_APPLIED]}：{refused[id(item.record)]}",
                 ))
                 continue
             in_effect.append(item)
             if item.record["kind"] == records_file.ANSWER:
                 states[key] = {"written": False}
                 written_false.add(key)
+                for slot in records_file.slot_names(item.record):
+                    states[(item.record["table"], slot)] = {"written": False}
+                    slots.add((item.record["table"], slot))
             else:
                 states[key] = records_file.note_state(item.record)
         view = AnswersView(judgement=judgement, unmatched=unmatched, effective=in_effect,
-                           overlaid=frozenset(written_false), problem=problem)
+                           overlaid=frozenset(written_false), slots=frozenset(slots),
+                           problem=problem)
         return Inputs(base.document, overlaid if disk is not None else None, disk, states, view)
 
     def _delete(self, stale: list[dict]) -> list[dict]:
@@ -281,14 +290,23 @@ class CatalogState:
             if seen.get("disk") != disk or seen.get("record") != existing:
                 raise AnswerRefused(409, "changed", "the question's answer changed since the "
                                                     "page showed it; load it again")
+            target = request.get("target")
+            if target is not None:
+                slot_base = self._structured_check(current, table, question, request)
             record = {"table": table, "question": question, "asked": request["asked"],
                       "base": disk, "kind": request["kind"]}
+            if target is not None:
+                record.update(target=target, value=request["value"], slot_base=slot_base)
             text_key = "answer" if request["kind"] == records_file.ANSWER else "reason"
-            record[text_key] = request[text_key]
+            if request.get(text_key) is not None:
+                record[text_key] = request[text_key]
             for key in ("choice", "to"):
                 if request.get(key) is not None:
                     record[key] = request[key]
             record.update(source=dict(records_file.SOURCE), by=request["by"], date=self.today())
+            problem = records_file.record_problem(record) if target is not None else None
+            if problem:
+                raise AnswerRefused(400, "bad_input", problem)
             if request["kind"] != records_file.ANSWER and disk is not None:
                 raise AnswerRefused(400, "bad_input", "this question is answered in its document: "
                                                       "change the answer instead of noting it")
@@ -301,6 +319,8 @@ class CatalogState:
                 disk is not None and request["kind"] == records_file.ANSWER
                 and records_file.folded(records_file.sentence(record))
                 == records_file.folded(disk["answer"])
+                and (target is None or records_file.slot_written(
+                    current.disk_semantics.get(table), target, record["value"]))
             ):
                 raise AnswerRefused(400, "bad_input", "the same as what is there now")
             records = [record if (r["table"], r["question"]) == (table, question) else r
@@ -309,6 +329,29 @@ class CatalogState:
                 records.append(record)
             self._write(self._base, records)
             return record
+
+    def _structured_check(self, current: Inputs, table: str, question: str, request: dict):
+        """The disk's slot for a structured answer (its ``slot_base``), after the guards: the
+        table must have what it names (400), the page must have seen the slot as it is
+        overlaid now (409), and no other question's page answer may hold the slot (400)."""
+        target, value = request["target"], request["value"]
+        document = current.disk_semantics.get(table)
+        problem = records_file.document_problem(document, target, value)
+        if problem:
+            raise AnswerRefused(400, "bad_input", problem)
+        if request["seen"].get("slot") != records_file.slot_of(
+                current.semantics.get(table), target, value):
+            raise AnswerRefused(409, "changed", "what the page showed of the answered slot "
+                                                "changed since; load it again")
+        mine = set(records_file.slot_names({"target": target, "value": value}))
+        for other in current.answers.live():
+            if other["table"] != table or other["question"] == question:
+                continue
+            if mine & set(records_file.slot_names(other)):
+                raise AnswerRefused(400, "bad_input", (
+                    f"question {other['question']} already has a page answer on this slot; "
+                    "withdraw it there first, or answer it in a sentence"))
+        return records_file.slot_of(document, target, value)
 
     def withdraw_answer(self, table: str, question: str, seen) -> dict:
         """Delete one record, as the page saw it; the record deleted."""
@@ -351,6 +394,10 @@ class CatalogState:
             digests={table: document_digest(current.disk_semantics[table]) for table in exported},
             unmatched=[item.listing() for item in view.unmatched],
         )
+        notes = records_file.export_notes([item.record for item in view.effective
+                                           if item.record["kind"] == records_file.ANSWER])
+        if notes:
+            summary["export_notes"] = notes
         if view.problem:
             summary["problem"] = view.problem
         return summary
@@ -419,6 +466,9 @@ class CatalogState:
                 question: state for (name, question), state in sorted(current.page_states.items())
                 if name == key and "kind" in state
             }
+            slots = sorted(slot for (name, slot) in current.answers.slots if name == key)
+            if slots:
+                answer.result["unwritten_slots"] = slots
         return answer
 
     def questions(self, **request) -> answers.CatalogAnswer:

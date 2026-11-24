@@ -513,10 +513,23 @@ const ENUM_WORDS = {
 const RULE_KIND_TEXT = { filter: "过滤", join: "关联", dedup: "去重", derive: "派生", union: "合并", other: "其他" };
 
 /** The page's marks on a table's questions, from the keys the server puts beside the
- * document when it takes the page's answers (``unwritten``, ``page``); null otherwise. */
+ * document when it takes the page's answers (``unwritten``, ``page``, and
+ * ``unwritten_slots`` when a structured answer is overlaid); null otherwise. */
 export function pageMarks(answer) {
   if (!answer || (!("unwritten" in answer) && !("page" in answer))) return null;
-  return { unwritten: new Set(answer.unwritten || []), page: answer.page || {} };
+  return { unwritten: new Set(answer.unwritten || []), page: answer.page || {},
+    slots: new Set(answer.unwritten_slots || []) };
+}
+
+/** The words of a column's unwritten slots (「含义」「码值 X」), or null when none. */
+export function slotMarks(marks, column) {
+  if (!marks || !marks.slots) return null;
+  const words = [];
+  if (marks.slots.has(`column:${column}.meaning`)) words.push("含义");
+  const prefix = `column:${column}.code_values:`;
+  const codes = [...marks.slots].filter((slot) => slot.startsWith(prefix)).map((slot) => slot.slice(prefix.length)).sort();
+  if (codes.length) words.push(`码值 ${codes.join("、")}`);
+  return words.length ? words.join("、") : null;
 }
 
 function semanticsDocument(doc, marks) {
@@ -527,7 +540,7 @@ function semanticsDocument(doc, marks) {
       key === "questions", summaryValue(key, summary[key], marks))),
   ...Object.keys(summary).filter((key) => !SUMMARY_LABELS.some(([k]) => k === key))
     .map((key) => fold(key, false, value(summary[key])))));
-  if (doc.columns) parts.push(fold(`字段（${doc.columns.length}）`, false, semanticsColumns(doc.columns)));
+  if (doc.columns) parts.push(fold(`字段（${doc.columns.length}）`, false, semanticsColumns(doc.columns, marks)));
   const process = [];
   for (const task of doc.tasks || (doc.task ? [doc.task] : [])) process.push(h("div", {}, "产出任务：", value(task)));
   if (doc.steps && doc.steps.length) process.push(h("ol", {}, doc.steps.map((step) => h("li", {}, text(step)))));
@@ -568,6 +581,10 @@ function summaryValue(key, item, marks) {
           `页面备注：${recordText(note)}（${[note.by, note.date].filter(Boolean).join("，")}）`) : null];
     });
   }
+  if (key === "row" && marks && marks.slots && marks.slots.has("row")) {
+    return [badge("未写回", "warn"), " ", item && (item.observed || item.grain_source === "observed")
+      ? rowValue(item) : value(item)];
+  }
   if (key === "row" && item && (item.observed || item.grain_source === "observed")) {
     return rowValue(item);
   }
@@ -578,11 +595,12 @@ function summaryValue(key, item, marks) {
   return value(item);
 }
 
-function semanticsColumns(columns) {
+function semanticsColumns(columns, marks) {
   // the observed values get a column only when some column has them
   const observed = columns.some((c) => c.observed_values);
   return grid(["字段", "含义", "类别", "码值", "口径", "为空", ...(observed ? ["观测取值"] : [])], columns.map((c) => [
-    code(c.column), text(c.meaning), word(CATEGORY_TEXT, c.category),
+    slotMarks(marks, c.column) ? [code(c.column), " ", badge(`未写回：${slotMarks(marks, c.column)}`, "warn")] : code(c.column),
+    text(c.meaning), word(CATEGORY_TEXT, c.category),
     c.code_values && c.code_values.length ? c.code_values.map((v) => `${v.value}=${text(v.meaning)}`).join("、") : "—",
     text(c.derivation), text(c.null_meaning),
     ...(observed ? [c.observed_values ? observedValuesText(c) : "—"] : []),
@@ -855,6 +873,10 @@ export function seenOf(item) {
 /** The text and fields of a record as one line: ``否：…``, or ``该问 某某：…``. */
 export function recordText(record) {
   if (!record) return "";
+  if (record.target) {
+    const generated = structuredSentence(record.target, record.value);
+    return record.answer ? `${generated}；${record.answer}` : generated;
+  }
   const text = record.kind === "answer" ? record.answer : record.reason;
   const choice = CHOICE_TEXT[record.choice] ? `${CHOICE_TEXT[record.choice]}：` : "";
   if (record.kind === "answer") return `${choice}${text}`;
@@ -908,6 +930,129 @@ function recordBody(table, question, asked, seen, form) {
   body[kind === "answer" ? "answer" : "reason"] = form.text;
   if (form.choice && CHOICE_KINDS.includes(kind)) body.choice = form.choice;
   if (kind === "redirect") body.to = form.to;
+  return body;
+}
+
+// ------------------------------------------------------------- structured answers
+// A structured answer gives the row's grain, a column's meaning or code values; the server
+// generates the question's sentence from it (answers.py ``structured_sentence``) and judges
+// the slot as it judges the question. These mirror the server's guards and shapes.
+
+export const STRUCTURED_MODES = [["text", "一句话"], ["row", "行粒度"], ["meaning", "列含义"], ["code_values", "码值"]];
+export const MAX_GRAIN_COLUMNS = 8;
+export const MAX_CODES = 50;
+export const MAX_CODE = 64;
+const ROW_TARGET = "summary.row";
+
+/** The target of a structured form: ``summary.row`` or ``column:<c>.<slot>``. */
+export function targetOf(mode, column) {
+  return mode === "row" ? ROW_TARGET : `column:${column}.${mode}`;
+}
+
+function columnTarget(target) {
+  const match = /^column:([^.\s]+)\.(meaning|code_values)$/.exec(String(target));
+  return match ? { column: match[1], slot: match[2] } : null;
+}
+
+/** The sentence the server writes for a structured answer. */
+export function structuredSentence(target, value) {
+  if (target === ROW_TARGET) {
+    const columns = (value.grain_columns || []).join(", ");
+    return value.unique === "yes" ? `是：按 (${columns}) 每行唯一` : `否：按 (${columns}) 不唯一`;
+  }
+  const parts = columnTarget(target);
+  if (!parts) return "";
+  if (parts.slot === "meaning") return `列 ${parts.column} 的含义：${value}`;
+  return `列 ${parts.column} 的码值：${(value || []).map((item) => `${item.value}=${item.meaning}`).join("；")}`;
+}
+
+/** The slot as ``doc`` (the overlaid document the page shows) holds it: what the page sends
+ * back as ``seen.slot``, so the server refuses (409) an answer to a slot changed since. */
+export function slotOf(doc, target, value) {
+  if (target === ROW_TARGET) {
+    const row = ((doc && doc.summary) || {}).row || {};
+    const out = {};
+    for (const key of ["unique", "grain_columns", "grain_source"]) out[key] = row[key] === undefined ? null : row[key];
+    return out;
+  }
+  const parts = columnTarget(target);
+  const column = parts && ((doc && doc.columns) || []).find((c) => c.column === parts.column);
+  if (!column) return null;
+  if (parts.slot === "meaning") return column.meaning === undefined ? null : column.meaning;
+  const codes = new Map((column.code_values || []).map((code) => [code.value, code]));
+  const out = {};
+  for (const item of value || []) {
+    const code = codes.get(item.value);
+    out[item.value] = code && code.meaning !== undefined ? code.meaning : null;
+  }
+  return out;
+}
+
+/** Comma- or space-separated column names, stripped, empty ones left out. */
+export function parseColumns(typed) {
+  return String(typed || "").split(/[,，\s]+/).map((name) => name.trim()).filter(Boolean);
+}
+
+/** The columns a column form offers: the question's own (``about``), else every column. */
+export function columnChoices(item, doc) {
+  const own = (item.columns || []).map((c) => c.column);
+  if (own.length) return own;
+  return ((doc && doc.columns) || []).map((c) => c.column);
+}
+
+/** The structured value of a form: ``{mode, unique, columns, column, meaning, codes}``. */
+export function structuredValue(form) {
+  if (form.mode === "row") return { unique: form.unique, grain_columns: parseColumns(form.columns) };
+  if (form.mode === "meaning") return normalised(form.meaning);
+  return (form.codes || []).filter((row) => normalised(row.value) || normalised(row.meaning))
+    .map((row) => ({ value: normalised(row.value), meaning: normalised(row.meaning) }));
+}
+
+const LINE_BREAK = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+
+/** The sentence why a structured form cannot be sent yet, or null. Mirrors the server. */
+export function structuredProblem(form) {
+  const by = normalised(form.by);
+  if (!by) return "先填回答人。";
+  if ([...by].length > MAX_NAME) return `回答人最多 ${MAX_NAME} 个字。`;
+  const note = normalised(form.text);
+  if (LINE_BREAK.test(by + note)) return "写在一行里：不能有换行或控制字符。";
+  const value = structuredValue(form);
+  if (form.mode === "row") {
+    if (!["yes", "no"].includes(form.unique)) return "选是否唯一。";
+    const columns = value.grain_columns;
+    if (!columns.length || columns.length > MAX_GRAIN_COLUMNS) return `粒度列写 1 到 ${MAX_GRAIN_COLUMNS} 列。`;
+    if (new Set(columns).size !== columns.length) return "粒度列有重复。";
+  } else {
+    if (!normalised(form.column)) return "先选列。";
+    if (form.mode === "meaning") {
+      if (!value) return "含义不能是空的。";
+      if (LINE_BREAK.test(value)) return "写在一行里：不能有换行或控制字符。";
+    } else {
+      if (!value.length || value.length > MAX_CODES) return `码值写 1 到 ${MAX_CODES} 个。`;
+      const seen = new Set();
+      for (const item of value) {
+        if (!item.value) return "码值不能是空的。";
+        if ([...item.value].length > MAX_CODE) return `码值最多 ${MAX_CODE} 个字。`;
+        if (!item.meaning) return `码值 ${item.value} 的含义不能是空的。`;
+        if (LINE_BREAK.test(item.value + item.meaning)) return "写在一行里：不能有换行或控制字符。";
+        if (seen.has(item.value)) return `码值 ${item.value} 写了两次。`;
+        seen.add(item.value);
+      }
+    }
+  }
+  const sentence = structuredSentence(targetOf(form.mode, normalised(form.column)), value);
+  if ([...(note ? `${sentence}；${note}` : sentence)].length > MAX_TEXT) return `连同生成的句子最多 ${MAX_TEXT} 个字。`;
+  return null;
+}
+
+/** ``POST /api/answers``'s body for a structured answer: ``slot`` is the slot as the page
+ * showed it (``slotOf`` on the overlaid document). The optional note goes in ``answer``. */
+export function structuredBody(item, form, slot) {
+  const target = targetOf(form.mode, normalised(form.column));
+  const body = { table: item.table, question: item.id, kind: "answer", asked: item.text,
+    seen: { ...seenOf(item), slot }, by: normalised(form.by), target, value: structuredValue(form) };
+  if (normalised(form.text)) body.answer = form.text;
   return body;
 }
 
@@ -1108,13 +1253,14 @@ function answerPart(card, item, context) {
       submit: (form) => answerBody(item, form),
       done: reload,
       cancel: () => reload(null),
+      structured: item,
     }));
   };
   const buttons = h("div", { class: "answer-actions" });
   const live = state.record && !state.unmatched;
   if (state.mode === "open" && !live) {
     box.append(answerForm({ kinds: RECORD_KINDS, preset: null, context,
-      submit: (form) => answerBody(item, form), done: reload, cancel: null }));
+      submit: (form) => answerBody(item, form), done: reload, cancel: null, structured: item }));
     return box;
   }
   if (live) {
@@ -1133,8 +1279,9 @@ function answerPart(card, item, context) {
   return box;
 }
 
-/** The form: the text, an optional 是/否, the kind menu and (for 该问某某) who to ask. */
-function answerForm({ kinds, preset, context, submit, done, cancel }) {
+/** The form: the text, an optional 是/否, the kind menu and (for 该问某某) who to ask. With
+ * ``structured`` (the card's item) it also offers 行粒度 / 列含义 / 码值 beside 一句话. */
+function answerForm({ kinds, preset, context, submit, done, cancel, structured }) {
   const kind = h("select", { "aria-label": "种类" }, kinds.map(([value, label]) =>
     h("option", { value, selected: preset && preset.kind === value ? "" : null }, label)));
   const textBox = h("textarea", { rows: "2", maxlength: String(MAX_TEXT), placeholder: "写在一行里" });
@@ -1155,11 +1302,28 @@ function answerForm({ kinds, preset, context, submit, done, cancel }) {
   };
   kind.addEventListener("change", sync);
   sync();
-  const form = h("form", { class: "answer-form" }, textBox,
+  const shape = structured ? structuredFields(structured, preset, message) : null;
+  if (shape) {
+    shape.onChange = () => {
+      const plain = shape.mode() === "text";
+      kind.hidden = !plain;
+      if (!plain) kind.value = "answer";
+      choice.hidden = !plain || !CHOICE_KINDS.includes(kind.value);
+      to.hidden = !plain || kind.value !== "redirect";
+      textBox.placeholder = plain ? "回答，写在一行里" : "补充说明（可选），写在一行里";
+    };
+    shape.onChange();
+  }
+  const form = h("form", { class: "answer-form" }, shape ? shape.node : null, textBox,
     h("div", { class: "answer-actions" }, kind, choice, to, send,
       cancel ? h("button", { type: "button", onclick: cancel }, "取消") : null, message));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (shape && shape.mode() !== "text") {
+      await sendStructured(structured, shape, { text: textBox.value, by: context.name.value },
+        { send, message, context, done });
+      return;
+    }
     const typed = { kind: kind.value, text: textBox.value, choice: choice.value || null,
       to: to.value, by: context.name.value };
     const problem = formProblem(typed);
@@ -1182,6 +1346,112 @@ function answerForm({ kinds, preset, context, submit, done, cancel }) {
     }
   });
   return form;
+}
+
+/** 行粒度 / 列含义 / 码值 fields of a structured answer, filled from a structured preset. */
+function structuredFields(item, preset, message) {
+  const shape = { onChange: () => {} };
+  const columnsPreset = preset && preset.target ? columnTarget(preset.target) : null;
+  const presetMode = !preset || !preset.target ? "text"
+    : preset.target === ROW_TARGET ? "row" : columnsPreset.slot;
+  const modeSelect = h("select", { "aria-label": "回答形式" }, STRUCTURED_MODES.map(([value, label]) =>
+    h("option", { value, selected: value === presetMode ? "" : null }, label)));
+  const unique = h("select", { "aria-label": "是否唯一" },
+    h("option", { value: "" }, "是否唯一"), h("option", { value: "yes" }, "是：每行唯一"), h("option", { value: "no" }, "否：不唯一"));
+  const columns = h("input", { type: "text", placeholder: "粒度列，用逗号分开", "aria-label": "粒度列" });
+  const column = h("select", { "aria-label": "列" });
+  const meaning = h("input", { type: "text", maxlength: String(MAX_TEXT), placeholder: "这一列的含义", "aria-label": "列含义" });
+  const codes = h("div", { class: "answer-codes" });
+  const addCode = (row) => {
+    const value = h("input", { type: "text", maxlength: String(MAX_CODE), placeholder: "码值", "aria-label": "码值" });
+    const means = h("input", { type: "text", maxlength: String(MAX_TEXT), placeholder: "含义", "aria-label": "码值含义" });
+    value.value = row ? row.value : "";
+    means.value = row ? row.meaning : "";
+    codes.append(h("div", { class: "answer-actions" }, value, means));
+  };
+  if (presetMode === "row") {
+    unique.value = preset.value.unique;
+    columns.value = preset.value.grain_columns.join(", ");
+  } else if (presetMode === "meaning") {
+    meaning.value = preset.value;
+  }
+  for (const row of presetMode === "code_values" ? preset.value : [null]) addCode(row);
+  const more = h("button", { type: "button", onclick: () => addCode(null) }, "加一行");
+  const rowPart = h("div", { class: "answer-actions" }, unique, columns);
+  const columnPart = h("div", { class: "answer-actions" }, column);
+  const codesPart = h("div", {}, codes, more);
+  const fillColumns = (doc) => {
+    const names = columnChoices(item, doc);
+    column.replaceChildren(...names.map((name) => h("option", { value: name }, name)));
+    if (columnsPreset) column.value = columnsPreset.column;
+  };
+  let loaded = false;
+  const sync = async () => {
+    const mode = modeSelect.value;
+    rowPart.hidden = mode !== "row";
+    columnPart.hidden = mode !== "meaning" && mode !== "code_values";
+    meaning.hidden = mode !== "meaning";
+    codesPart.hidden = mode !== "code_values";
+    shape.onChange();
+    if (!columnPart.hidden && !loaded) {
+      loaded = true;
+      fillColumns(null);
+      if (!column.options.length) {
+        try {
+          fillColumns(await shownDocument(item.table));
+        } catch (error) {
+          message.textContent = error.message;
+        }
+      }
+    }
+  };
+  modeSelect.addEventListener("change", sync);
+  shape.node = h("div", {}, h("div", { class: "answer-actions" }, modeSelect), rowPart, columnPart, meaning, codesPart);
+  shape.mode = () => modeSelect.value;
+  shape.form = () => ({
+    mode: modeSelect.value, unique: unique.value, columns: columns.value, column: column.value,
+    meaning: meaning.value,
+    codes: [...codes.children].map((row) => ({ value: row.children[0].value, meaning: row.children[1].value })),
+  });
+  sync();
+  return shape;
+}
+
+/** The table's document as the page shows it (answers overlaid). */
+async function shownDocument(table) {
+  const found = await answer("/api/semantics", { table }, { notFoundOk: true });
+  return found && found.document ? found.document : null;
+}
+
+async function sendStructured(item, shape, typed, { send, message, context, done }) {
+  const form = { ...shape.form(), ...typed };
+  const problem = structuredProblem(form);
+  if (problem) {
+    message.textContent = problem;
+    if (problem.startsWith("先填回答人")) context.name.focus();
+    return;
+  }
+  rememberName(normalised(context.name.value));
+  send.disabled = true;
+  message.textContent = "正在提交……";
+  let slot;
+  try {
+    const target = targetOf(form.mode, normalised(form.column));
+    slot = slotOf(await shownDocument(item.table), target, structuredValue(form));
+  } catch (error) {
+    send.disabled = false;
+    message.textContent = error.message;
+    return;
+  }
+  const { status, body } = await postJson("/api/answers", structuredBody(item, form, slot));
+  if (status === 201) {
+    done(null);
+  } else if (status === 409) {
+    done(errorText(status, body));
+  } else {
+    send.disabled = false;
+    message.textContent = errorText(status, body);
+  }
 }
 
 function cardKey(table, id) {
@@ -1241,6 +1511,8 @@ function drawAnswersBlock(block, answers, context) {
       ? h("a", { class: "button", href: "/api/answers/export", download: EXPORT_FILE },
         `导出确认文件（${answers.exported} 条回答）`)
       : h("span", { class: "muted" }, "还没有可以导出的回答（备注不写回文档）。")),
+    (answers.export_notes || []).length ? h("div", {}, h("p", { class: "error" }, "导出前请看："),
+      list(answers.export_notes, (note) => note)) : null,
     digests.length ? h("div", {}, h("p", { class: "muted" }, "导出时这些文档的摘要（写回前可核对文档没被换过）："),
       list(digests, ([table, digest]) => [tableLink(table), " ", code(digest)])) : null,
     h("p", { class: "muted" }, "下载后照手册 S12 写回：", code(writeBackCommand(), true),

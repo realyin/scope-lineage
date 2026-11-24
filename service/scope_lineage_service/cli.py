@@ -94,7 +94,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def _export(args) -> int:
     """``answers export``: the answers in effect, judged against the documents on disk now.
-    The reason of each record not matched and the digest of each table answered go to
+    The reason of each record not matched, a note for each code value whose meaning on disk
+    the page changed (``answers.export_notes``) and the digest of each table answered go to
     stderr; exit 1 when a record did not match (the others are still written)."""
     from scope_lineage import cli_catalog_answers as core
     from scope_lineage.semantics.digests import document_digest
@@ -114,16 +115,12 @@ def _export(args) -> int:
     judgement = records_file.judge_all(records, semantics)
     effective = [item.record for item in judgement.of(records_file.EFFECTIVE)
                  if item.record["kind"] == records_file.ANSWER]
-    _, refused = core.overlay_answers(
-        semantics, [records_file.confirmation(record) for record in effective]
-    )
-    refused_keys = {(item.get("table"), str(item.get("target")).split(":", 1)[-1]): item["reason"]
-                    for item in refused}
+    _, refused = records_file.overlay_records(semantics, effective)
     unmatched = [item for item in judgement.of(records_file.UNMATCHED)
                  if item.record["kind"] == records_file.ANSWER]
     kept = []
     for record in effective:
-        reason = refused_keys.get((record["table"], record["question"]))
+        reason = refused.get(id(record))
         if reason is None:
             kept.append(record)
         else:
@@ -143,6 +140,8 @@ def _export(args) -> int:
                                       f"{now['answered_on'] or '—'}）" if now["answer"] else "待确认"))
         print(f"  not matched: {entry['table']} {entry['question']}: {entry['message']}；"
               f"磁盘上现在：{held}", file=sys.stderr)
+    for note in records_file.export_notes(kept):
+        print(f"  note: {note}", file=sys.stderr)
     for table in sorted({record["table"] for record in kept}):
         print(f"  {table}  document_digest {document_digest(semantics[table])}", file=sys.stderr)
     return 1 if unmatched else 0

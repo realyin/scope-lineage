@@ -1469,6 +1469,8 @@ The page keeps a record's two entries (the structured slot and the `question:` e
 question) together: when either is refused, neither is overlaid. `semantic confirm` does not: replaying an
 exported file under `--require-asked`, a question that was rewritten leaves its `question:` entry unmatched,
 while the structured entry, addressed by column name, still applies. Read the unmatched list of the replay.
+The service's browse page answers this way (行粒度 / 列含义 / 码值 beside a sentence); its record file, guards and
+export are described in [service/README.md](../../service/README.md).
 
 Started with `--ask`, the page also gets an ask panel: a model on the server answers a data question by the
 skill's `catalog-answers.md` walk, with the answers above as its only tools, and the page shows the steps, the
