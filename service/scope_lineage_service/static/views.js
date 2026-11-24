@@ -465,6 +465,7 @@ function columnDetail(column, unit) {
     ["类别", sem.category ? word(CATEGORY_TEXT, sem.category) : null],
     ["口径", sem.derivation],
     ["表语义码值", sem.code_values ? sem.code_values.map((v) => `${v.value}=${text(v.meaning)}`).join("、") : null],
+    ["观测取值", sem.observed_values ? observedValuesText(sem) : null],
     ["为空", sem.null_meaning],
     ["要注意", column.watch.length ? list(column.watch, (w) => w.text) : null],
     ["待确认问题", column.questions.length ? list(column.questions, (q) =>
@@ -537,7 +538,12 @@ function semanticsDocument(doc, marks) {
         rule.sql ? h("pre", {}, rule.sql) : null))
       : h("p", { class: "muted" }, "（无）")));
   }
-  const known = new Set(["summary", "columns", "rules", "steps", "task", "tasks", "table", "doc_format"]);
+  if (doc.observed_inputs && doc.observed_inputs.length) {
+    parts.push(fold(`上游观测（${doc.observed_inputs.length}）`, false,
+      list(doc.observed_inputs, (o) => [tableLink(o.table), " ", observedInputText(o)])));
+  }
+  const known = new Set(["summary", "columns", "rules", "steps", "task", "tasks", "table", "doc_format",
+    "observed_inputs"]);
   const rest = Object.keys(doc).filter((key) => !known.has(key));
   if (rest.length) parts.push(fold("来源说明", false, kv(rest.map((key) => [key, value(doc[key])]))));
   return parts;
@@ -562,6 +568,9 @@ function summaryValue(key, item, marks) {
           `页面备注：${recordText(note)}（${[note.by, note.date].filter(Boolean).join("，")}）`) : null];
     });
   }
+  if (key === "row" && item && (item.observed || item.grain_source === "observed")) {
+    return rowValue(item);
+  }
   if (key === "upstream" || key === "downstream") {
     return list(item, (u) => [u.table ? tableLink(u.table) : null, u.task ? [" ", h("span", { class: "muted" }, `任务 ${u.task}`)] : null,
       u.role ? ` · ${word(ENUM_WORDS.role, u.role)}` : null, u.text ? ` · ${u.text}` : null]);
@@ -570,11 +579,102 @@ function summaryValue(key, item, marks) {
 }
 
 function semanticsColumns(columns) {
-  return grid(["字段", "含义", "类别", "码值", "口径", "为空"], columns.map((c) => [
+  // the observed values get a column only when some column has them
+  const observed = columns.some((c) => c.observed_values);
+  return grid(["字段", "含义", "类别", "码值", "口径", "为空", ...(observed ? ["观测取值"] : [])], columns.map((c) => [
     code(c.column), text(c.meaning), word(CATEGORY_TEXT, c.category),
     c.code_values && c.code_values.length ? c.code_values.map((v) => `${v.value}=${text(v.meaning)}`).join("、") : "—",
     text(c.derivation), text(c.null_meaning),
+    ...(observed ? [c.observed_values ? observedValuesText(c) : "—"] : []),
   ]));
+}
+
+// ------------------------------------------------------------- observations
+// What a platform query found in the partitions it read, said as the table page and the
+// context pack say it (scope_lineage/observation_words.py): with the partition, the query
+// and the day, never 「唯一」 -- an observation is no definition.
+
+/** 「分区 dt=20261119」, 「分区 dt 20261116–20261122 共 7 个分区」 or 「全表」. */
+export function partitionWords(partition) {
+  const column = partition ? partition.column : null;
+  if (column === null || column === undefined) return "全表";
+  if ("from" in partition) {
+    return `分区 ${column} ${partition.from}–${partition.to}${partition.count ? ` 共 ${partition.count} 个分区` : ""}`;
+  }
+  const values = (partition.values || []).map(String);
+  if (values.length === 1) return `分区 ${column}=${values[0]}`;
+  return values.length ? `分区 ${column} ${values.join("、")}` : `分区 ${column}`;
+}
+
+/** 「在分区 … 内（查询 …，… 执行，N 行）」. */
+export function observedWhere(o) {
+  const place = partitionWords(o.partition);
+  const parts = [`查询 ${o.query}`];
+  if (o.requested) parts.push(`原定 ${o.requested}，回退到最近可用分区`);
+  if (o.filter) parts.push(`条件 ${o.filter}`);
+  parts.push(`${o.on} 执行`, `${o.rows} 行`);
+  if (o.observed_on) parts.push(`取自 ${o.observed_on}`);
+  const spaced = place === "全表" || place.endsWith("个分区") ? place : `${place} `;
+  return `在${spaced}内（${parts.join("，")}）`;
+}
+
+function observedCount(o, columns) {
+  const cols = `(${columns.join(", ")})`;
+  let said;
+  if (o.unique === "yes") {
+    said = `按 ${cols} 计数无重复${o.keys !== undefined ? `（${o.keys} 个键）` : ""}`;
+  } else {
+    const detail = [o.keys !== undefined ? `${o.keys} 个键里` : null,
+      o.duplicate_keys !== undefined ? `${o.duplicate_keys} 个重复` : null].filter(Boolean).join(" ");
+    said = `按 ${cols} 计数有重复${detail ? `（${detail}）` : ""}`;
+  }
+  const partition = o.partition || {};
+  if ("from" in partition || (partition.values || []).length > 1) {
+    said += o.within === "each_partition" ? "，每个分区内分别计数" : "，所有观测分区合起来计数";
+  }
+  return said;
+}
+
+/** The row's observation: where, what it counted, and that it is no definition. */
+export function observedRowText(o) {
+  return `${observedWhere(o)}${observedCount(o, o.grain_columns)}，只说明这些分区，不是定义`;
+}
+
+/** An input table's observation after its name, under this table's read conditions. */
+export function observedInputText(o) {
+  const effect = o.unique === "yes" ? "按这几列关联它时在该分区内不放大；别的分区、别的目标表没观测"
+    : "按这几列关联它时会放大行数";
+  return `${observedWhere(o)}${observedCount(o, o.columns)}；${effect}`;
+}
+
+/** A column's observed values with their counts; never a code list. */
+export function observedValuesText(column) {
+  const o = column.observed_values;
+  const items = o.values || [];
+  const parts = [];
+  if (items.length) {
+    parts.push(`出现 ${items.map((v) => `${v.value}（${v.count} 行）`).join("、")}，${o.complete ? "已列全" : "未列全"}`);
+  }
+  if (o.absent && o.absent.length) parts.push(`没有出现 ${o.absent.join("、")}`);
+  const counts = [o.distinct !== undefined ? `去重 ${o.distinct} 个` : "",
+    o.nulls !== undefined ? `空值 ${o.nulls} 个` : ""].filter(Boolean).join("、");
+  if (!items.length) parts.push(counts ? `只给计数：${counts}` : "只给计数");
+  else if (counts) parts.push(counts);
+  return `观测：${observedWhere(o)}${parts.join("；")}；观测不给含义，不是码值表`;
+}
+
+/** The words for a row's ``unique``: an observed grain is said as its observation. */
+export function rowUniqueText(row) {
+  if (row.grain_source !== "observed") return word(ENUM_WORDS.unique, row.unique);
+  if (row.observed) return observedRowText(row.observed);
+  return word({ yes: "在观测的分区内无重复（观测，不是定义）", no: "在观测的分区内有重复", unknown: "是否唯一未知" }, row.unique);
+}
+
+function rowValue(row) {
+  const pairs = Object.entries(row).filter(([name]) => name !== "observed").map(([name, inner]) =>
+    [VALUE_LABELS[name] || name, name === "unique" ? rowUniqueText(row) : value(inner, name)]);
+  if (row.observed && row.grain_source !== "observed") pairs.push(["观测", observedRowText(row.observed)]);
+  return kv(pairs);
 }
 
 /** Any JSON value as text, lists and key/value pairs; nothing is markup. ``key`` names

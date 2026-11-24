@@ -16,8 +16,7 @@
   `grain_source: observed` is now unmatched and adds nothing to the confirmed state. This extends
   `table-semantics/1` and `semantic-confirmations/1` in place (no new version): documents and confirmations
   files without observations read and replay byte for byte as before, but a document or confirmations file
-  with observations needs this version -- an older one refuses it. The page says 观测 for an observed grain;
-  the other readers (digest, context pack, index, service) do not use observations yet.
+  with observations needs this version -- an older one refuses it. The page says 观测 for an observed grain.
 - **Added: `semantic facts` prints the observations.** After the confirmed facts, one line per observation --
   the row's, each column's, each input table's -- starting 「观测：」 with the partitions, the query, the day it
   ran and the row count (「在分区 … 内（查询 …，… 执行，N 行）」). A row or an input table is 「按 (columns)
@@ -48,6 +47,19 @@
   the check is byte for byte as before. A one-table subquery that multiplies T's rows (explode, self-join,
   UNION ALL of T) would also match: the packet does not say whether a subquery keeps T's rows; none occurs in
   the samples read.
+- **Changed: every reader states an observation as one, with its partition and date, never as unique
+  outright.** The table page writes an `observed` grain as 「在分区 … 内（查询 …，… 执行，N 行）按 (k) 计数无重复
+  …，只说明这些分区，不是定义」 instead of 「全表唯一」 (a `declared` or `proven` grain keeps its words and gains the
+  observation), closes a column's 口径 with its observed values (off-list values and unseen codes marked when the
+  query read the column itself) and lists each observed input table as 「上游观测：」 under 数据从哪来.
+  `catalog digest` carries `grain.observed`, a column's `observed_values` and `observed_inputs`, and its Grain
+  line reads `observed in <partition> on <date> (...): no duplicate by (...) -- not a definition` instead of
+  `unique: yes`. The context pack's `row` gains `grain_source` and `observed` when there is an observation, its
+  columns `observed_values`, its semantics `observed_inputs`, and its text says the observation instead of
+  「唯一：yes」. The catalog index writes 「无重复（观测：分区 …，… 执行）」 in the 表语义的说法 cell. The service page
+  knows `grain_source: observed` and shows the same words. The wording lives in the new leaf module
+  `scope_lineage/observation_words.py` that `semantic facts` and these readers share. Without observations
+  every output is byte for byte as before.
 - **Changed: the runbook passes the owner's confirmations to every writer and reviewer, replays them after
   every write, and a confirmed slot sends a table to one revision.** The skill's T1 (write, rewrite, repair),
   T2 / T9 (review), T3 (re-review) and T4 (fix) prompts take `FACTS=@<file>` written by `semantic facts

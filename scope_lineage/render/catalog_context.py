@@ -58,6 +58,7 @@ from collections.abc import Iterable, Mapping
 from typing import Optional
 
 from ..catalog.soft_checks import UNIT_LEFT_TO_OWNER
+from ..observation_words import observed_input_text, observed_row_text, observed_values_text
 
 from .catalog_gaps import conflict_text
 from .catalog_joins import (
@@ -92,6 +93,7 @@ CONTEXT_FORMAT = "catalog-context/1"
 # Keys of a semantics column kept in a column's full answer, in this order.
 _COLUMN_KEYS = (
     "meaning", "category", "derivation", "branches", "code_values", "null_meaning", "watch",
+    "observed_values",
 )
 _BINDING_KEYS = ("derivation", "time_role", "via", "code_map", "relation", "self_reference")
 # A question's own keys a pack and the questions board carry once it is answered.
@@ -941,7 +943,7 @@ def _semantics(
     answer = {
         "present": True,
         "what": summary.get("what"),
-        "row": _pick(row, ("text", "grain_columns", "unique", "note")),
+        "row": _row(row),
         "refresh": _pick(refresh, ("cycle", "time", "how_to_read", "watch")),
         "scope": scope,
         "good_for": list(summary.get("good_for") or []),
@@ -959,10 +961,15 @@ def _semantics(
             for item in summary.get("downstream") or []
         ],
         "columns": [
-            _pick(column, ("column", "category") if brief else ("column", "meaning", "category"))
+            _pick(column, ("column", "category") if brief
+                  else ("column", "meaning", "category", "observed_values"))
             for column in document.get("columns") or []
         ],
     }
+    if document.get("observed_inputs"):
+        # what a platform query found about an input table, under this table's read
+        # conditions only: never carried to another table
+        answer["observed_inputs"] = [dict(item) for item in document["observed_inputs"]]
     if focus is not None:
         every_cited = _cited_rules(scope, every_watch, every_question)
         answer["focus"] = {
@@ -976,6 +983,16 @@ def _semantics(
                 ),
             },
         }
+    return answer
+
+
+def _row(row: Mapping) -> dict:
+    """The row's words a query depends on. A grain a platform query observed also carries
+    ``grain_source`` and the observation (its partitions and date): ``unique`` then speaks
+    of those partitions only."""
+    answer = _pick(row, ("text", "grain_columns", "unique", "note"))
+    if row.get("observed") or row.get("grain_source") == "observed":
+        answer.update(_pick(row, ("grain_source", "observed")))
     return answer
 
 
@@ -1523,7 +1540,11 @@ def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:
     row = sem.get("row") or {}
     if row:
         note = f"；{row['note']}" if row.get("note") else ""
-        lines.append(f"- 一行是：{row.get('text') or ''}（唯一：{row.get('unique') or '未说明'}）{note}")
+        lines.append(f"- 一行是：{row.get('text') or ''}（{_unique_text(row)}）{note}")
+    lines += [
+        f"- 上游观测：{item['table']} {observed_input_text(item)}"
+        for item in sem.get("observed_inputs") or []
+    ]
     refresh = sem.get("refresh") or {}
     if refresh.get("how_to_read"):
         lines.append(f"- 取数：{refresh['how_to_read']}")
@@ -1565,9 +1586,20 @@ def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:
     lines += ["", "## 字段一览"]
     lines += [
         f"- {c['column']}：{c.get('meaning') or ''}" + (f"（{c['category']}）" if c.get("category") else "")
+        + (f"；{observed_values_text(c)}" if c.get("observed_values") else "")
         for c in sem["columns"]
     ]
     return lines
+
+
+def _unique_text(row: Mapping) -> str:
+    """``唯一：yes``; a grain a platform query observed is said as that observation, never as
+    unique outright, and an observation backing a declared grain follows it."""
+    observed = row.get("observed")
+    if row.get("grain_source") == "observed":
+        return f"观测：{observed_row_text(observed)}" if observed else "观测，只说明观测的分区"
+    said = f"唯一：{row.get('unique') or '未说明'}"
+    return f"{said}；观测：{observed_row_text(observed)}" if observed else said
 
 
 def _focus_line(focus: Mapping) -> str:
@@ -1681,6 +1713,8 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
         if sem.get("code_values"):
             pairs = "、".join(f"{v.get('value')!r}={v.get('meaning')}" for v in sem["code_values"])
             lines.append(f"  - 码值：{pairs}")
+        if sem.get("observed_values"):
+            lines.append(f"  - 观测取值：{observed_values_text(sem)}")
     if shown_in and (column["watch"] or column["questions"]):
         lines.append(
             f"- 点名本列的表级注意 {len(column['watch'])} 条、待确认问题 "

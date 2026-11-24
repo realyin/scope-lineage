@@ -871,6 +871,16 @@ scope-lineage semantic render <documents> --out <dir> \
 | `值（含义待确认）` | 标了 `unconfirmed: true`（或含义以「待确认」开头）的码值 |
 | （中置信）（低置信） | 条目的 `confidence` 不是 `high` |
 
+观测（见 `semantic confirm` 下的「观测事实」）一律写成观测，带分区、查询与执行日期，从不写成不带限定的「唯一」：
+来源为 `observed` 的粒度写「来源为观测，在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (customer_id)
+计数无重复（120 个键），只说明这些分区，不是定义」，不写「全表唯一」（`declared` / `proven` 的粒度照旧，观测跟在后面）；
+列的观测取值写在口径末尾（「观测：…；观测不给含义，不是码值表」，查询读的就是本列时标出码值表外的值与没出现的码值）；
+每条输入表观测在「数据从哪来」下写一行「上游观测：」。别的读者同样写：`catalog digest` 带 `grain.observed`、列的
+`observed_values` 与表的 `observed_inputs`，Markdown 的 Grain 行写 `observed in <分区> on <日期> (...): no duplicate by (...) --
+not a definition`；取数包的 `row` 多带 `grain_source` 与 `observed`（文本在原来写「唯一：yes」的地方写观测），列带
+`observed_values`，表语义部分带 `observed_inputs`；目录索引（`catalog render --docs`）在原来写「唯一」的格子里写
+「无重复（观测：分区 …，… 执行）」；服务页面用同样的说法。没有观测时这些输出逐字节不变。
+
 ### 索引
 
 `index.md` 先按域、再按概念列出每张表：表（链到它的页）、这张表是什么（`summary.what`）、校验通过率

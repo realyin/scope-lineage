@@ -11,7 +11,7 @@ export const REP_KIND_TEXT = {
   summary: "汇总", intermediate: "中间",
 };
 export const TIME_TEXT = { snapshot: "快照", incremental: "增量", zipper: "拉链", unknown: "未知" };
-export const GRAIN_SOURCE_TEXT = { declared: "声明", inferred: "推断", proven: "已证明" };
+export const GRAIN_SOURCE_TEXT = { declared: "声明", inferred: "推断", proven: "已证明", observed: "观测" };
 export const BINDING_TEXT = {
   attribute: "属性", identifier: "标识符", foreign_identifier: "外部标识符",
   foreign_attribute: "冗余属性", technical: "技术列", unmapped: "未映射",

@@ -8,6 +8,7 @@ under it. A reader who stops here can already use the table.
 from __future__ import annotations
 
 from ..render.catalog_concept_page import table_head, table_row
+from .observed import observed_input_text, observed_row_text
 from .page_words import (
     GRAIN_SOURCE_TEXT,
     NONE,
@@ -33,7 +34,7 @@ def summary_lines(document: dict, marks: PageMarks) -> list[str]:
         [f"**一行是什么**：{_row_text(row)}{marks.after(row, 'row')}"],
         [f"**更新与取数**：{_refresh_text(refresh)}{marks.after(refresh, 'refresh')}"],
         _scope(summary["scope"], marks),
-        _upstream(summary["upstream"], marks),
+        _upstream(summary["upstream"], marks, document.get("observed_inputs") or []),
         [f"**谁在用**：{_downstream(summary['downstream'], marks)}"],
         [_uses("适合用来", summary["good_for"]), _uses("不适合", summary["not_for"])],
         _watch(summary["watch"]),
@@ -52,9 +53,15 @@ def join_blocks(blocks: list[list[str]]) -> list[str]:
 def _row_text(row: dict) -> str:
     grain = " + ".join(code(column) for column in row["grain_columns"])
     body = sentence(row["text"]) + (f"粒度按 {grain}" if grain else "粒度未写明")
-    source = row["grain_source"]
-    unique = (OBSERVED_UNIQUE_TEXT if source == "observed" else UNIQUE_TEXT)[row["unique"]]
+    source, observed = row["grain_source"], row.get("observed")
+    if source == "observed" and observed:
+        unique = text(observed_row_text(observed))
+    else:
+        unique = (OBSERVED_UNIQUE_TEXT if source == "observed" else UNIQUE_TEXT)[row["unique"]]
     body += f"，来源为{GRAIN_SOURCE_TEXT.get(source, source)}，{unique}。"
+    if observed and source != "observed":
+        # a declared or proven grain keeps its words; the observation only backs it
+        body += f"观测：{text(observed_row_text(observed))}。"
     return body + (sentence(row["note"]) if row.get("note") else "")
 
 
@@ -76,9 +83,10 @@ def _scope(items: list[dict], marks: PageMarks) -> list[str]:
     return lines
 
 
-def _upstream(items: list[dict], marks: PageMarks) -> list[str]:
+def _upstream(items: list[dict], marks: PageMarks, observed: list[dict]) -> list[str]:
+    seen = _observed_inputs(observed)
     if not items:
-        return [f"**数据从哪来**：{NONE}"]
+        return [f"**数据从哪来**：{NONE}", *seen]
     lines = ["**数据从哪来**：", "", *table_head("上游表", "在本表的作用")]
     for index, item in enumerate(items):
         lines.append(
@@ -88,7 +96,16 @@ def _upstream(items: list[dict], marks: PageMarks) -> list[str]:
                 text(item["provides"]) + marks.notes(item),
             )
         )
-    return lines
+    return lines + seen
+
+
+def _observed_inputs(observed: list[dict]) -> list[str]:
+    """One bullet per observed input table, after the upstream table: what a platform query
+    found under this table's read conditions, with its partition and date."""
+    if not observed:
+        return []
+    bullets = [f"- 上游观测：{code(item['table'])} {text(observed_input_text(item))}" for item in observed]
+    return ["", *bullets]
 
 
 def _downstream(items: list[dict], marks: PageMarks) -> str:

@@ -279,3 +279,51 @@ def test_the_table_sorts_offered_are_the_ones_the_server_takes() -> None:
     assert values[0] == ""
     assert {value.lstrip("-") for value in values[1:]} == set(TABLE_SORTS)
     assert len(values) == len(set(values))
+
+
+# ------------------------------------------------------------- observations
+
+_EVIDENCE = {"query": "probe_1", "on": "2026-11-20", "rows": 120,
+             "partition": {"column": "dt", "values": ["20261119"]}}
+_RANGE = {**_EVIDENCE, "partition": {"column": "dt", "from": "20261116", "to": "20261122", "count": 7},
+          "requested": "20261123", "filter": "src = 'a'"}
+_ROW = {**_EVIDENCE, "grain_columns": ["customer_id"], "unique": "yes", "within": "each_partition",
+        "keys": 120, "duplicate_keys": 0}
+_INPUT = {**_RANGE, "table": "db.t", "columns": ["k"], "unique": "no", "within": "all_observed",
+          "keys": 100, "duplicate_keys": 3}
+_COLUMN = {"column": "c", "observed_values": {
+    **_EVIDENCE, "values": [{"value": "F", "count": 60}, {"value": "X", "count": 10}],
+    "complete": True, "absent": ["U"], "distinct": 2, "nulls": 0, "observed_on": "db.t.c"}}
+
+
+def _observed_words():
+    args = json.dumps([_ROW, _INPUT, _COLUMN], ensure_ascii=False)
+    return _run(
+        "import { observedRowText, observedInputText, observedValuesText, rowUniqueText } "
+        "from 'STATIC/views.js';\n"
+        f"const [row, input, column] = {args};\n"
+        "console.log(JSON.stringify({row: observedRowText(row), input: observedInputText(input),\n"
+        "  values: observedValuesText(column),\n"
+        "  observed: rowUniqueText({grain_source: 'observed', unique: 'yes', observed: row}),\n"
+        "  bare: rowUniqueText({grain_source: 'observed', unique: 'yes'}),\n"
+        "  declared: rowUniqueText({grain_source: 'declared', unique: 'yes'})}));"
+    )
+
+
+def test_an_observation_reads_as_the_table_page_says_it_never_as_unique() -> None:
+    from scope_lineage.observation_words import (
+        observed_input_text,
+        observed_row_text,
+        observed_values_text,
+    )
+
+    words = _observed_words()
+    # an observed column is compared with its code list only on the page, which has it
+    assert words["row"] == observed_row_text(_ROW)
+    assert words["input"] == observed_input_text(_INPUT)
+    assert words["values"] == observed_values_text(_COLUMN)
+    assert words["observed"] == words["row"]
+    for key in ("row", "input", "values", "observed", "bare"):
+        assert "唯一" not in words[key], words[key]
+    assert "dt=20261119" in words["row"] and "2026-11-20" in words["row"]
+    assert words["declared"] == "全表唯一"

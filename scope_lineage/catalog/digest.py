@@ -117,6 +117,9 @@ def _table(document: dict, facts: dict, code_sets: list[dict], types: dict) -> d
             "columns": row["grain_columns"],
             "source": row["grain_source"],
             "unique": row["unique"],
+            # what a platform query counted; with source ``observed``, ``unique`` speaks of
+            # its partitions only
+            **({"observed": row["observed"]} if row.get("observed") else {}),
         },
         "time": {
             "kind": refresh["time"],
@@ -145,6 +148,8 @@ def _table(document: dict, facts: dict, code_sets: list[dict], types: dict) -> d
         "upstream": [{"table": up["table"], "role": up["role"]} for up in summary["upstream"]],
         "downstream": sorted({down["table"] for down in summary["downstream"] if down.get("table")}),
     }
+    if document.get("observed_inputs"):
+        entry["observed_inputs"] = [dict(item) for item in document["observed_inputs"]]
     entry["rules"] = [
         {"id": rule["id"], "kind": rule["kind"], "text": rule["text"]}
         for rule in document.get("rules") or []
@@ -196,6 +201,8 @@ def _column(
     for key in ("derivation", "null_meaning", "watch"):
         if str(column.get(key) or "").strip():
             result[key] = column[key]
+    if column.get("observed_values"):
+        result["observed_values"] = column["observed_values"]
     if facts:
         result.update(_lookup_facts(facts, code_sets or []))
         if column["category"] == "measure" and facts.get("joined_in"):
@@ -370,8 +377,8 @@ def _table_section(entry: dict) -> list[str]:
         f"- What: {entry['what']}",
         f"- Concept: {concept}{kind}",
         f"- Row: {entry['row']}",
-        f"- Grain: {', '.join(grain['columns']) or '(none)'} "
-        f"({grain['source']}, unique: {grain['unique']})",
+        f"- Grain: {', '.join(grain['columns']) or '(none)'} ({_grain_text(grain)})",
+        *_grain_observed(grain),
         f"- Time: {time['kind']}, {time['cycle']} -- {time['how_to_read']}",
     ]
     lines += [f"- Scope: {text}" for text in entry["scope"]]
@@ -395,6 +402,8 @@ def _table_section(entry: dict) -> list[str]:
         lines.append(f"- Built from: {', '.join(upstream)}")
     if entry["related"]["downstream"]:
         lines.append(f"- Read by: {', '.join(entry['related']['downstream'])}")
+    lines += [f"- Observed input: {item['table']} {_observed_text(item, item['columns'])}"
+              for item in entry.get("observed_inputs") or []]
     lines += [f"- Rule {rule['id']} ({rule['kind']}): {rule['text']}" for rule in entry["rules"]]
     lines += [f"- Watch ({watch['kind']}): {watch['text']}" for watch in entry["watch"]]
     lines += [f"- Open {q['id']}: {q['text']}" for q in entry["open_questions"]]
@@ -414,7 +423,57 @@ def _column_text(column: dict) -> str:
             for value in column["code_values"]
         )
         text += f" ({values})"
+    if column.get("observed_values"):
+        text += f" [{_observed_values_text(column['observed_values'])}]"
     return text
+
+
+def _grain_text(grain: dict) -> str:
+    """``source, unique: x``; an observed grain is said as the observation it is, never as
+    unique outright."""
+    observed = grain.get("observed")
+    if grain["source"] == "observed" and observed:
+        return f"{_observed_text(observed, observed['grain_columns'])} -- not a definition"
+    return f"{grain['source']}, unique: {grain['unique']}"
+
+
+def _grain_observed(grain: dict) -> list[str]:
+    """A declared or proven grain a query also counted: the observation on its own line."""
+    observed = grain.get("observed")
+    if not observed or grain["source"] == "observed":
+        return []
+    return [f"- Grain observed: {_observed_text(observed, observed['grain_columns'])}"]
+
+
+def _observed_place(value: dict) -> str:
+    """``observed in dt=20261119 on 2026-11-20 (query q, 120 rows)``."""
+    partition = value["partition"]
+    column = partition.get("column")
+    if column is None:
+        place = "the whole table"
+    elif "from" in partition:
+        place = f"{column} {partition['from']}..{partition['to']}"
+    else:
+        values = [str(item) for item in partition.get("values") or []]
+        place = f"{column}={values[0]}" if len(values) == 1 else f"{column} in {', '.join(values)}"
+    read = f", read from {value['observed_on']}" if value.get("observed_on") else ""
+    return f"observed in {place} on {value['on']} (query {value['query']}, {value['rows']} rows{read})"
+
+
+def _observed_text(value: dict, columns) -> str:
+    """``observed in … on …: no duplicate by (a, b)``, or ``duplicates by (a, b)``."""
+    counted = "no duplicate" if value["unique"] == "yes" else "duplicates"
+    return f"{_observed_place(value)}: {counted} by ({', '.join(columns)})"
+
+
+def _observed_values_text(value: dict) -> str:
+    """``observed in … on …: F x60, M x50, complete; absent U -- not a code list``."""
+    items = value.get("values") or []
+    seen = ", ".join(f"{item['value']} x{item['count']}" for item in items)
+    parts = [f"{seen}, {'complete' if value['complete'] else 'not complete'}" if items else "counts only"]
+    if value.get("absent"):
+        parts.append(f"absent {', '.join(str(item) for item in value['absent'])}")
+    return f"{_observed_place(value)}: {'; '.join(parts)} -- not a code list"
 
 
 def _lookup_lines(entry: dict) -> list[str]:

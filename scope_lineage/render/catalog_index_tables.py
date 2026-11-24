@@ -5,7 +5,9 @@ name and by nothing else: no score, no ranking. Each number has one definition:
 
 - key evidence: lineage proved the table's grain (``grain_proof.confidence`` is
   ``proven``); shown only when the catalog was built with lineage evidence;
-- what the document says: its ``summary.row.unique`` as written;
+- what the document says: its ``summary.row.unique`` as written; a grain a platform query
+  observed (``grain_source: observed``) is said as that observation, with its partition
+  and date -- 「无重复（观测：…）」, never 「唯一」;
 - measure columns: the table's columns bound to a measure attribute (from the catalog);
 - unit not supported: those whose attribute ``unit_support`` judges unsupported -- the
   attribute's judgement, the same the context pack marks a unit by;
@@ -27,6 +29,7 @@ import posixpath
 from collections.abc import Callable, Mapping
 from typing import Optional
 
+from ..observation_words import partition_text
 from .catalog_concept_page import table_head, table_row
 from .catalog_gaps import share_text
 from .catalog_units import UNJUDGED, UNSUPPORTED, unit_support
@@ -42,6 +45,7 @@ KEY_ROW = "唯一键有血缘证据的表"
 UNIT_ROW = "单位有材料依据的度量属性"
 NOT_COVERED = "—"
 UNIQUE_TEXT = {"yes": "唯一", "no": "不唯一", "unknown": "未知"}
+OBSERVED_UNIQUE_TEXT = {"yes": "无重复", "no": "有重复", "unknown": "未知"}
 # (key in a figures row, column heading); the first two only with lineage evidence
 LINEAGE_COLUMNS = (("key_evidence", "唯一键的证据"), ("unique", "表语义的说法"))
 COUNT_COLUMNS = (
@@ -104,6 +108,9 @@ def table_figures(view: CatalogView, docs: Mapping[str, Mapping]) -> list[dict]:
             row["key_evidence"] = "proven" if _proven(view, table) else "none"
             unique = _unique(doc)
             row["unique"] = (unique if unique in UNIQUE_TEXT else "unknown") if doc else None
+            observed = _observed(doc)
+            if observed is not None:
+                row["unique_observed"] = observed
         watch = ((doc or {}).get("summary") or {}).get("watch") or []
         row.update(
             measures=len(measures),
@@ -126,6 +133,8 @@ def figure_cells(row: Mapping) -> dict[str, str]:
     if "key_evidence" in row:
         cells["key_evidence"] = "已证明" if row["key_evidence"] == "proven" else "无"
         cells["unique"] = NOT_COVERED if row["unique"] is None else UNIQUE_TEXT[row["unique"]]
+        if row.get("unique_observed"):
+            cells["unique"] = f"{OBSERVED_UNIQUE_TEXT[row['unique']]}（观测：{row['unique_observed']}）"
     measures, unsupported = row["measures"], row["unit_unsupported"]
     cells["measures"] = str(measures)
     if unsupported is None:
@@ -185,6 +194,18 @@ def _proven(view: CatalogView, table: str) -> bool:
 
 def _unique(doc) -> str:
     return str((((doc or {}).get("summary") or {}).get("row") or {}).get("unique") or "")
+
+
+def _observed(doc) -> Optional[str]:
+    """``分区 dt=…，… 执行`` when the document's grain is one a platform query observed; the
+    cell then speaks of those partitions only. None otherwise."""
+    row = (((doc or {}).get("summary") or {}).get("row") or {})
+    if row.get("grain_source") != "observed":
+        return None
+    observed = row.get("observed")
+    if not isinstance(observed, Mapping):
+        return "观测的分区"
+    return f"{partition_text(observed['partition'])}，{observed['on']} 执行"
 
 
 def _table_link(view: CatalogView, table: str) -> str:

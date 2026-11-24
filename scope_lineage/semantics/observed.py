@@ -26,6 +26,17 @@ must be one of the column's source columns -- is ``semantic confirm``'s to refus
 
 from __future__ import annotations
 
+from ..observation_words import (  # noqa: F401 -- the words live in a leaf every reader reaches
+    columns_text,
+    counted_text,
+    observed_input_text,
+    observed_row_text,
+    observed_values_text,
+    one_line,
+    partition_text,
+    values_text,
+    where_text,
+)
 from ..redaction import redact
 from .names import bare_table
 from .schema import DOC_FORMAT, packaged_schema
@@ -61,21 +72,6 @@ def input_table(target: str) -> str:
 def input_key(table: str, columns) -> tuple[str, tuple[str, ...]]:
     """One observed input: its table and its columns in lower case and name order."""
     return bare_table(table), tuple(sorted({str(column).lower() for column in columns}))
-
-
-def partition_text(partition: dict) -> str:
-    """The partitions an observation read, in words: 「分区 dt=20261119」, 「分区 dt 20261118、
-    20261119」, 「分区 dt 20261116–20261122 共 7 个分区」, or 「全表」."""
-    column = partition.get("column")
-    if column is None:
-        return "全表"
-    if "from" in partition:
-        count = f" 共 {partition['count']} 个分区" if partition.get("count") else ""
-        return f"分区 {column} {partition['from']}–{partition['to']}{count}"
-    values = [str(item) for item in partition.get("values") or []]
-    if len(values) == 1:
-        return f"分区 {column}={values[0]}"
-    return f"分区 {column} {'、'.join(values)}" if values else f"分区 {column}"
 
 
 def observation_text(value: dict) -> str:

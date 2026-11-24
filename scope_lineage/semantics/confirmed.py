@@ -50,8 +50,11 @@ from .observed import (
     input_key,
     input_table,
     observation_problem,
-    partition_text,
 )
+from .observed import columns_text as _columns
+from .observed import counted_text as _counted
+from .observed import values_text as _values_text
+from .observed import where_text as _where
 from .schema import CONFIRMATIONS_FORMAT, DOC_FORMAT, packaged_schema, schema_errors
 
 _COLUMN_TARGET = re.compile(
@@ -335,66 +338,6 @@ def _observed_lines(state: TableConfirmed, grain: list[str] | None) -> list[str]
         lines.append(f"- 观测：输入表 {value['table']} {_where(value)}"
                      f"{_counted(value, value['columns'])}；{effect}{_noted(fact)}")
     return lines
-
-
-def _where(value: dict) -> str:
-    """「在分区 … 内（查询 …，… 执行，N 行）」: where and by which query an observation was made."""
-    text = partition_text(value["partition"])
-    place = f"在{text}内" if text == "全表" or text.endswith("个分区") else f"在{text} 内"
-    parts = [f"查询 {_one_line(value['query'])}"]
-    if value.get("requested"):
-        parts.append(f"原定 {_one_line(value['requested'])}，回退到最近可用分区")
-    if value.get("filter"):
-        parts.append(f"条件 {_one_line(value['filter'])}")
-    parts.append(f"{value['on']} 执行")
-    parts.append(f"{value['rows']} 行")
-    if value.get("observed_on"):
-        parts.append(f"取自 {_one_line(value['observed_on'])}")
-    return f"{place}（{'，'.join(parts)}）"
-
-
-def _counted(value: dict, columns) -> str:
-    """「按 (a, b) 计数无重复（N 个键）」, or with duplicates; how the partitions were counted
-    when there were several."""
-    keys = value.get("keys")
-    if value["unique"] == "yes":
-        text = f"按 {_columns(columns)} 计数无重复" + (f"（{keys} 个键）" if keys is not None else "")
-    else:
-        duplicates = value.get("duplicate_keys")
-        counts = [f"{keys} 个键里" if keys is not None else None,
-                  f"{duplicates} 个重复" if duplicates is not None else None]
-        detail = " ".join(item for item in counts if item)
-        text = f"按 {_columns(columns)} 计数有重复" + (f"（{detail}）" if detail else "")
-    partition = value["partition"]
-    several = "from" in partition or len(partition.get("values") or []) > 1
-    if several:
-        text += ("，每个分区内分别计数" if value["within"] == "each_partition"
-                 else "，所有观测分区合起来计数")
-    return text
-
-
-def _values_text(value: dict) -> str:
-    """The values a column was seen to hold, with counts; the values not seen; the counts."""
-    parts = []
-    items = value.get("values") or []
-    if items:
-        seen = "、".join(f"{_one_line(item['value'])}（{item['count']} 行）" for item in items)
-        parts.append(f"出现 {seen}，{'已列全' if value['complete'] else '未列全'}")
-    absent = value.get("absent") or []
-    if absent:
-        parts.append(f"没有出现 {'、'.join(_one_line(item) for item in absent)}")
-    counts = [f"去重 {value['distinct']} 个" if value.get("distinct") is not None else "",
-              f"空值 {value['nulls']} 个" if value.get("nulls") is not None else ""]
-    counts = "、".join(item for item in counts if item)
-    if not items:
-        parts.append(f"只给计数：{counts}" if counts else "只给计数")
-    elif counts:
-        parts.append(counts)
-    return "；".join(parts)
-
-
-def _columns(columns) -> str:
-    return f"({', '.join(str(column) for column in columns)})"
 
 
 def _noted(fact: Fact) -> str:

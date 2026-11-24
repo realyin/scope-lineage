@@ -1086,6 +1086,22 @@ The marks on a page:
 | `值（含义待确认）` | A code value marked `unconfirmed: true` (or whose meaning starts with 待确认) |
 | （中置信）（低置信） | The item's `confidence` is not `high` |
 
+Observations (see Observed facts under `semantic confirm`) are shown as observations, each
+with its partition, query and date, never as "unique" outright: an `observed` grain reads
+「来源为观测，在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (customer_id)
+计数无重复（120 个键），只说明这些分区，不是定义」 instead of 「全表唯一」 (a `declared` or `proven`
+grain keeps its words and the observation follows them); a column's observed values close
+its 口径 (「观测：…；观测不给含义，不是码值表」, marking values off the code list and codes not
+seen when the query read the column itself); each observed input table is a 「上游观测：」
+line under 数据从哪来. The other readers say it the same way: `catalog digest` carries
+`grain.observed`, a column's `observed_values` and the table's `observed_inputs`, and its
+Markdown Grain line reads `observed in <partition> on <date> (...): no duplicate by (...) --
+not a definition`; the context pack's `row` gains `grain_source` and `observed` (its text
+says the observation where it would say 「唯一：yes」), its columns carry `observed_values` and
+its semantics `observed_inputs`; the catalog index (`catalog render --docs`) writes
+「无重复（观测：分区 …，… 执行）」 where it would write 「唯一」; the service page shows the same
+words. Without observations every one of these outputs is byte for byte what it was.
+
 ### The index
 
 `index.md` lists every table by domain, then by concept: the table (linked to its page),
