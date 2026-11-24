@@ -189,7 +189,7 @@ class Panel {
 
   async follow(runId, question) {
     const box = h("section", { class: "ask-run" }, h("h2", {}, question));
-    this.runs.append(box);
+    this.runs.prepend(box); // newest first: the answer just asked for sits right under the form
     const events = [];
     let after = 0;
     for (;;) {
@@ -233,7 +233,11 @@ function drawRun(box, vm, panel) {
     panel.picker && vm.modelLabel ? badge(vm.modelLabel) : null,
     panel.info.fake ? badge("假模型", "warn") : null,
     badge(STATUS_TEXT[vm.status] || vm.status, vm.status === "done" ? "ok" : vm.status === "running" ? null : "warn"));
-  const parts = [head, h("ol", { class: "ask-steps" }, vm.steps.map((step) => h("li", {}, drawStep(step))))];
+  const steps = h("ol", { class: "ask-steps" }, vm.steps.map((step) => h("li", {}, drawStep(step))));
+  // Once there is an answer the steps fold away, so it sits right under the question; a
+  // run still going, or one that ended without an answer, keeps them in view.
+  const folded = vm.answer && vm.status !== "running" && vm.steps.length;
+  const parts = [head, folded ? fold(`过程（${vm.steps.length} 步）`, false, steps) : steps];
   if (vm.status === "running") parts.push(h("p", { class: "muted" }, `回答中…… 已用 ${vm.elapsed} 秒`));
   if (vm.answer) parts.push(drawAnswer(vm, panel));
   if (vm.status !== "running") parts.push(drawEnd(vm));
