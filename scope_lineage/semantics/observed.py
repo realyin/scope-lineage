@@ -63,6 +63,27 @@ def input_key(table: str, columns) -> tuple[str, tuple[str, ...]]:
     return bare_table(table), tuple(sorted({str(column).lower() for column in columns}))
 
 
+def partition_text(partition: dict) -> str:
+    """The partitions an observation read, in words: 「分区 dt=20261119」, 「分区 dt 20261118、
+    20261119」, 「分区 dt 20261116–20261122 共 7 个分区」, or 「全表」."""
+    column = partition.get("column")
+    if column is None:
+        return "全表"
+    if "from" in partition:
+        count = f" 共 {partition['count']} 个分区" if partition.get("count") else ""
+        return f"分区 {column} {partition['from']}–{partition['to']}{count}"
+    values = [str(item) for item in partition.get("values") or []]
+    if len(values) == 1:
+        return f"分区 {column}={values[0]}"
+    return f"分区 {column} {'、'.join(values)}" if values else f"分区 {column}"
+
+
+def observation_text(value: dict) -> str:
+    """Where and by which query an observation was made, for a validation message:
+    「查询 probe_1，分区 dt=20261119，2026-11-20 执行」."""
+    return f"查询 {value['query']}，{partition_text(value['partition'])}，{value['on']} 执行"
+
+
 def observation_problem(kind: str, value) -> str | None:
     """Why ``value`` cannot be an observation of ``kind``, whatever the document; or None."""
     if not isinstance(value, dict):

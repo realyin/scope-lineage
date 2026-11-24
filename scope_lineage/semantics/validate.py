@@ -26,6 +26,7 @@ from .checks_context import (
     check_time,
     missing_packet,
 )
+from .confirmed import TableConfirmed
 from .checks_documented import QUALIFIER_TERMS, check_documented_meaning, check_header_facts
 from .checks_meaning import check_derived_codes, check_fan_out
 from .checks_text import check_placeholder
@@ -65,13 +66,18 @@ def validate_document(
     caller's domain profile adds.
 
     ``confirmations`` (:class:`~scope_lineage.semantics.confirmed.Confirmations`, read
-    from a run's confirmations files) gives checks 3 and 4 what the owner confirmed for
-    the document's own table; None, or no entry for that table, checks what it always did.
+    from a run's confirmations files) gives checks 3, 4 and 6 what the owner confirmed and
+    the platform queries observed for the document's own table. Three cases differ only
+    for a document or table with observations: None (no confirmations path: an observation
+    slot cannot be checked and warns), confirmations with no entry for the table (each
+    observation slot fails), entries for the table (each slot must be the confirmation's).
+    Without observations the first two check what they always did.
     """
     if packet is None:
         results = [missing_packet(document)]
     else:
-        confirmed = confirmations.for_table(document.get("table")) if confirmations else None
+        confirmed = None if confirmations is None else (
+            confirmations.for_table(document.get("table")) or TableConfirmed())
         checks = [_bound(check, qualifier_terms, confirmed) for check in _CHECK_FUNCTIONS]
         results = [item for check in checks for item in check(document, packet)]
     counts = Counter(item["status"] for item in results)
@@ -98,7 +104,7 @@ def validate_document(
 def _bound(check, qualifier_terms: tuple[str, ...], confirmed):
     if check is check_documented_meaning:
         return partial(check, terms=qualifier_terms)
-    if confirmed and check in (check_code_values, check_grain):
+    if confirmed is not None and check in (check_code_values, check_grain, check_neighbours):
         return partial(check, confirmed=confirmed)
     return check
 

@@ -50,6 +50,7 @@ from .observed import (
     input_key,
     input_table,
     observation_problem,
+    partition_text,
 )
 from .schema import CONFIRMATIONS_FORMAT, DOC_FORMAT, packaged_schema, schema_errors
 
@@ -338,18 +339,8 @@ def _observed_lines(state: TableConfirmed, grain: list[str] | None) -> list[str]
 
 def _where(value: dict) -> str:
     """「在分区 … 内（查询 …，… 执行，N 行）」: where and by which query an observation was made."""
-    partition = value["partition"]
-    column = partition.get("column")
-    if column is None:
-        place = "在全表内"
-    elif "from" in partition:
-        count = f" 共 {partition['count']} 个分区" if partition.get("count") else ""
-        place = f"在分区 {column} {partition['from']}–{partition['to']}{count}内"
-    else:
-        values = [str(item) for item in partition.get("values") or []]
-        place = (f"在分区 {column}={values[0]} 内" if len(values) == 1
-                 else f"在分区 {column} {'、'.join(values)} 内" if values
-                 else f"在分区 {column} 内")
+    text = partition_text(value["partition"])
+    place = f"在{text}内" if text == "全表" or text.endswith("个分区") else f"在{text} 内"
     parts = [f"查询 {_one_line(value['query'])}"]
     if value.get("requested"):
         parts.append(f"原定 {_one_line(value['requested'])}，回退到最近可用分区")

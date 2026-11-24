@@ -9,6 +9,7 @@ partitions are to be read.
 from __future__ import annotations
 
 from .checks import MAX_QUESTIONS, _plain, result
+from .checks_observed import check_observed_inputs
 from .names import bare_table
 from .packet_facts import DATE_WINDOW
 from .packet_notes import RANK_FIRST, VALUES
@@ -142,8 +143,10 @@ def _rule_refs(document: dict) -> list[dict]:
 # 6 ------------------------------------------------------------------ neighbours
 
 
-def check_neighbours(document: dict, packet: dict) -> list[dict]:
-    """Upstream tables are lineage inputs; downstream tasks (and tables) are known."""
+def check_neighbours(document: dict, packet: dict, confirmed=None) -> list[dict]:
+    """Upstream tables are lineage inputs; downstream tasks (and tables) are known; the
+    observed input tables are lineage inputs and the confirmations' own
+    (:func:`~.checks_observed.check_observed_inputs`)."""
     upstream = set(packet["lineage"]["upstream_tables"])
     results = [
         result("neighbours", "pass", f"summary.upstream[{index}].table")
@@ -155,7 +158,7 @@ def check_neighbours(document: dict, packet: dict) -> list[dict]:
     known = {entry["task"]: entry["tables"] for entry in packet["lineage"]["downstream"]}
     for index, item in enumerate(document["summary"]["downstream"]):
         results.append(_downstream(f"summary.downstream[{index}]", item, known))
-    return results
+    return results + check_observed_inputs(document, packet, confirmed)
 
 
 def _downstream(at: str, item: dict, known: dict) -> dict:
