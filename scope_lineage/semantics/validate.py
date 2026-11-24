@@ -66,7 +66,7 @@ def validate_document(
     caller's domain profile adds.
 
     ``confirmations`` (:class:`~scope_lineage.semantics.confirmed.Confirmations`, read
-    from a run's confirmations files) gives checks 3, 4 and 6 what the owner confirmed and
+    from a run's confirmations files) gives checks 3, 4, 6 and 10 what the owner confirmed and
     the platform queries observed for the document's own table. Three cases differ only
     for a document or table with observations: None (no confirmations path: an observation
     slot cannot be checked and warns), confirmations with no entry for the table (each
@@ -104,7 +104,9 @@ def validate_document(
 def _bound(check, qualifier_terms: tuple[str, ...], confirmed):
     if check is check_documented_meaning:
         return partial(check, terms=qualifier_terms)
-    if confirmed is not None and check in (check_code_values, check_grain, check_neighbours):
+    if confirmed is not None and check in (
+        check_code_values, check_grain, check_neighbours, check_fan_out,
+    ):
         return partial(check, confirmed=confirmed)
     return check
 

@@ -37,6 +37,17 @@
   tells no confirmations path (warn 「无法核对观测来源」) from a path with nothing for the table (fail) and from
   entries for the table; a failure the writer cannot fix says 「拿回确认文件改」. Without observations every
   report is byte for byte as before.
+- **Changed: check 10 (`fan_out`) reads observations of a join's right side.** Naming a join whose right side
+  is not proven unique stays required. A sentence calling it harmless to the row count no longer warns when the
+  right side is a single table T (`right_tables` is `[T]`, a physical table or a one-table subquery), the
+  confirmations hold an `input:T` observation that found T unique on columns among the join's keys on T, and
+  the sentence says 观测 and names the observed partition; a clause about every join (都, 所有 …) does not
+  qualify, and every join the sentence speaks of needs its own observation. **New warning:** a sentence in the
+  observation form 「观测（查询 …」 about a join the confirmations hold no observation of. An observation that
+  found duplicates relaxes nothing and is quoted in the failure to name the join. Without a confirmations path
+  the check is byte for byte as before. A one-table subquery that multiplies T's rows (explode, self-join,
+  UNION ALL of T) would also match: the packet does not say whether a subquery keeps T's rows; none occurs in
+  the samples read.
 - **Changed: the runbook passes the owner's confirmations to every writer and reviewer, replays them after
   every write, and a confirmed slot sends a table to one revision.** The skill's T1 (write, rewrite, repair),
   T2 / T9 (review), T3 (re-review) and T4 (fix) prompts take `FACTS=@<file>` written by `semantic facts
