@@ -1570,7 +1570,12 @@ is skipped with a line on stderr) and writes `digest.md` and `digest.json`
 - the table's `rules` (`[{id, kind, text}]`, `- Rule r1 (filter): ...` in `digest.md`); a
   constraint that carries one names it `<db.table>#<id>` in its `rules`;
 - the tables it is built from (with their role) and the tables that read it; what to watch
-  and the open questions.
+  and the open questions;
+- the answered questions with their answers (`answered_questions`: `[{id, text, answer}]`,
+  plus `answered_by` and `answered_on` when recorded; `- Answered q1: <question> -> <answer>
+  (<by>, <on>)` in `digest.md`). A table with no answered question has no such key and no
+  such line. Only answers written into the documents (`semantic confirm`) count: an answer a
+  browsing page still holds in its record file is not read.
 
 With `--catalog` a "catalog coverage" section comes first: tables with no representation,
 and columns of represented tables with no binding (table names match ignoring case and a

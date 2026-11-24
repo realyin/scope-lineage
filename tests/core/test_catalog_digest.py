@@ -317,3 +317,128 @@ def test_tables_of_another_format_or_missing_is_an_error(tmp_path: Path) -> None
     assert _digest(_docs(tmp_path), "--tables", wrong, "--out", tmp_path / "out") == 1
     assert _digest(_docs(tmp_path), "--tables", tmp_path / "nope.json", "--out", tmp_path / "o") == 2
     assert not (tmp_path / "out").exists()
+
+
+# ------------------------------------------------------------------ answered questions
+#
+# A question answered by ``semantic confirm`` is no longer open; without these lines the
+# drafter of a catalog saw less after the owner answered than before. The digest reads the
+# documents only: an answer still waiting on a browsing page's record file is not in them.
+
+ANSWER = "不会，只有 F、M、U 三个值。"
+QUESTION = "性别码值除了 F、M、U 以外，还会不会出现其他值？"
+
+
+def _answered_document(**entry) -> dict:
+    """The example document with its ``q1`` answered by ``semantic confirm``."""
+    from scope_lineage.semantics.confirm import apply_confirmations
+
+    confirmation = {"table": DEMO_TABLE, "target": "question:q1", "value": ANSWER,
+                    "by": "demo-reviewer", "date": "2026-01-01", **entry}
+    result = apply_confirmations({DEMO_TABLE: read_json(EXAMPLE)}, [confirmation])
+    assert result.unmatched == []
+    return result.documents[DEMO_TABLE]
+
+
+def _answered(tmp_path: Path) -> Path:
+    docs = tmp_path / "docs"
+    write_json(docs / EXAMPLE.name, _answered_document())
+    return docs
+
+
+def test_an_answered_question_reaches_the_digest_with_its_answer(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert _digest(_answered(tmp_path), "--out", out) == 0
+
+    table = read_json(out / "digest.json")["tables"][0]
+    assert table["open_questions"] == []
+    assert table["answered_questions"] == [
+        {"id": "q1", "text": QUESTION, "answer": ANSWER,
+         "answered_by": "demo-reviewer", "answered_on": "2026-01-01"}
+    ]
+
+
+def test_the_markdown_prints_an_answered_question_with_its_answer(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert _digest(_answered(tmp_path), "--out", out) == 0
+
+    text = (out / "digest.md").read_text(encoding="utf-8")
+    assert f"- Answered q1: {QUESTION} -> {ANSWER} (demo-reviewer, 2026-01-01)" in text
+    assert "- Open q1" not in text
+
+
+def test_answering_changes_only_the_question_line_and_key(tmp_path: Path) -> None:
+    """Byte for byte: the open question's line becomes the answered one, nothing else moves."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    assert _digest(_docs(tmp_path / "a"), "--out", before) == 0
+    assert _digest(_answered(tmp_path / "b"), "--out", after) == 0
+
+    open_md = (before / "digest.md").read_text(encoding="utf-8")
+    assert f"- Open q1: {QUESTION}\n" in open_md
+    assert (after / "digest.md").read_text(encoding="utf-8") == open_md.replace(
+        f"- Open q1: {QUESTION}\n",
+        f"- Answered q1: {QUESTION} -> {ANSWER} (demo-reviewer, 2026-01-01)\n",
+    )
+    expected = read_json(before / "digest.json")
+    expected["tables"][0]["open_questions"] = []
+    expected["tables"][0]["answered_questions"] = read_json(after / "digest.json")["tables"][0][
+        "answered_questions"]
+    assert read_json(after / "digest.json") == expected
+
+
+def test_a_document_with_no_answered_question_digests_byte_for_byte_as_before(
+    tmp_path: Path,
+) -> None:
+    """No answered question: no key, no line -- the same bytes as a document whose question
+    was never there to answer, apart from the open line itself."""
+    out = tmp_path / "out"
+    assert _digest(_docs(tmp_path), "--out", out) == 0
+    assert "answered_questions" not in read_json(out / "digest.json")["tables"][0]
+    assert "- Answered" not in (out / "digest.md").read_text(encoding="utf-8")
+
+    bare = copy.deepcopy(read_json(EXAMPLE))
+    bare["summary"]["questions"] = []
+    unanswered = copy.deepcopy(read_json(EXAMPLE))
+    unanswered["summary"]["questions"][0]["status"] = "answered"   # no answer text
+    for name, document in (("bare", bare), ("unanswered", unanswered)):
+        write_json(tmp_path / name / "docs" / EXAMPLE.name, document)
+        assert _digest(tmp_path / name / "docs", "--out", tmp_path / name / "out") == 0
+    for file in ("digest.md", "digest.json"):
+        assert (tmp_path / "unanswered" / "out" / file).read_bytes() == (
+            tmp_path / "bare" / "out" / file).read_bytes()
+
+
+def test_a_question_marked_answered_without_an_answer_carries_nothing() -> None:
+    """The schema allows it; there is no answer to hand the drafter, as before."""
+    document = copy.deepcopy(read_json(EXAMPLE))
+    document["summary"]["questions"][0]["status"] = "answered"
+
+    table = digest_tables([document])["tables"][0]
+
+    assert table["open_questions"] == []
+    assert "answered_questions" not in table
+
+
+def test_an_answer_without_who_or_when_prints_no_parentheses() -> None:
+    document = copy.deepcopy(read_json(EXAMPLE))
+    document["summary"]["questions"][0].update(status="answered", answer=ANSWER)
+
+    from scope_lineage.catalog.digest import render_digest_markdown
+
+    digest = digest_tables([document])
+    assert digest["tables"][0]["answered_questions"] == [
+        {"id": "q1", "text": QUESTION, "answer": ANSWER}]
+    assert f"- Answered q1: {QUESTION} -> {ANSWER}\n" in render_digest_markdown(digest)
+
+
+def test_an_answer_stays_with_the_table_it_belongs_to(tmp_path: Path) -> None:
+    other = _renamed(NEW_TABLE)
+    docs = _answered(tmp_path)
+    write_json(docs / f"{NEW_TABLE}.json", other)
+    out = tmp_path / "out"
+    assert _digest(docs, "--out", out) == 0
+
+    tables = {entry["table"]: entry for entry in read_json(out / "digest.json")["tables"]}
+    assert "answered_questions" in tables[DEMO_TABLE]
+    assert "answered_questions" not in tables[NEW_TABLE]
+    assert tables[NEW_TABLE]["open_questions"] == [{"id": "q1", "text": QUESTION}]

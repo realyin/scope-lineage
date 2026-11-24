@@ -10,7 +10,11 @@ columns of represented tables with no binding. A table a code set's ``lookup`` n
 a code-set source, not a gap: a dictionary table holds code values, not a concept. Given
 the lookup facts ``render.value_lookups`` read from a lineage corpus (``--lineage``), a
 column also says which joined inputs its value is read through; without them the digest
-is byte for byte what it was.
+is byte for byte what it was. A question somebody answered (``semantic confirm``) is not
+open any more, but its answer is a fact the drafter has no other way to read: it rides
+along as ``answered_questions`` (``{id, text, answer}`` and, when recorded, who answered
+and when). A table with no answered question has no such key. Only answers written into
+the documents count: one a browsing page still holds in its record file is not read here.
 
 What a drafter needs to write constraints and derivations rides along from the document
 itself: each table's ``rules`` (``{id, kind, text}``), and each listed column's
@@ -160,7 +164,30 @@ def _table(document: dict, facts: dict, code_sets: list[dict], types: dict) -> d
         for question in summary["questions"]
         if question["status"] == "open"
     ]
+    answered = [
+        _answered(question)
+        for question in summary["questions"]
+        if question["status"] == "answered" and question.get("answer")
+    ]
+    if answered:
+        entry["answered_questions"] = answered
     return entry
+
+
+def _answered(question: dict) -> dict:
+    """An answered question with its answer, and who gave it and when if recorded."""
+    result = {"id": question["id"], "text": question["text"], "answer": question["answer"]}
+    for key in ("answered_by", "answered_on"):
+        if question.get(key):
+            result[key] = question[key]
+    return result
+
+
+def _answered_line(question: dict) -> str:
+    by = ", ".join(question[key] for key in ("answered_by", "answered_on") if key in question)
+    return f"- Answered {question['id']}: {question['text']} -> {question['answer']}" + (
+        f" ({by})" if by else ""
+    )
 
 
 def _mark_row_reads(entry: dict) -> None:
@@ -407,6 +434,7 @@ def _table_section(entry: dict) -> list[str]:
     lines += [f"- Rule {rule['id']} ({rule['kind']}): {rule['text']}" for rule in entry["rules"]]
     lines += [f"- Watch ({watch['kind']}): {watch['text']}" for watch in entry["watch"]]
     lines += [f"- Open {q['id']}: {q['text']}" for q in entry["open_questions"]]
+    lines += [_answered_line(q) for q in entry.get("answered_questions", [])]
     if "catalog" in entry:
         lines.append(f"- Catalog: {_coverage_text(entry['catalog'])}")
     return lines + [""]
