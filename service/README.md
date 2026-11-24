@@ -270,7 +270,10 @@ scope-lineage-service answers export "$RUN/question-answers.json" --semantics "$
 ```
 
 writes the answers in effect as a `semantic-confirmations/1` file (a 是 / 否 becomes `是：…` / `否：…` in the
-sentence; notes and records not matched are left out). The command prints each record not matched with its
+sentence; notes and records not matched are left out). Each entry carries `asked`, the question as the
+page showed it, and `replace: true` when it changes an answer the document already held, so `semantic
+confirm` itself refuses a question rewritten after the export and leaves an answer the person did not
+change alone (see `semantic confirm` in the table-semantics docs). The command prints each record not matched with its
 reason, and each table's `document_digest`, on stderr, and exits 1 when a record did not match (the others
 are still written); the board shows the same digests beside the button. Neither writes the answers file.
 Then write it back as the runbook's step S12 does:
@@ -281,7 +284,8 @@ scope-lineage semantic confirm "$RUN/docs" --confirmations answers-confirmations
 
 The next time the server reads the documents those answers are written back (rule 3) and their records are
 deleted. Between the export and `confirm` the file is an ordinary confirmations file: check the digests if the
-documents may have been rewritten meanwhile.
+documents may have been rewritten meanwhile. A question rewritten in between comes back `unmatched`
+(`question was rewritten`), and running the same file again reports its answers as `skipped`.
 
 **Endpoints** (404 `not_configured` without `--answers`):
 

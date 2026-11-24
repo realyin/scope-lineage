@@ -650,12 +650,15 @@ def _run_confirm(args: argparse.Namespace) -> int:
             json.dumps(result.documents[table], ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+    skipped = f", skipped={len(result.skipped)}" if result.skipped else ""
     print(
         f"Applied {len(result.applied)} confirmation(s) to {len(result.changed)} table(s) "
-        f"(unmatched={len(result.unmatched)})"
+        f"(unmatched={len(result.unmatched)}{skipped})"
     )
     for item in result.unmatched:
         print(f"  unmatched: {item['table']} {item['target']}: {item['reason']}")
+    for item in result.skipped:
+        print(f"  skipped: {item['table']} {item['target']}: {item['reason']}")
     if not args.out:
         reviews = Path(args.reviews) if args.reviews else directory.parent / "reviews"
         _carry_fix_records(reviews, result, before)

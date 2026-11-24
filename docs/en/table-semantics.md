@@ -861,6 +861,21 @@ names it with the reason. Without `--out` the changed documents are rewritten in
 with `--out` every document is written there and the originals are left alone. A malformed
 confirmations file exits 2, and so does `--reviews` with `--out`.
 
+A `question:<id>` entry may also carry `asked`, the question's text as the person saw it
+(the browse page's export always does), and `replace`. With `asked`, the answer is held to
+the question that was asked, since a rewrite may give an id to another question:
+
+| On disk | Result |
+| --- | --- |
+| the question no longer reads as `asked` (compared after NFKC and folding whitespace; letter case counts) | unmatched: `question was rewritten` |
+| answered with this very `value`, `by` and `date` | skipped: nothing changes, nothing is logged; the summary line ends `(unmatched=K, skipped=S)` and each is listed as `skipped:` |
+| answered with anything else | unmatched: `question already answered differently`, unless the entry has `replace: true`, which overwrites it |
+| open | applied |
+
+`asked` on any other target is unmatched. An entry without `asked` is applied as before
+(an answered question is overwritten) and `replace` is ignored; when nothing is skipped
+the summary line is unchanged.
+
 The owner's answers are not a revision a fixer has to look at. When documents are confirmed
 in place, the run's reviews are read -- `--reviews`, or `reviews/` beside `<documents>` when
 it exists -- and a changed table whose review accepted the document as it was (`semantic

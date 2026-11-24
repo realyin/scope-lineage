@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "semantic-confirmations/1",
-  "description": "A person's answers to table-semantics documents, applied by `semantic confirm`. Each entry names one table and one target; the value's shape depends on the target and is checked when it is applied.",
+  "description": "A person's answers to table-semantics documents, applied by `semantic confirm`. Each entry names one table and one target; the value's shape depends on the target and is checked when it is applied. A question entry may carry `asked`, the question's text as the person saw it: it is then applied only while the question still reads so (NFKC and whitespace folded, letter case kept), skipped when the question already holds that very answer, and refused when the question holds another answer unless `replace` is true. Without `asked` an entry is applied as it always was, and `replace` is ignored.",
   "type": "object",
   "required": ["doc_format", "confirmations"],
   "additionalProperties": false,
@@ -21,7 +21,9 @@
           },
           "value": {},
           "by": {"type": "string", "minLength": 1},
-          "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+          "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "asked": {"type": "string", "minLength": 1},
+          "replace": {"type": "boolean"}
         }
       }
     }

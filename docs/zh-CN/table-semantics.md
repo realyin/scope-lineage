@@ -701,6 +701,19 @@ scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir> |
 时就地改写有变化的文档；给了 `--out` 时所有文档写到那里，原文件不动。确认文件本身格式不对时退出码 2，
 `--reviews` 与 `--out` 同时给也是 2。
 
+`question:<id>` 的确认还可以带 `asked`（回答人看到的问题原文；浏览页面导出的文件总是带）和 `replace`。带了
+`asked`，回答只落到当时问的那个问题上——改写可能把同一个编号给了另一个问题：
+
+| 磁盘上 | 结果 |
+| --- | --- |
+| 问题原文已不同于 `asked`（NFKC、合并空白后比较；大小写算不同） | unmatched：`question was rewritten` |
+| 已回答，且 `value`、`by`、`date` 完全相同 | skipped：什么都不改、不记入 `confirmed[]`；摘要行末尾变成 `(unmatched=K, skipped=S)`，逐条列出 `skipped:` |
+| 已回答，但有任何不同 | unmatched：`question already answered differently`；确认带 `replace: true` 时照常覆盖 |
+| 未回答 | 套用 |
+
+`asked` 写在其他目标上算 unmatched。不带 `asked` 的确认与以前一样套用（已回答的问题被覆盖），`replace` 不起作用；
+没有 skipped 时摘要行与以前一字不差。
+
 owner 的回答不是要修订者再看一遍的修改。就地确认时，工具读这一轮的审读（`--reviews`，不给时用 `<documents>`
 旁边的 `reviews/`，存在才读）：有变化的表，如果它的审读已经认可确认前的文档（`semantic status` 原本会判为 `fixed`
 或 `rendered`），就把修订回执移到确认后的文档上——`fixed_doc_digest` 改成新摘要，并打印一行

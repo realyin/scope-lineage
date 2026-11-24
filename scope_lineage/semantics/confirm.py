@@ -14,6 +14,17 @@ Whatever a confirmation changed gains ``confirmed`` in its sources, and the docu
 it under ``confirmed``. A confirmation that matches nothing -- or whose answer would make
 the document illegal -- is returned in ``unmatched`` with the reason, never dropped, and
 leaves the document as it was.
+
+A ``question:<id>`` confirmation may carry ``asked``, the question's text as the person
+saw it, so an id a rewrite gave to another question cannot take the answer:
+
+- the question no longer reads as asked (``folded_text``) -> unmatched;
+- the question already holds this very answer, by the same person on the same date ->
+  ``skipped``: nothing changes and nothing is logged;
+- the question holds another answer -> unmatched, unless the entry says ``replace: true``;
+- otherwise it is applied as any confirmation.
+
+A confirmation without ``asked`` is applied as it always was, whatever ``replace`` says.
 """
 
 from __future__ import annotations
@@ -22,11 +33,13 @@ import copy
 import re
 from dataclasses import dataclass, field
 
-from .names import bare_table
+from .names import bare_table, folded_text
 from .schema import DOC_FORMAT, schema_errors
 
 _COLUMN_TARGET = re.compile(r"column:(?P<column>[^.\s]+)\.(?P<slot>meaning|code_values)")
 CONFIRMED = "confirmed"
+ASKED = "asked"
+_SKIP = object()
 
 
 @dataclass
@@ -34,6 +47,7 @@ class ConfirmResult:
     documents: dict
     applied: list = field(default_factory=list)
     unmatched: list = field(default_factory=list)
+    skipped: list = field(default_factory=list)
     changed: set = field(default_factory=set)
 
 
@@ -46,6 +60,14 @@ def apply_confirmations(documents: dict, confirmations: list) -> ConfirmResult:
         if document is None:
             result.unmatched.append(_miss(entry, "unknown table: no table-semantics document for it"))
             continue
+        if ASKED in entry:
+            verdict = _check_asked(document, entry)
+            if verdict is _SKIP:
+                result.skipped.append(_miss(entry, "the question already holds this answer"))
+                continue
+            if verdict is not None:
+                result.unmatched.append(_miss(entry, verdict))
+                continue
         candidate = copy.deepcopy(document)
         reason = _apply_one(candidate, entry)
         if reason is None:
@@ -65,6 +87,29 @@ def apply_confirmations(documents: dict, confirmations: list) -> ConfirmResult:
 
 def _miss(entry: dict, reason: str) -> dict:
     return {"table": entry.get("table"), "target": entry.get("target"), "reason": reason}
+
+
+def _check_asked(document: dict, entry: dict):
+    """Where an entry carrying ``asked`` stands: ``_SKIP``, the reason it cannot be
+    applied, or None to apply it."""
+    target = str(entry.get("target"))
+    if not target.startswith("question:"):
+        return "asked names a question's text, but the target is not a question"
+    question_id = target.split(":", 1)[1]
+    question = next((q for q in document["summary"]["questions"] if q["id"] == question_id), None)
+    if question is None:
+        return None  # reported as an unknown question
+    if folded_text(question.get("text")) != folded_text(entry[ASKED]):
+        return "question was rewritten: it no longer reads as asked"
+    if question.get("status") != "answered":
+        return None
+    if (question.get("answer"), question.get("answered_by"), question.get("answered_on")) == (
+        entry.get("value"), entry.get("by"), entry.get("date")
+    ):
+        return _SKIP
+    if entry.get("replace") is True:
+        return None
+    return "question already answered differently (pass replace: true to change it)"
 
 
 def _apply_one(document: dict, entry: dict) -> str | None:

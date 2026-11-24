@@ -2,13 +2,15 @@
 
 A table is named ``db.table`` everywhere in this package, whatever catalog prefix the
 script or the schema spelt it with; a column reference is ``db.table.column``; a SQL
-fragment is compared in one normalized form. And a packet is scrubbed of owners and
-email addresses on its way out, whatever its inputs carried.
+fragment is compared in one normalized form, and a question's text in a folded one. And
+a packet is scrubbed of owners and email addresses on its way out, whatever its inputs
+carried.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ..redaction import mask_emails
 
@@ -28,6 +30,20 @@ def bare_column(reference: object) -> str:
     """``db.table.column`` in lower case, from a three- or four-part reference."""
     parts = [part.strip("`") for part in str(reference or "").strip().split(".") if part]
     return ".".join(parts[-3:]).lower()
+
+
+def folded_text(text: object) -> str:
+    """NFKC with whitespace folded: what two spellings of one question's text are compared
+    by -- the question a person answered and the question a document holds now, or a new
+    answer and the one already there. Never stored.
+
+    Letter case is kept: ``Y`` and ``y`` may be two different code values, so a question
+    whose case changed may ask something else. The catalog's search and its grouping of
+    pending definitions fold case as well (``render.catalog_search``,
+    ``render.catalog_pending``): they find and group related texts, this one decides that
+    two texts are the same question.
+    """
+    return " ".join(unicodedata.normalize("NFKC", str(text or "")).split())
 
 
 def scrub(value):

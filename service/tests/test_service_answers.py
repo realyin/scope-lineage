@@ -371,6 +371,83 @@ def test_export_then_confirm_matches_and_the_records_go(paths, capsys) -> None:
             overlaid[table]["summary"]["questions"][0]
 
 
+def test_the_export_names_the_question_asked_and_replaces_only_a_changed_answer(paths) -> None:
+    """Each entry carries ``asked``, so ``semantic confirm`` can refuse a rewritten question
+    on its own; ``replace`` only where the person changed an answer already on disk."""
+    answer_on_disk(paths["semantics"], CUSTOMER, "q2", "唯一。", "乙", "2026-01-01")
+    state = _state(paths)
+    post(state, CUSTOMER, "q1", "不会。")
+    post(state, CUSTOMER, "q2", "不唯一。")
+
+    entries = {c["target"]: c for c in state.export_answers()["confirmations"]}
+    assert entries["question:q1"]["asked"] == text_of(paths["semantics"], CUSTOMER, "q1")
+    assert "replace" not in entries["question:q1"]
+    assert entries["question:q2"]["asked"] == text_of(paths["semantics"], CUSTOMER, "q2")
+    assert entries["question:q2"]["replace"] is True
+
+
+def test_export_then_confirm_changes_a_written_answer_and_refuses_a_rewrite(paths, capsys) -> None:
+    """End to end on the documents: an answer that changes one already on disk is applied
+    (it carries ``replace``); a question rewritten after the export is refused by the core
+    itself, even though the file still names it."""
+    answer_on_disk(paths["semantics"], CUSTOMER, "q2", "唯一。", "乙", "2026-01-01")
+    state = _state(paths)
+    post(state, CUSTOMER, "q2", "不唯一。")
+    post(state, LOAN, "q1", "不会。")
+    exported = state.export_answers()
+    set_question(paths["semantics"], LOAN, "q1", text="放款日期从哪个系统来？")
+    loan_before = (paths["semantics"] / f"{LOAN}.json").read_bytes()
+
+    out = _confirm(paths, exported, capsys)
+    assert out.splitlines()[0] == "Applied 1 confirmation(s) to 1 table(s) (unmatched=1)"
+    assert f"unmatched: {LOAN} question:q1: question was rewritten" in out
+    disk = read_document(paths["semantics"], CUSTOMER)["summary"]["questions"][1]
+    assert (disk["answer"], disk["answered_by"]) == ("不唯一。", "审核人甲")
+    assert (paths["semantics"] / f"{LOAN}.json").read_bytes() == loan_before
+
+    again = _confirm(paths, exported, capsys)
+    assert again.splitlines()[0] == (
+        "Applied 0 confirmation(s) to 0 table(s) (unmatched=1, skipped=1)")
+
+
+def _old_overlay(disk: dict, records: list[dict]) -> dict:
+    """The overlay as it was before entries named the question asked."""
+    entries = [{key: value for key, value in records_file.confirmation(record).items()
+                if key not in ("asked", "replace")} for record in records]
+    return core.overlay_answers(disk, entries)[0]
+
+
+OVERLAY_CASES = {
+    "open question answered": lambda s: post(s, CUSTOMER, "q1", "不会。"),
+    "written answer changed": lambda s: post(s, CUSTOMER, "q2", "不唯一。"),
+    "answer and note": lambda s: (post(s, LOAN, "q2", "元。"),
+                                  post(s, CUSTOMER, "q3", "暂缓", kind="deferred")),
+}
+DISK_CHANGES = {
+    "none": lambda p: None,
+    "rewritten": lambda p: set_question(p["semantics"], CUSTOMER, "q1", text="另一个问题？"),
+    "written back": lambda p: answer_on_disk(p["semantics"], CUSTOMER, "q1", "不会。", "审核人甲",
+                                             "2026-11-23"),
+    "changed under it": lambda p: answer_on_disk(p["semantics"], CUSTOMER, "q2", "看情况。", "丙",
+                                                 "2026-02-02"),
+}
+
+
+@pytest.mark.parametrize("change", sorted(DISK_CHANGES))
+@pytest.mark.parametrize("case", sorted(OVERLAY_CASES))
+def test_the_overlay_is_what_it_was_for_every_state(paths, case, change) -> None:
+    answer_on_disk(paths["semantics"], CUSTOMER, "q2", "唯一。", "乙", "2026-01-01")
+    state = _state(paths, writer=False)
+    OVERLAY_CASES[case](state)
+    DISK_CHANGES[change](paths)
+
+    current = state.inputs()
+    effective = [item.record for item in current.answers.effective
+                 if item.record["kind"] == records_file.ANSWER]
+    assert current.semantics == _old_overlay(current.disk_semantics, effective)
+    assert all(item.reason != records_file.NOT_APPLIED for item in current.answers.unmatched)
+
+
 # ------------------------------------------------------------------ judgement of notes
 
 
