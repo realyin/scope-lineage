@@ -5,7 +5,7 @@ import {
   BINDING_TEXT, CATEGORY_TEXT, CONSTRAINT_KIND_TEXT, GRAIN_SOURCE_TEXT, KIND_TEXT,
   QUESTION_STATUS_TEXT, RELATION_KIND_TEXT, REP_KIND_TEXT, STATUS_TEXT, STRENGTH_TEXT,
   TABLE_STATUS_TEXT, TIME_TEXT,
-  answer, api, badge, breakableName, code, conceptLink, fold, grid, h, href, joined, kv, link, pager,
+  answer, api, append, badge, breakableName, code, conceptLink, fold, grid, h, href, joined, kv, link, pager,
   section, tableLink, text, word,
 } from "./dom.js";
 import { EDGE_LABELS_UP_TO, drawGraph, relationTitle } from "./graph.js";
@@ -255,7 +255,7 @@ export async function table(name) {
   if (!match) out.push(h("p", { class: "muted" }, "目录里没有这张表；下面只有它的表语义。"));
   if (match && !entry) out.push(h("p", { class: "muted" }, "这张表是码值表：它存放码值，不承载概念。"));
   if (match) out.push(...catalogPart(match, entry, units));
-  out.push(...section("表语义", doc ? semanticsDocument(doc)
+  out.push(...section("表语义", doc ? semanticsDocument(doc, pageMarks(semantics))
     : h("p", { class: "muted" }, "这张表没有表语义文档：怎么读、注意事项和待确认问题都没有人写下来。")));
   out.push(h("p", {}, link("questions", null, "这张表的待确认问题", { table: title, status: "all" })));
   return out;
@@ -468,7 +468,9 @@ function columnDetail(column, unit) {
     ["为空", sem.null_meaning],
     ["要注意", column.watch.length ? list(column.watch, (w) => w.text) : null],
     ["待确认问题", column.questions.length ? list(column.questions, (q) =>
-      [`${q.id} `, badge(word(QUESTION_STATUS_TEXT, q.status)), " ", text(q.text)]) : null],
+      [`${q.id} `, badge(q.status === "set_aside" ? "已搁置" : word(QUESTION_STATUS_TEXT, q.status)),
+        q.written === false ? badge("未写回", "warn") : null, " ", text(q.text),
+        q.answer ? h("div", { class: "muted" }, `回答：${q.answer}`) : null]) : null],
   ]);
 }
 
@@ -509,12 +511,19 @@ const ENUM_WORDS = {
 };
 const RULE_KIND_TEXT = { filter: "过滤", join: "关联", dedup: "去重", derive: "派生", union: "合并", other: "其他" };
 
-function semanticsDocument(doc) {
+/** The page's marks on a table's questions, from the keys the server puts beside the
+ * document when it takes the page's answers (``unwritten``, ``page``); null otherwise. */
+export function pageMarks(answer) {
+  if (!answer || (!("unwritten" in answer) && !("page" in answer))) return null;
+  return { unwritten: new Set(answer.unwritten || []), page: answer.page || {} };
+}
+
+function semanticsDocument(doc, marks) {
   const summary = doc.summary || {};
   const parts = [];
   parts.push(fold("一页纸", true, ...SUMMARY_LABELS.filter(([key]) => key in summary)
     .map(([key, label]) => fold(`${label}${countOf(summary[key])}`, key === "what" || key === "row" ||
-      key === "questions", summaryValue(key, summary[key]))),
+      key === "questions", summaryValue(key, summary[key], marks))),
   ...Object.keys(summary).filter((key) => !SUMMARY_LABELS.some(([k]) => k === key))
     .map((key) => fold(key, false, value(summary[key])))));
   if (doc.columns) parts.push(fold(`字段（${doc.columns.length}）`, false, semanticsColumns(doc.columns)));
@@ -538,10 +547,20 @@ function countOf(item) {
   return Array.isArray(item) ? `（${item.length}）` : "";
 }
 
-function summaryValue(key, item) {
+function summaryValue(key, item, marks) {
   if (key === "questions" && Array.isArray(item)) {
-    return list(item, (q) => [`${q.id || ""} `, badge(word(QUESTION_STATUS_TEXT, q.status), q.status === "open" ? "warn" : null),
-      " ", text(q.text), q.about && q.about.length ? h("span", { class: "muted" }, `（${q.about.join("、")}）`) : null]);
+    return list(item, (q) => {
+      const note = marks ? marks.page[q.id] : null;
+      const aside = note && (note.kind === "invalid" || note.kind === "not_applicable") && q.status !== "answered";
+      const status = aside ? "已搁置" : word(QUESTION_STATUS_TEXT, q.status);
+      return [`${q.id || ""} `, badge(status, q.status === "open" && !aside ? "warn" : null),
+        marks && marks.unwritten.has(q.id) ? badge("未写回", "warn") : null,
+        " ", text(q.text), q.about && q.about.length ? h("span", { class: "muted" }, `（${q.about.join("、")}）`) : null,
+        q.status === "answered" && q.answer ? h("div", { class: "muted" },
+          `回答：${q.answer}（${[q.answered_by, q.answered_on].filter(Boolean).join("，") || "未署名"}）`) : null,
+        note && q.status !== "answered" ? h("div", { class: "muted" },
+          `页面备注：${recordText(note)}（${[note.by, note.date].filter(Boolean).join("，")}）`) : null];
+    });
   }
   if (key === "upstream" || key === "downstream") {
     return list(item, (u) => [u.table ? tableLink(u.table) : null, u.task ? [" ", h("span", { class: "muted" }, `任务 ${u.task}`)] : null,
@@ -667,6 +686,181 @@ export async function metrics(_, params) {
 
 const SOURCE_TEXT = { semantics: "表语义", pending: "待确认的定义" };
 
+// The page's answers (a server started with --answers). The pure functions below build what
+// a card shows and what it sends; the views after them draw and post.
+
+/** The kinds of record a person may leave on a question, in the order the menu offers. */
+export const RECORD_KINDS = [
+  ["answer", "回答"], ["partial", "部分回答"], ["deferred", "暂时确认不了"],
+  ["redirect", "该问某某"], ["invalid", "问题有误"], ["not_applicable", "不适用"],
+];
+export const NOTE_TEXT = {
+  partial: "部分回答", deferred: "暂时确认不了", redirect: "该问", invalid: "问题有误",
+  not_applicable: "不适用",
+};
+export const CHOICE_TEXT = { yes: "是", no: "否" };
+const CHOICE_KINDS = ["answer", "partial"];
+export const MAX_TEXT = 1000;
+export const MAX_NAME = 60;
+export const NAME_KEY = "scope-lineage-service.answers.by";
+export const EXPORT_FILE = "semantic-confirmations.json";
+const ANSWER_KEYS = ["answer", "answered_by", "answered_on"];
+
+/** The status filter's choices: 已搁置 only when the server takes the page's answers. */
+export function statusChoices(answersOn) {
+  const choices = [["open", "待确认"], ["answered", "已回答"]];
+  if (answersOn) choices.push(["set_aside", "已搁置"]);
+  choices.push(["all", "全部"]);
+  return choices;
+}
+
+/** What the card of a table-semantics item shows, from the board's item:
+ * ``open`` (no answer), ``answered`` (the document's answer), ``unwritten`` (the page's
+ * answer, not written back), ``note`` (a page note on an open question), ``set_aside``
+ * (a note that sets it aside); ``unmatched`` is true when the item's page record did not
+ * match the document (the card shows the document as it is). ``canNote``: a note may be
+ * left (the document has not answered it). */
+export function cardState(item) {
+  const unmatched = item.record_state === "unmatched";
+  let mode = "open";
+  if (item.written === false) mode = "unwritten";
+  else if (item.status === "set_aside") mode = "set_aside";
+  else if (item.page) mode = "note";
+  else if (item.status === "answered") mode = "answered";
+  const disk = diskOf(item);
+  return { mode, unmatched, canNote: disk === null, record: item.record || null, disk };
+}
+
+/** The document's answer to the item as the board shows it: the record's ``disk`` when the
+ * item carries a page record, otherwise the item's own answer (it is not overlaid). */
+export function diskOf(item) {
+  if (item.record) return item.disk || null;
+  if (item.status !== "answered") return null;
+  const out = {};
+  for (const key of ANSWER_KEYS) out[key] = item[key] === undefined ? null : item[key];
+  return out;
+}
+
+/** ``seen``: what the page showed of the question, sent back so the server can refuse
+ * (409) an answer to something that changed since. */
+export function seenOf(item) {
+  return { disk: diskOf(item), record: item.record || null };
+}
+
+/** The text and fields of a record as one line: ``否：…``, or ``该问 某某：…``. */
+export function recordText(record) {
+  if (!record) return "";
+  const text = record.kind === "answer" ? record.answer : record.reason;
+  const choice = CHOICE_TEXT[record.choice] ? `${CHOICE_TEXT[record.choice]}：` : "";
+  if (record.kind === "answer") return `${choice}${text}`;
+  const label = NOTE_TEXT[record.kind] || record.kind;
+  const to = record.kind === "redirect" && record.to ? ` ${record.to}` : "";
+  return `${label}${to}：${choice}${text}`;
+}
+
+function normalised(value) {
+  return String(value === null || value === undefined ? "" : value).normalize("NFKC").trim();
+}
+
+/** The sentence why a form cannot be sent yet, or null. Mirrors the server's guards. */
+export function formProblem(form) {
+  const by = normalised(form.by);
+  const text = normalised(form.text);
+  if (!by) return "先填回答人。";
+  if ([...by].length > MAX_NAME) return `回答人最多 ${MAX_NAME} 个字。`;
+  if (!text) return form.kind === "answer" ? "回答不能是空的。" : "理由不能是空的。";
+  if ([...text].length > MAX_TEXT) return `最多 ${MAX_TEXT} 个字。`;
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(text + by + normalised(form.to))) {
+    return "写在一行里：不能有换行或控制字符。";
+  }
+  if (form.kind === "redirect" && !normalised(form.to)) return "写上该问谁。";
+  if (form.kind === "redirect" && [...normalised(form.to)].length > MAX_NAME) {
+    return `该问谁最多 ${MAX_NAME} 个字。`;
+  }
+  return null;
+}
+
+/** ``POST /api/answers``'s body for the item's card: ``form`` is
+ * ``{kind, text, choice, to, by}`` as typed; ``asked`` is the question as shown. */
+export function answerBody(item, form) {
+  return recordBody(item.table, item.id, item.text, seenOf(item), form);
+}
+
+/** The body to answer again a record that did not match, to the question as it is now
+ * (``entry`` from the board's ``answers.unmatched``). */
+export function againBody(entry, form) {
+  const now = entry.now || {};
+  const disk = now.status === "answered"
+    ? { answer: now.answer, answered_by: now.answered_by, answered_on: now.answered_on } : null;
+  return recordBody(entry.table, entry.question, now.text, { disk, record: entry.record }, form);
+}
+
+function recordBody(table, question, asked, seen, form) {
+  const kind = form.kind || "answer";
+  const body = { table, question, kind, asked, seen, by: normalised(form.by) };
+  body[kind === "answer" ? "answer" : "reason"] = form.text;
+  if (form.choice && CHOICE_KINDS.includes(kind)) body.choice = form.choice;
+  if (kind === "redirect") body.to = form.to;
+  return body;
+}
+
+/** ``POST /api/answers/withdraw``'s body: the record as the page showed it. */
+export function withdrawBody(table, question, record) {
+  return { table, question, seen: record };
+}
+
+/** The sentence under the export button: how the file is written back. */
+export function writeBackCommand() {
+  return "scope-lineage semantic confirm <文档目录> --confirmations <下载的 " + EXPORT_FILE +
+    "> --reviews <reviews 目录>";
+}
+
+/** The muted sentence a board shows when the page cannot answer, or null when it can. */
+export function readOnlyReason(answers) {
+  if (!answers) return "页面上不能回答：服务启动时没有给回答文件（--answers FILE）；加上它即可在这里回答问题。";
+  if (answers.refused) return "页面上不能回答：别的机器也能连上这个服务，它不收回答；要收，启动时加 --answers-allow-remote。";
+  if (answers.status !== "ok") return `页面上暂时不能回答：回答文件读不了（${answers.reason || "原因不明"}），修好或移走它后刷新。`;
+  return null;
+}
+
+function rememberedName() {
+  try {
+    return window.localStorage.getItem(NAME_KEY) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function rememberName(name) {
+  try {
+    window.localStorage.setItem(NAME_KEY, name);
+  } catch (error) {
+    // private window or blocked storage: the name is asked for again next time
+  }
+}
+
+async function postJson(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(payload),
+    credentials: "same-origin",
+  });
+  let body = null;
+  try {
+    body = await response.json();
+  } catch (error) {
+    body = null;
+  }
+  return { status: response.status, body };
+}
+
+function errorText(status, body) {
+  if (status === 409) return "这条问题在你看到之后变了（问题被改写，或别人刚回答过），已重新载入，请再看一遍。";
+  if (status === 403) return "这个服务不收页面上的回答（别的机器也能连上它）。";
+  return body && body.error ? body.error.message : `请求失败（HTTP ${status}）`;
+}
+
 export async function questions(_, params) {
   const filters = {
     status: params.get("status") || "open", source: params.get("source"), table: params.get("table"),
@@ -674,6 +868,7 @@ export async function questions(_, params) {
   };
   const offset = offsetOf(params);
   const board = await answer("/api/questions", { ...filters, offset, limit: PAGE });
+  const answers = board.answers || null;
   const select = (name, label, options, current) => h("label", {}, label,
     h("select", { name }, options.map(([valueOf, labelOf]) =>
       h("option", { value: valueOf, selected: valueOf === (current || "") || null }, labelOf))));
@@ -685,12 +880,21 @@ export async function questions(_, params) {
   if (!board.checked.semantics) notes.push("服务启动时没有给表语义目录（--semantics），这里没有表语义里的问题。");
   if (!board.checked.pending) notes.push("服务启动时没有给待确认文件（--pending），这里只列表语义里的问题。");
   const counts = board.counts;
-  return [
+  const writable = Boolean(answers && answers.writable);
+  const name = h("input", { type: "text", value: rememberedName(), maxlength: String(MAX_NAME),
+    placeholder: "回答前先填名字", "aria-label": "回答人" });
+  name.addEventListener("change", () => rememberName(normalised(name.value)));
+  const context = {
+    answers, writable, name, bottom: h("div", {}), cards: new Map(),
+    filters: { ...filters, offset, limit: PAGE },
+  };
+  const readOnly = board.checked.semantics ? readOnlyReason(answers) : null;
+  const out = [
     crumbs("待确认问题"),
     h("h1", {}, "待确认问题"),
     notes.map((note) => h("p", { class: "muted" }, note)),
     filterForm([
-      select("status", "状态", [["open", "待确认"], ["answered", "已回答"], ["all", "全部"]], filters.status),
+      select("status", "状态", statusChoices(Boolean(answers)), filters.status),
       select("source", "来源", [["", "全部"], ["semantics", "表语义"], ["pending", "待确认的定义"]], filters.source),
       select("concept", "概念", conceptOptions, filters.concept),
       input("table", "表", filters.table, "db.table"),
@@ -698,33 +902,68 @@ export async function questions(_, params) {
     ], (values) => go("questions", null, values)),
     h("p", { class: "muted" },
       `表语义 ${counts.semantics} 条 · 待确认的定义 ${counts.pending} 项 · 目录里没有的 ${counts.not_in_catalog} 项`),
-    board.items.length ? h("div", {}, board.items.map(questionCard)) : h("p", { class: "muted" }, "没有符合条件的问题。"),
+    readOnly ? h("p", { class: "muted" }, readOnly) : null,
+    writable ? h("p", { class: "answer-who" }, h("label", {}, "回答人 ", name),
+      h("span", { class: "muted" }, " 记在这个浏览器里；日期由服务器取当天。回答先存在服务的回答文件里，「导出确认文件」后才写回文档。")) : null,
+    board.items.length ? h("div", {}, board.items.map((item) => questionCard(item, context)))
+      : h("p", { class: "muted" }, "没有符合条件的问题。"),
     pager(board, (next) => go("questions", null, { ...filters, offset: next })),
     board.problems.length ? section("待确认文件里读不了的行",
       list(board.problems, (p) => `第 ${p.line} 行：${p.message}`)) : null,
   ];
+  if (answers) {
+    drawAnswersBlock(context.bottom, answers, context);
+    out.push(context.bottom);
+  }
+  return out;
 }
 
-function questionCard(item) {
+function questionCard(item, context) {
+  const card = h("div", { class: "card" });
+  if (item.source === "semantics") context.cards.set(cardKey(item.table, item.id), card);
+  drawCard(card, item, context, null);
+  return card;
+}
+
+function cardMarks(item) {
   const marks = [badge(SOURCE_TEXT[item.source] || item.source)];
   if (!item.in_catalog) marks.push(badge("目录里没有", "warn"));
+  return marks;
+}
+
+function drawCard(card, item, context, notice) {
   const concepts = item.concepts.length ? joined(item.concepts.map(conceptLink)) : null;
-  if (item.source === "semantics") {
-    return h("div", { class: "card" },
-      h("div", {}, marks, " ", badge(word(QUESTION_STATUS_TEXT, item.status), item.status === "open" ? "warn" : null)),
-      h("p", {}, text(item.text)),
-      kv([
-        ["表", tableLink(item.table)],
-        ["概念", concepts],
-        ["编号", item.id],
-        ["涉及", item.about.length ? item.about.join("、") : null],
-        ["列", item.columns.length ? joined(item.columns.map((c) =>
-          [code(c.column), c.bound ? "" : "（目录未绑定）"])) : null],
-      ]));
+  if (item.source !== "semantics") {
+    card.replaceChildren(...pendingCard(item, concepts));
+    return;
   }
+  const status = item.status === "set_aside" ? "已搁置" : word(QUESTION_STATUS_TEXT, item.status);
+  const parts = [
+    h("div", {}, cardMarks(item), " ", badge(status, item.status === "open" ? "warn" : null),
+      item.written === false ? badge("未写回", "warn") : null),
+    h("p", {}, text(item.text)),
+    kv([
+      ["表", tableLink(item.table)],
+      ["概念", concepts],
+      ["编号", item.id],
+      ["涉及", item.about.length ? item.about.join("、") : null],
+      ["列", item.columns.length ? joined(item.columns.map((c) =>
+        [code(c.column), c.bound ? "" : "（目录未绑定）"])) : null],
+      ["回答", item.answer ? [item.answer, h("span", { class: "muted" },
+        `（${[item.answered_by, item.answered_on].filter(Boolean).join("，") || "未署名"}）`)] : null],
+      ["页面备注", item.page ? [recordText(item.page), h("span", { class: "muted" },
+        `（${[item.page.by, item.page.date].filter(Boolean).join("，")}）`)] : null],
+    ]),
+  ];
+  if (context.answers) parts.push(answerPart(card, item, context));
+  if (notice) parts.push(h("p", { class: "error", role: "status" }, notice));
+  card.replaceChildren(...parts);
+}
+
+function pendingCard(item, concepts) {
   const dates = item.dates.first === item.dates.last ? item.dates.first : `${item.dates.first} 至 ${item.dates.last}`;
-  return h("div", { class: "card" },
-    h("div", {}, marks, " ", badge(`${item.hits} 次`)),
+  return [
+    h("div", {}, cardMarks(item), " ", badge(`${item.hits} 次`)),
     h("p", {}, h("strong", {}, item.missing)),
     kv([
       ["问到它的问题", list(item.questions, (q) => q)],
@@ -740,7 +979,218 @@ function questionCard(item) {
         : null],
       ["目录现在有同名对象", item.catalog_objects.length
         ? list(item.catalog_objects, (o) => objectLink(o)) : null],
-    ]));
+    ]),
+  ];
+}
+
+/** The answer box of a semantics card, or its actions (修改 / 撤回), by its state. */
+function answerPart(card, item, context) {
+  const state = cardState(item);
+  const box = h("div", { class: "answer-box" });
+  if (state.unmatched) {
+    box.append(h("p", { class: "muted" }, "页面上留的「", recordText(state.record),
+      "」没对上现在的文档，没有生效；见页面底部「没对上的回答」。"));
+  }
+  if (!context.writable) return box;
+  const reload = (notice) => reloadCard(card, item, context, notice);
+  const open = (preset) => {
+    box.replaceChildren(answerForm({
+      kinds: state.canNote ? RECORD_KINDS : RECORD_KINDS.slice(0, 1),
+      preset,
+      context,
+      submit: (form) => answerBody(item, form),
+      done: reload,
+      cancel: () => reload(null),
+    }));
+  };
+  const buttons = h("div", { class: "answer-actions" });
+  const live = state.record && !state.unmatched;
+  if (state.mode === "open" && !live) {
+    box.append(answerForm({ kinds: RECORD_KINDS, preset: null, context,
+      submit: (form) => answerBody(item, form), done: reload, cancel: null }));
+    return box;
+  }
+  if (live) {
+    buttons.append(h("button", { type: "button", onclick: () => open(state.record) }, "修改"),
+      h("button", { type: "button", onclick: async (event) => {
+        event.target.disabled = true;
+        const { status, body } = await postJson("/api/answers/withdraw",
+          withdrawBody(item.table, item.id, state.record));
+        reload(status === 200 ? null : errorText(status, body));
+      } }, "撤回"));
+  } else {
+    buttons.append(h("button", { type: "button", onclick: () => open(null) },
+      state.mode === "answered" ? "修改回答" : "回答"));
+  }
+  box.append(buttons);
+  return box;
+}
+
+/** The form: the text, an optional 是/否, the kind menu and (for 该问某某) who to ask. */
+function answerForm({ kinds, preset, context, submit, done, cancel }) {
+  const kind = h("select", { "aria-label": "种类" }, kinds.map(([value, label]) =>
+    h("option", { value, selected: preset && preset.kind === value ? "" : null }, label)));
+  const textBox = h("textarea", { rows: "2", maxlength: String(MAX_TEXT), placeholder: "写在一行里" });
+  textBox.value = preset ? (preset.kind === "answer" ? preset.answer : preset.reason) || "" : "";
+  const choice = h("select", { "aria-label": "是或否" },
+    h("option", { value: "" }, "不标是否"), h("option", { value: "yes" }, "是"), h("option", { value: "no" }, "否"));
+  choice.value = preset && preset.choice ? preset.choice : "";
+  const to = h("input", { type: "text", maxlength: String(MAX_NAME), placeholder: "该问谁（名字）",
+    "aria-label": "该问谁" });
+  to.value = preset && preset.to ? preset.to : "";
+  const message = h("span", { class: "muted", role: "status" });
+  const send = h("button", { type: "submit" }, "提交");
+  const sync = () => {
+    to.hidden = kind.value !== "redirect";
+    choice.hidden = !CHOICE_KINDS.includes(kind.value);
+    textBox.placeholder = kind.value === "answer" ? "回答，写在一行里" : kind.value === "partial"
+      ? "已经答了的那部分" : "理由，写在一行里";
+  };
+  kind.addEventListener("change", sync);
+  sync();
+  const form = h("form", { class: "answer-form" }, textBox,
+    h("div", { class: "answer-actions" }, kind, choice, to, send,
+      cancel ? h("button", { type: "button", onclick: cancel }, "取消") : null, message));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const typed = { kind: kind.value, text: textBox.value, choice: choice.value || null,
+      to: to.value, by: context.name.value };
+    const problem = formProblem(typed);
+    if (problem) {
+      message.textContent = problem;
+      if (problem.startsWith("先填回答人")) context.name.focus();
+      return;
+    }
+    rememberName(normalised(context.name.value));
+    send.disabled = true;
+    message.textContent = "正在提交……";
+    const { status, body } = await postJson("/api/answers", submit(typed));
+    if (status === 201) {
+      done(null);
+    } else if (status === 409) {
+      done(errorText(status, body));
+    } else {
+      send.disabled = false;
+      message.textContent = errorText(status, body);
+    }
+  });
+  return form;
+}
+
+function cardKey(table, id) {
+  return `${String(table).toLowerCase()}\n${id}`;
+}
+
+/** Load the card's item again (after an answer, or when the server says it changed): the
+ * card itself, then every other card on the page and the board's bottom block, so the
+ * page shows one state. A card keeps its place even when the filter would now leave it
+ * out (an open question just answered stays where it was until the page is reloaded). */
+async function reloadCard(card, item, context, notice) {
+  try {
+    const board = await answer("/api/questions", {
+      table: item.table, status: "all", source: "semantics", limit: 200,
+    });
+    const fresh = board.items.find((found) => found.id === item.id);
+    if (fresh) drawCard(card, fresh, context, notice);
+    else card.replaceChildren(h("p", { class: "muted" }, "这条问题已经不在文档里了。"));
+  } catch (error) {
+    card.append(h("p", { class: "error" }, error.message));
+  }
+  await refreshPage(context, card);
+}
+
+/** Draw again every card of the page (but ``skip``) and the bottom block, from the
+ * board as the page's own filter fetches it. */
+async function refreshPage(context, skip) {
+  let board;
+  try {
+    board = await answer("/api/questions", context.filters);
+  } catch (error) {
+    context.bottom.prepend(h("p", { class: "error" }, error.message));
+    return;
+  }
+  for (const item of board.items) {
+    const card = context.cards.get(cardKey(item.table, item.id));
+    if (card && card !== skip && item.source === "semantics") drawCard(card, item, context, null);
+  }
+  if (board.answers) {
+    context.answers = board.answers;
+    context.writable = Boolean(board.answers.writable);
+    drawAnswersBlock(context.bottom, board.answers, context);
+  }
+}
+
+/** The bottom of the board: the answers that did not match, and the export. */
+function drawAnswersBlock(block, answers, context) {
+  const parts = [];
+  const unmatched = answers.unmatched || [];
+  parts.push(...section(`没对上的回答（${unmatched.length}）`, unmatched.length
+    ? h("div", {}, unmatched.map((entry) => unmatchedCard(entry, context)))
+    : h("p", { class: "muted" }, "没有：页面上留的回答和备注都对得上现在的文档。")));
+  if (answers.problem) parts.push(h("p", { class: "error" }, answers.problem));
+  const digests = Object.entries(answers.digests || {});
+  parts.push(...section("写回文档",
+    h("p", {}, answers.exported
+      ? h("a", { class: "button", href: "/api/answers/export", download: EXPORT_FILE },
+        `导出确认文件（${answers.exported} 条回答）`)
+      : h("span", { class: "muted" }, "还没有可以导出的回答（备注不写回文档）。")),
+    digests.length ? h("div", {}, h("p", { class: "muted" }, "导出时这些文档的摘要（写回前可核对文档没被换过）："),
+      list(digests, ([table, digest]) => [tableLink(table), " ", code(digest)])) : null,
+    h("p", { class: "muted" }, "下载后照手册 S12 写回：", code(writeBackCommand(), true),
+      "；写回之后，这些回答的记录在服务下一次读到文档时自动删去。")));
+  block.replaceChildren();
+  append(block, parts); // skips the parts a section leaves out (null)
+}
+
+function unmatchedCard(entry, context) {
+  const card = h("div", { class: "card" });
+  const now = entry.now;
+  const held = now === null || now === undefined ? "（表或问题不存在）"
+    : [`问题：${text(now.text)}`, now.status === "answered"
+      ? `；回答：${text(now.answer)}（${[now.answered_by, now.answered_on].filter(Boolean).join("，") || "未署名"}）`
+      : "；待确认"];
+  const record = entry.record;
+  const draw = (notice) => {
+    const actions = h("div", { class: "answer-actions" });
+    const parts = [
+      h("div", {}, badge(entry.message || entry.reason, "warn")),
+      kv([
+        ["表", tableLink(entry.table)],
+        ["编号", entry.question],
+        ["当时的问题", record.asked],
+        ["页面上留的", [recordText(record), h("span", { class: "muted" }, `（${record.by}，${record.date}）`)]],
+        ["文档现在", held],
+      ]),
+    ];
+    if (context.writable) {
+      actions.append(h("button", { type: "button", onclick: async (event) => {
+        event.target.disabled = true;
+        const { status, body } = await postJson("/api/answers/withdraw",
+          withdrawBody(entry.table, entry.question, record));
+        if (status === 200) await refreshPage(context);
+        else draw(errorText(status, body));
+      } }, "删除"));
+      if (now) {
+        actions.append(h("button", { type: "button", onclick: () => {
+          const canNote = now.status !== "answered";
+          actions.replaceWith(answerForm({
+            kinds: canNote ? RECORD_KINDS : RECORD_KINDS.slice(0, 1), preset: record, context,
+            submit: (form) => againBody(entry, form),
+            done: async (message) => {
+              await refreshPage(context);
+              if (message) context.bottom.prepend(h("p", { class: "error", role: "status" }, message));
+            },
+            cancel: () => draw(null),
+          }));
+        } }, "按现在的问题重新回答"));
+      }
+      parts.push(actions);
+    }
+    if (notice) parts.push(h("p", { class: "error", role: "status" }, notice));
+    card.replaceChildren(...parts);
+  };
+  draw(null);
+  return card;
 }
 
 function objectLink(found) {
