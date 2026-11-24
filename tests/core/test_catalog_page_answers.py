@@ -5,9 +5,9 @@ both places a reader meets it: the context pack (under a table and under a named
 in JSON and in text) and the questions board. A browsing page may also hold answers and
 notes not yet written back to the documents; the core takes them as an optional mapping
 keyed by ``(table, question id)`` and marks them, never adding a key to a document.
-Without that mapping every output is what it was before (``catalog-answers-before.json``,
-recorded before answers were carried; the only difference allowed is the answer of an
-answered question).
+Without that mapping every output is what it was before (``catalog-answers-before.json``
+holds the sha256 of each output, recorded before answers were carried; the only
+difference allowed is the answer of an answered question).
 
 ``overlay_answers`` applies a page's ``question:<id>`` answers to copies of the documents
 it names and leaves every other document the very object it was.
@@ -16,6 +16,7 @@ it names and leaves every other document the very object it was.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -189,20 +190,28 @@ def outputs(**page) -> dict:
     return found
 
 
+def _canonical(name: str, value: str) -> str:
+    """An output as it was before answers were carried: answer keys / answer lines removed.
+
+    JSON is re-serialised as the outputs serialise it, so key order counts too."""
+    if name.endswith(":text"):
+        return _strip_answer_lines(value)
+    return json.dumps(_strip_answers(json.loads(value)), ensure_ascii=False, indent=2)
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 @pytest.mark.parametrize("page", [{}, {"page_states": None}, {"page_states": {}}])
 def test_without_page_states_every_output_is_as_before(page) -> None:
+    # ``BEFORE`` holds the sha256 of each output as main produced it, before this change
     before = json.loads(BEFORE.read_text(encoding="utf-8"))
     now = outputs(**page)
 
     assert set(now) == set(before)
-    for name, value in now.items():
-        if name.endswith(":text"):
-            assert _strip_answer_lines(value) == before[name], name
-        else:
-            assert _strip_answers(json.loads(value)) == json.loads(before[name]), name
-            # the key order is as before too: only answer keys were added
-            assert json.dumps(_strip_answers(json.loads(value)), ensure_ascii=False, indent=2) \
-                == before[name], name
+    changed = [name for name, value in now.items() if _digest(_canonical(name, value)) != before[name]]
+    assert changed == [], f"outputs that differ from before: {changed}"
     # and the stripping is not vacuous: the fixtures hold an answered question
     assert "  - 回答：" in now["context:tables:text"]
     assert '"answered_by"' in now["board:all:none"]
