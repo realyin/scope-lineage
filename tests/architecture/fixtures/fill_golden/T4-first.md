@@ -46,7 +46,7 @@
 `generator.prompt` 末尾已经有 `+review` 的不再追加。
 owner 刚确认了行粒度、列含义或码值时（或刚回写了观测），这些槽位已由工具写好，审读的发现多半已改过：这一轮只按上一节改正文，而且只改这些地方——
 `summary.row` 的 `text` / `note` / `watch`、`summary.watch`、`questions`、`what` / `good_for` / `not_for` / `how_to_read` 里说粒度的句子、
-相关列的 `watch`。不改列的 `meaning`、`code_values`、`rules[].sql`。
+相关列的 `watch`，以及 `rules[].text` / `rules[].watch` 里说这条关联会不会放大行数的句子（可以改，不是非改不可）。不改列的 `meaning`、`code_values`、`rules[].sql`。
 
 **写入**：Write / Edit 被拦截时，先把整份文档写到 `/SCRATCH/demo_x.t/demo_x.t.json`，确认里面 `table` 是 `demo_x.t`，再 `cp` 回
 `/RUN/docs/demo_x.t.json`。临时文件只放 `/SCRATCH/demo_x.t/`。

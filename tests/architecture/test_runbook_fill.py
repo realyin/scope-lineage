@@ -364,6 +364,7 @@ def test_the_writer_is_given_the_observation_forms_validation_accepts():
     form = re.search(r"「(观测（查询[^」]*在该分区内不放大[^」]*)」", section)
     assert form and _OBSERVED_FORM.search(form.group(1)), section
     assert "别的分区未观测" in form.group(1)
+    assert _form_passes_check_10(form.group(1))
     for rule in ("不是定义", "`proven`", "裸「唯一」", "\"unconfirmed\": true", "工具写"):
         assert rule in section, rule
     version = re.search(r"table-semantics-prompt@(\d+)", prompt.splitlines()[0]).group(1)
@@ -371,6 +372,75 @@ def test_the_writer_is_given_the_observation_forms_validation_accepts():
     for name in ("catalog-fragment-prompt.md", "templates/T5.md", "templates/T6.md"):
         text = (REFS / name).read_text(encoding="utf-8")
         assert "observed in" in text and "`inferred`" in text and "不写 `declared`" in text, name
+
+
+def _form_passes_check_10(form: str) -> bool:
+    """The writer's join sentence, filled in, is one check 10 relaxes for: no warning with
+    the observation it reports, a warning without it."""
+    from scope_lineage.semantics.checks_meaning import check_fan_out
+    from scope_lineage.semantics.confirmed import confirmed_state
+
+    table = "demo_dwd.dwd_probe_user_df"
+    sentence = (form.replace("<查询>", "probe_1").replace("<分区>", "dt=20261119")
+                .replace("<日期>", "2026-11-20").replace("<T>", table)
+                .replace("<键>", "open_id").replace("<pN>", "p1"))
+    assert "<" not in sentence, sentence
+    rule = {"id": "p1", "kind": "join", "join_type": "LEFT_OUTER", "expression": "a.open_id = b.open_id",
+            "task": "t0", "right": "subq:b", "right_tables": [table], "right_aliases": ["b"],
+            "columns": ["demo_ods.ods_probe_call_df.open_id", f"{table}.open_id"],
+            "fan_out": {"status": "risk", "reason": "右侧未被证明按连接键唯一", "path": "grain"}}
+    document = {"summary": {"row": {"note": "每个 id 一行。"},
+                            "watch": [{"kind": "risk", "text": sentence}]}}
+    packet = {"lineage": {"rules": [rule]}}
+    entry = {"table": "demo_dwd.dwd_party_customer_info_df", "target": f"input:{table}",
+             "by": "demo-reviewer", "date": "2026-11-21",
+             "value": {"query": "probe_1", "on": "2026-11-20", "rows": 120,
+                       "partition": {"column": "dt", "values": ["20261119"]},
+                       "columns": ["open_id"], "unique": "yes", "within": "each_partition",
+                       "keys": 120, "duplicate_keys": 0}}
+    confirmed = confirmed_state([entry])["demo_dwd.dwd_party_customer_info_df"]
+    warned = [item for item in check_fan_out(document, packet, None) if item["status"] != "pass"]
+    relaxed = [item for item in check_fan_out(document, packet, confirmed) if item["status"] != "pass"]
+    return bool(warned) and relaxed == []
+
+
+def _observation_section() -> str:
+    prompt = (REFS / "table-semantics-prompt.md").read_text(encoding="utf-8")
+    return prompt.split("## 观测事实", 1)[1].split("\n## ", 1)[0]
+
+
+def test_an_observation_sentence_is_no_proof_and_keeps_its_condition():
+    """An observation is not proof, so a pN kept in an "unproven" risk list beside it is no
+    contradiction (writer and review item 14); the sentence may name the join by pN alone;
+    a FACTS line counted under a condition (「条件 …」) keeps that condition in the sentence."""
+    section = _observation_section()
+    review = (REFS / "table-semantics-review-prompt.md").read_text(encoding="utf-8")
+    item = review.split("\n14. ", 1)[1].split("\n15. ", 1)[0]
+    for text in (section, item):
+        assert "未证明" in text and "不算矛盾" in text, text
+    assert "不必写表名" in section
+    assert "「条件 …」" in section and "无条件" in section
+
+
+def test_check_mode_may_fix_what_a_rule_says_of_its_join_but_not_its_sql():
+    """T4's check mode, after an observation is written back, may change what a rule's text
+    or watch says about whether its join multiplies rows; `rules[].sql` stays forbidden."""
+    t4 = (REFS / "templates" / "T4.md").read_text(encoding="utf-8")
+    check = t4.split("**核对模式**", 1)[1].split("\n**", 1)[0]
+    assert "`rules[].text`" in check and "`rules[].watch`" in check, check
+    assert "放大行数" in check
+    assert "不改列的 `meaning`、`code_values`、`rules[].sql`" in check
+
+
+def test_s5_keeps_two_observation_warnings_a_writer_cannot_clear():
+    """Two check 3 / 4 warnings stay without a T1 round: a real contradiction between the
+    declared grain and the observation already written side by side with a conflict
+    watch, and observed values on a column that is no code column."""
+    s5 = (REFS / "steps" / "S5.md").read_text(encoding="utf-8")
+    whitelist = s5.split("**WARN 白名单**", 1)[1].split("\n**", 1)[0]
+    assert "只有这五种" in whitelist
+    assert "声明与观测不一致" in whitelist and "conflict" in whitelist
+    assert "有观测取值、没有码值表" in whitelist
 
 
 def test_a_written_document_is_replayed_before_it_is_validated_or_recorded():
