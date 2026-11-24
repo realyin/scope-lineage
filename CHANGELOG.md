@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+- **Fixed: the ask panel puts the newest question first (`scope-lineage-service`).** Each new question
+  was added below the earlier ones, so its answer sat at the bottom of the page. The newest question is
+  now directly under the form, and once a question has an answer its steps fold into one line that opens
+  on a click, so the answer shows right under the question. A question still being answered, or one that
+  ended without an answer, keeps its steps in view.
+
 ## 0.16.0
 - **New: several models on the ask panel (`scope-lineage-service http --ask --ask-models FILE`).** A JSON
   file lists models -- `anthropic` (the official API, or a gateway speaking the Messages API through a

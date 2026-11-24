@@ -195,7 +195,8 @@ browser -- by the skill's own walk (`skills/scope-lineage/workflows/catalog-answ
 take one context pack, write the SQL, check it, record what the catalog lacks. The page shows each step as it
 happens: the candidates the search found, the tables and columns taken into the pack, every `check-sql` round
 with its findings, the final SQL, the basis given for each condition, and each `/* 待确认：… */` placeholder
-with what is missing. Beside a placeholder the reader can type the definition; submitting it appends one line
+with what is missing. The newest question is on top; once a question has an answer its steps fold into
+one line that opens on a click. Beside a placeholder the reader can type the definition; submitting it appends one line
 to the pending file through `POST /api/pending` (only with `--pending`). **It never runs SQL** and never
 changes the catalog.
 
