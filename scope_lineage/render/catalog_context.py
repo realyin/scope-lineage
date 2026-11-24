@@ -39,6 +39,16 @@ with the table semantics when they are given (``unit_mark``, on the rule
 attribute's bound columns has in the material is marked as not given by it and
 unconfirmed, and a measure with no unit says whether the material gives one
 (``material_unit``). Without semantics nothing is compared and the pack is unchanged.
+
+An answered question carries its answer, who gave it and when (``answer``,
+``answered_by``, ``answered_on``, those the document has), under a table and under a named
+column, and the text gives the answer on the line after the question. A browsing page may
+hold answers and notes the documents do not have yet; ``page_states`` takes them, keyed by
+``(table, question id)`` (``page_index``), and the pack marks them (``mark_question``):
+``written: false`` on an answer overlaid from the page, ``page`` on a question with a note,
+and ``status: "set_aside"`` on one the note sets aside (it stays listed, and the text puts it
+apart from the open ones). The documents gain no key. Without ``page_states`` (or with an
+empty one) the pack is what it was.
 """
 
 from __future__ import annotations
@@ -67,7 +77,16 @@ from .catalog_scopes import constraint_tables
 from .catalog_units import SUPPORTED, UNJUDGED, material_documents, unit_support
 from .catalog_view import CatalogView, catalog_table_name, realises
 
-__all__ = ["CONTEXT_FORMAT", "context_pack", "render_context_text"]
+__all__ = [
+    "CONTEXT_FORMAT",
+    "PAGE_KINDS",
+    "SET_ASIDE",
+    "SET_ASIDE_KINDS",
+    "context_pack",
+    "mark_question",
+    "page_index",
+    "render_context_text",
+]
 
 CONTEXT_FORMAT = "catalog-context/1"
 # Keys of a semantics column kept in a column's full answer, in this order.
@@ -75,6 +94,15 @@ _COLUMN_KEYS = (
     "meaning", "category", "derivation", "branches", "code_values", "null_meaning", "watch",
 )
 _BINDING_KEYS = ("derivation", "time_role", "via", "code_map", "relation", "self_reference")
+# A question's own keys a pack and the questions board carry once it is answered.
+ANSWER_KEYS = ("answer", "answered_by", "answered_on")
+# The notes a browsing page may leave on an open question (``page_states``), and the two of
+# them that set the question aside rather than leave it open.
+PAGE_KINDS = ("partial", "deferred", "redirect", "invalid", "not_applicable")
+SET_ASIDE_KINDS = frozenset({"invalid", "not_applicable"})
+SET_ASIDE = "set_aside"
+_NOTE_KEYS = ("kind", "reason", "choice", "to", "by", "date")
+_NOT_WRITTEN = {"written": False}
 
 
 def context_pack(
@@ -87,6 +115,7 @@ def context_pack(
     table_columns: Iterable[str] = (),
     brief: bool = False,
     focus: bool = False,
+    page_states: Optional[Mapping] = None,
 ) -> dict:
     """The pack for the named tables, columns (``db.table.column``) and concepts.
 
@@ -95,8 +124,10 @@ def context_pack(
     ``query.columns`` lists them as ``db.table.column`` after ``columns``. A concept term
     may name a metric: its concept is packed (``_concept_term``). ``brief`` shortens each
     table's semantics as the module says; ``focus`` narrows each table that has requested
-    columns to them. Neither changes a concept or a column.
+    columns to them. Neither changes a concept or a column. ``page_states`` marks the
+    questions a browsing page answered or noted (``page_index``, ``mark_question``).
     """
+    states = page_index(page_states)
     view = CatalogView(document)
     documents = material_documents(semantics)
     # what a measure's unit is compared with (``unit_mark``); None without semantics
@@ -126,7 +157,7 @@ def context_pack(
             continue
         pack["tables"].append(_table(
             view, rep, documents.get(rep["table"].lower()),
-            brief=brief, focus=focused.get(rep["table"].lower()),
+            brief=brief, focus=focused.get(rep["table"].lower()), states=states,
         ))
     found = list({entry["table"]: entry for entry in pack["tables"]})
     if len(found) > 1:
@@ -135,7 +166,7 @@ def context_pack(
             _link(view, a, b) for i, a in enumerate(reps) for b in reps[i + 1:]
         ]
     for term in pack["query"]["columns"]:
-        answer = _column(view, term, documents, material)
+        answer = _column(view, term, documents, material, states)
         if answer is None:
             pack["missing"].append({"kind": "column", "term": term})
         else:
@@ -706,6 +737,7 @@ def _table(
     *,
     brief: bool = False,
     focus: Optional[list[str]] = None,
+    states: Optional[Mapping] = None,
 ) -> dict:
     concept_id = rep["concept"]
     grain = rep.get("grain") or {}
@@ -746,7 +778,9 @@ def _table(
             {"rule": conflict["rule"], "text": conflict_text(view, rep["table"], conflict)}
             for conflict in conflicts
         ]
-    answer["semantics"] = _semantics(document, brief=brief, focus=focus)
+    answer["semantics"] = _semantics(
+        document, brief=brief, focus=focus, states=_table_states(states, rep["table"])
+    )
     return answer
 
 
@@ -886,7 +920,11 @@ def _names_catalog_table(view: CatalogView, on: str) -> bool:
 
 
 def _semantics(
-    document: Optional[Mapping], *, brief: bool = False, focus: Optional[list[str]] = None
+    document: Optional[Mapping],
+    *,
+    brief: bool = False,
+    focus: Optional[list[str]] = None,
+    states: Optional[Mapping] = None,
 ) -> dict:
     if not document:
         return {"present": False}
@@ -894,9 +932,7 @@ def _semantics(
     row = summary.get("row") or {}
     refresh = summary.get("refresh") or {}
     every_watch = [_pick(item, ("kind", "text", "refs")) for item in summary.get("watch") or []]
-    every_question = [
-        _pick(item, ("id", "text", "about", "status")) for item in summary.get("questions") or []
-    ]
+    every_question = [_question(item, states) for item in summary.get("questions") or []]
     scope = [_pick(item, ("text", "rule_refs")) for item in summary.get("scope") or []]
     watch = [item for item in every_watch if _about(item.get("refs"), focus)]
     questions = [item for item in every_question if _about(item.get("about"), focus)]
@@ -973,11 +1009,81 @@ def _pick(item: Mapping, keys: tuple) -> dict:
     return {key: item[key] for key in keys if item.get(key) not in (None, "", [])}
 
 
+# --------------------------------------------------------------- page states
+
+
+def page_index(page_states: Optional[Mapping]) -> dict[tuple[str, str], dict]:
+    """``{(db.table in lower case, question id): state}`` of a browsing page's states.
+
+    A state is ``{"written": False}`` (an answer overlaid from the page, not written back)
+    or a note ``{"kind", "reason", "by", "date"}`` with an optional ``choice`` (``yes`` /
+    ``no``) and, for ``redirect``, ``to``; ``kind`` is one of ``PAGE_KINDS``. The table
+    is matched the way the documents are (``catalog_table_name``, any case). Anything
+    else raises ``ValueError``.
+    """
+    found: dict[tuple[str, str], dict] = {}
+    for key, state in (page_states or {}).items():
+        if not (isinstance(key, tuple) and len(key) == 2):
+            raise ValueError(f"a page state is keyed by (table, question id), not {key!r}")
+        where = (catalog_table_name(str(key[0]).strip()).lower(), str(key[1]))
+        if not isinstance(state, Mapping):
+            raise ValueError(f"page state of {where[0]} {where[1]} is not an object: {state!r}")
+        if "kind" not in state:
+            if dict(state) != _NOT_WRITTEN:
+                raise ValueError(
+                    f"page state of {where[0]} {where[1]} is neither "
+                    f"{{'written': False}} nor a note: {dict(state)!r}"
+                )
+            found[where] = dict(_NOT_WRITTEN)
+            continue
+        if state["kind"] not in PAGE_KINDS:
+            raise ValueError(
+                f"page note of {where[0]} {where[1]}: kind must be one of "
+                f"{', '.join(PAGE_KINDS)}, not {state['kind']!r}"
+            )
+        found[where] = _pick(state, _NOTE_KEYS)
+    return found
+
+
+def _table_states(states: Optional[Mapping], table: str) -> dict[str, dict]:
+    """``{question id: state}`` of one table, from ``page_index``."""
+    key = catalog_table_name(str(table).strip()).lower()
+    return {qid: state for (name, qid), state in (states or {}).items() if name == key}
+
+
+def mark_question(entry: dict, question: Mapping, state: Optional[Mapping]) -> dict:
+    """``entry`` (a question as an output shows it) with its answer and page state.
+
+    An answered question gains its answer keys, and ``written: false`` when the page says
+    the answer is its own, not written back. An open one with a page note gains ``page``,
+    and ``status: "set_aside"`` when the note sets it aside. A note on a question the
+    document already answers is ignored: the document's answer stands.
+    """
+    if question.get("status") == "answered":
+        entry.update(_pick(question, ANSWER_KEYS))
+        if state == _NOT_WRITTEN:
+            entry["written"] = False
+    elif state and "kind" in state:
+        if state["kind"] in SET_ASIDE_KINDS:
+            entry["status"] = SET_ASIDE
+        entry["page"] = dict(state)
+    return entry
+
+
+def _question(item: Mapping, states: Optional[Mapping]) -> dict:
+    entry = _pick(item, ("id", "text", "about", "status"))
+    return mark_question(entry, item, (states or {}).get(str(item.get("id"))))
+
+
 # ------------------------------------------------------------------- column
 
 
 def _column(
-    view: CatalogView, term: str, documents: Mapping, material: Optional[Mapping] = None
+    view: CatalogView,
+    term: str,
+    documents: Mapping,
+    material: Optional[Mapping] = None,
+    states: Optional[Mapping] = None,
 ) -> Optional[dict]:
     address = _address(view, term)
     if address is None:
@@ -1000,6 +1106,7 @@ def _column(
     name = (binding or described)["column"]
     summary = (document or {}).get("summary") or {}
     tag = f"column:{name}".casefold()
+    own = _table_states(states, table)
     return {
         "table": table,
         "column": name,
@@ -1011,7 +1118,7 @@ def _column(
             if tag in {str(r).casefold() for r in item.get("refs") or []}
         ],
         "questions": [
-            _pick(item, ("id", "text", "about", "status"))
+            _question(item, own)
             for item in summary.get("questions") or []
             if tag in {str(r).casefold() for r in item.get("about") or []}
         ],
@@ -1437,7 +1544,9 @@ def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:
         for item in sem["watch"]
     ] or ["无"]
     lines += ["", "## 待确认问题"]
-    lines += [_question_line(item) for item in sem["questions"]] or ["无"]
+    kept = [item for item in sem["questions"] if item.get("status") != SET_ASIDE]
+    lines += [line for item in kept for line in _question_lines(item)] or ["无"]
+    lines += [_set_aside_line(item) for item in sem["questions"] if item.get("status") == SET_ASIDE]
     if sem["rules"]:
         lines += ["", "## 被引用的规则（不带 SQL，去掉 --brief 可看）" if brief else "## 被引用的规则"]
         for rule in sem["rules"]:
@@ -1486,6 +1595,50 @@ def _brief_tail(sem: Mapping) -> list[str]:
 def _question_line(item: Mapping) -> str:
     about = f" [{'、'.join(item['about'])}]" if item.get("about") else ""
     return f"- {item.get('id')}（{item.get('status') or '未说明'}）：{item.get('text') or ''}{about}"
+
+
+_NOTE_LABELS = {
+    "partial": "部分回答", "deferred": "暂缓", "redirect": "转问",
+    "invalid": "问题有误", "not_applicable": "不适用",
+}
+_CHOICES = {"yes": "是", "no": "否"}
+
+
+def _who(*parts) -> str:
+    return "，".join(str(part) for part in parts if part)
+
+
+def _question_lines(item: Mapping) -> list[str]:
+    """A question not set aside: its line (with the page's note, if any), then its answer."""
+    line = _question_line(item)
+    if item.get("page"):
+        line += _note_text(item["page"])
+    lines = [line]
+    if item.get("answer"):
+        label = "回答（页面填写，尚未写回）" if item.get("written") is False else "回答"
+        who = _who(item.get("answered_by"), item.get("answered_on"))
+        lines.append(f"  - {label}：{item['answer']}" + (f"（{who}）" if who else ""))
+    return lines
+
+
+def _set_aside_line(item: Mapping) -> str:
+    about = f" [{'、'.join(item['about'])}]" if item.get("about") else ""
+    return f"- 已搁置：{item.get('id')} {item.get('text') or ''}{about}{_note_text(item['page'])}"
+
+
+def _note_text(page: Mapping) -> str:
+    """``（暂缓：理由；谁，日期）``: a page note after its question."""
+    text = _NOTE_LABELS.get(page.get("kind"), str(page.get("kind")))
+    if page.get("kind") == "redirect" and page.get("to"):
+        text += f" {page['to']}"
+    if page.get("choice") in _CHOICES:
+        text += f"，{_CHOICES[page['choice']]}"
+    if page.get("reason"):
+        text += f"：{page['reason']}"
+    who = _who(page.get("by"), page.get("date"))
+    if who:
+        text += f"；{who}"
+    return f"（{text}）"
 
 
 def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
@@ -1537,5 +1690,8 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
     for item in column["watch"]:
         lines.append(f"- 表级注意（{item.get('kind') or '注意'}）：{item.get('text') or ''}")
     for item in column["questions"]:
-        lines.append("- 待确认问题 " + _question_line(item)[2:])
+        if item.get("status") != SET_ASIDE:
+            first, *rest = _question_lines(item)
+            lines += ["- 待确认问题 " + first[2:], *rest]
+    lines += [_set_aside_line(item) for item in column["questions"] if item.get("status") == SET_ASIDE]
     return lines + [""]

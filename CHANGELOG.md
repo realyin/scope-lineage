@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- **New: answered questions carry their answers into the context pack and the questions board.** A
+  table-semantics question whose status is `answered` now carries `answer`, `answered_by` and `answered_on`
+  in `catalog context` (under a table and under a named column) and on the board (`questions`); the text
+  pack gives the answer on the line after the question as `  - 回答：…（who，date）`. Before, the answer was
+  dropped and a reader saw only that the question was answered. Questions not answered print as before.
+- **New: page states for a browsing page (library only, no command flag).** `context_pack`,
+  `questions_board` and their `cli_catalog_answers` wrappers (`context`, `questions`) take an optional
+  `page_states`, keyed by `(table, question id)`: `{"written": false}` marks an answer the page overlaid but
+  has not written back (`written: false`; text `回答（页面填写，尚未写回）：…`), and a page note
+  (`partial`, `deferred`, `redirect`, `invalid`, `not_applicable`) adds `page`; the last two set the question
+  aside (`status: "set_aside"`, listed apart in the text as `已搁置：…`). The board takes the status
+  `set_aside` only when given `page_states` (`BOARD_PAGE_STATUSES`; `BOARD_STATUSES` is unchanged). The
+  documents never gain a key, and without `page_states` every output is as before apart from the answers
+  above. New `cli_catalog_answers.overlay_answers(semantics, confirmations)` applies a page's
+  `question:<id>` answers with `semantic confirm`'s own code to copies of the documents it names only,
+  keeping every other document the same object, and returns what it could not apply (other targets are
+  refused, not applied).
 - **Fixed: the ask panel puts the newest question first (`scope-lineage-service`).** Each new question
   was added below the earlier ones, so its answer sat at the bottom of the page. The newest question is
   now directly under the form, and once a question has an answer its steps fold into one line that opens

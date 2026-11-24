@@ -166,17 +166,25 @@ def context(
     concepts: Iterable[str] = (),
     brief: bool = False,
     focus: bool = False,
+    page_states: dict | None = None,
 ) -> CatalogAnswer:
-    from .render.catalog_context import context_pack, render_context_text
+    """``catalog context``. ``page_states`` (no flag: a server passes it) marks the
+    questions a browsing page answered or noted, ``{(table, question id): state}`` as
+    ``render.catalog_context.page_index`` reads it; a state it refuses is exit 2."""
+    from .render.catalog_context import context_pack, page_index, render_context_text
 
     tables, columns, concepts = list(tables), list(columns), list(concepts)
     table_columns = context_columns(
         tables=tables, columns=columns, columns_of_table=columns_of_table,
         concepts=concepts, focus=focus,
     )
+    try:
+        page_index(page_states)
+    except ValueError as error:
+        raise CatalogAnswerError(2, f"catalog context: {error}") from error
     pack = context_pack(
         document, semantics, tables=tables, columns=columns, concepts=concepts,
-        table_columns=table_columns, brief=brief, focus=focus,
+        table_columns=table_columns, brief=brief, focus=focus, page_states=page_states,
     )
     found = pack["concepts"] or pack["tables"] or pack["columns"]
     return CatalogAnswer(pack, 0 if found else 1, render_context_text)
@@ -365,13 +373,67 @@ def table_units(document: dict, semantics: dict | None, table: str) -> CatalogAn
 
 
 def questions(
-    document: dict, semantics: dict | None, pending_text: str | None = None, **request
+    document: dict,
+    semantics: dict | None,
+    pending_text: str | None = None,
+    *,
+    page_states: dict | None = None,
+    **request,
 ) -> CatalogAnswer:
     """The board of registered questions (no command): the semantics documents' and, with
-    ``pending_text`` (a pending file's text), the ``catalog pending list`` items."""
+    ``pending_text`` (a pending file's text), the ``catalog pending list`` items.
+    ``page_states`` marks what a browsing page answered or noted, and lets ``status`` be
+    ``set_aside`` (``render.catalog_browse.questions_board``)."""
     from .render.catalog_browse import questions_board
 
     report = None
     if pending_text is not None:
         report = pending_answer(pending_text, document, semantics).result
-    return _browse(lambda: questions_board(document, semantics, report, **request))
+    return _browse(lambda: questions_board(
+        document, semantics, report, page_states=page_states, **request
+    ))
+
+
+# ------------------------------------------------------------------ page answers
+
+
+QUESTION_TARGET = "question:"
+ONLY_QUESTIONS = "only question:<id> answers are overlaid"
+
+
+def overlay_answers(
+    semantics: dict | None, confirmations: Iterable[dict]
+) -> tuple[dict, list[dict]]:
+    """``(semantics with the answers applied, the ones not applied)``.
+
+    ``confirmations`` are ``semantic-confirmations/1`` entries a browsing page holds; only
+    ``question:<id>`` targets are applied, by ``semantic confirm``'s own
+    ``apply_confirmations``, to copies of the documents of the tables they name. The
+    returned mapping keeps ``semantics``' keys, and every document no answer changed is
+    the very object it was, so a caller's cache keyed by those objects stays valid;
+    ``semantics`` and its documents are not changed. Each entry not applied is
+    ``{table, target, reason}``: first the targets that are not questions, then those
+    ``apply_confirmations`` refused (an unknown table or question, an empty answer).
+    """
+    from .semantics.confirm import apply_confirmations
+    from .semantics.names import bare_table
+
+    semantics = semantics or {}
+    keys: dict[str, str] = {}
+    for key in semantics:
+        keys.setdefault(bare_table(key), key)
+    refused, wanted = [], []
+    for entry in confirmations:
+        if str(entry.get("target") or "").startswith(QUESTION_TARGET):
+            wanted.append(entry)
+        else:
+            refused.append(
+                {"table": entry.get("table"), "target": entry.get("target"), "reason": ONLY_QUESTIONS}
+            )
+    named = {bare_table(entry.get("table")) for entry in wanted}
+    subset = {table: semantics[keys[table]] for table in named if table in keys}
+    result = apply_confirmations(subset, wanted)
+    changed = dict(semantics)
+    for table in result.changed:
+        changed[keys[table]] = result.documents[table]
+    return changed, refused + result.unmatched

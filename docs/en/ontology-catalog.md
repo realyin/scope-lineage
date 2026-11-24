@@ -1126,8 +1126,8 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 | Option | What it gives |
 | --- | --- |
 | `--concept` (id, id without its prefix, name, synonym or term; or a metric's id, id without `metric:`, name or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites, and its `notes` when it has any); a term no concept matches is tried as a metric, and the metric's concept is packed with that metric first, named in `via_metric` (`{id, name}`) |
-| `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh (the text's 刷新 line adds the cycle the table-semantics document wrote, 表语义写的周期), time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where: only the sample JOINs that involve this column -- a JOIN inside a producing task by the column it fills, one between catalog tables by its two sides --, one entry for the same evidence however many relations carry it, `relations` naming them; `count` is this column's own from the build's `by_column`, and a column whose JOINs kept no sample gets a count-only line; a document built before `by_column` counts this column's samples when they are complete, and when the build cut them short says how many JOINs were not sampled (`unsampled`) and that whether they are this column's is not recorded -- with no sample of this column, one line naming the relation's count (`relation_count`) -- rebuild to know), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions, the downstream tasks and tables that read it, one line per column |
-| `--column` (`db.table.column`) | the catalog binding (what it points at, definition, the attribute's `type` for a column bound to an attribute -- an identifier, technical or unmapped column has none, so nothing is printed --, unit, code values, derivation, time role, lineage expression, and the bound attribute's `notes` when it has any, printed 「备注：…」); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column |
+| `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh (the text's 刷新 line adds the cycle the table-semantics document wrote, 表语义写的周期), time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where: only the sample JOINs that involve this column -- a JOIN inside a producing task by the column it fills, one between catalog tables by its two sides --, one entry for the same evidence however many relations carry it, `relations` naming them; `count` is this column's own from the build's `by_column`, and a column whose JOINs kept no sample gets a count-only line; a document built before `by_column` counts this column's samples when they are complete, and when the build cut them short says how many JOINs were not sampled (`unsampled`) and that whether they are this column's is not recorded -- with no sample of this column, one line naming the relation's count (`relation_count`) -- rebuild to know), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions (an answered one with its answer), the downstream tasks and tables that read it, one line per column |
+| `--column` (`db.table.column`) | the catalog binding (what it points at, definition, the attribute's `type` for a column bound to an attribute -- an identifier, technical or unmapped column has none, so nothing is printed --, unit, code values, derivation, time role, lineage expression, and the bound attribute's `notes` when it has any, printed 「备注：…」); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column (an answered one with its answer) |
 | `--columns` (`col[,col...]`) | the same as `--column` for columns of the `--table` values, named without the table and separated by commas; needs a `--table`. With one `--table` every name is that table's. With several, a bare name goes to every requested table that has the column (the catalog binds it on the table, or the table's semantics document describes it; case is ignored), `table.col` pins the requested table of that name and `db.table.col` is taken as written; a name already asked is not asked again |
 | `--brief` | a short `--table` pack: every catalog fact, what it is, what one row is, how to read it, scope, good for, not for, things to watch, open questions and the text of the cited rules stay; columns are listed by name grouped by category (entries keep `column` and `category`), cited rules lose their SQL, downstream readers are named by the table they write (by their task when they write none); a join column's sample JOINs whose two tables are both outside the catalog are folded into one count (`seen_outside_catalog`, 「另有 n 条产出任务内部的连接证据两边的表都不在目录里」), while a JOIN involving a catalog table is always listed; a column whose table is in the same pack points to the table's notes instead of repeating them |
 | `--focus` | with `--column`/`--columns`: each table's watch items, open questions and cited rules narrowed to its requested columns; `semantics.focus` (`columns`, `left_out` counts) says what was left out |
@@ -1153,6 +1153,13 @@ is asked of a table. A table with no table-semantics document has `semantics` eq
 `{"present": false}` and the text says so -- a reader must be able to tell "nothing to watch" from "nobody
 wrote it down". A column only the table-semantics document knows is still answered by `--column`, with an
 empty `catalog`.
+
+**An answered question carries its answer.** A table-semantics question whose `status` is `answered` (one
+written back with `semantic confirm`, say) also carries `answer`, `answered_by` and `answered_on` -- those the
+document has -- under the table and under a named column, and the text gives the answer on the line after the
+question as `  - 回答：…（who，date）`. A question not answered is as before. The answer stays under the open
+questions rather than in a section of its own; `--focus` keeps or leaves it out by `about` as before, and the
+left-out counts are counted as before.
 
 **A measure's unit against the material.** With `--semantics`, the unit of a `measure` attribute -- on a
 column's binding, and on a metric over that measure (`--concept` with a concept or a metric) -- is compared with
@@ -1428,6 +1435,21 @@ the same facts. The home view shows the 「用之前先看」 summary of `index.
 list carries the 「按表看」 columns: both come from the functions that write `index.md`, so the numbers are
 the same as `catalog render --docs` gives for the same documents; the list stays in name order unless the
 reader sorts it by one of those columns.
+
+An answered table-semantics question on the board carries `answer`, `answered_by` and `answered_on` too. A
+browse page that holds answers and notes not yet written back to the documents may hand them to `context` and
+`questions` as `page_states` (no command flag): a mapping keyed by `(table, question id)` whose value is
+`{"written": false}` (an answer the page overlaid, not written back) or a page note `{"kind", "reason", "by",
+"date"}` (with an optional `choice`, `yes` / `no`, and `to` for a redirect). A question noted `partial`,
+`deferred` or `redirect` stays `open` and gains `page`; one noted `invalid` or `not_applicable` gets the
+status `set_aside`, with `page` too. In the pack's text an answer from the page reads
+`回答（页面填写，尚未写回）：…`, the first three notes follow their question in parentheses, and a set-aside
+question is listed after the open ones, one line each, as `已搁置：…（reason）`. The board takes the status
+filter `set_aside` only when given `page_states` (even an empty one); `all` includes those items, and the
+counts and concept facets follow the status filter as they do for the others. The documents gain no key;
+without `page_states`, or with an empty one, every output is what it was before they existed (apart from the
+answers of answered questions). A note on a question the document already answers has no effect: the
+document's answer stands.
 
 Started with `--ask`, the page also gets an ask panel: a model on the server answers a data question by the
 skill's `catalog-answers.md` walk, with the answers above as its only tools, and the page shows the steps, the

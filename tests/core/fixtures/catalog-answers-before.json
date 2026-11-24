@@ -1,0 +1,18 @@
+{
+ "board:all:none": "4bda5026cdabb137118a5edf1ba53efe0e31052f7775a68f75b55483722a2de7",
+ "board:all:pending": "c4b2045f252a20ca899da5ecec23a70d45a87a2468285ec883084b72a242145d",
+ "board:answered:none": "a2e29b4d5913446bfdf1e9fcbf8f99e6f9ac2b8e57d450b8c7587fe313c9c6bb",
+ "board:answered:pending": "47cdecceb2997c71383bebfb9dfd281c91a5a82057374f3f2052a8e716b2c6b5",
+ "board:open:none": "4cbc80b9be4f4a5b173a80098c09158cb4a48d39d403a5748b1459cfe2e0be8b",
+ "board:open:pending": "3c093c5807c5fb31742c2630b6c31dabd3d968ceec7f7b54545e35aec244d524",
+ "context:columns:json": "da1f864a48553f5853563b1cdbd2f9919caa46e0455116935f75144d1caf7e29",
+ "context:columns:text": "a1225f4c3a758a3b651ae83db37582bf3d70d520b36c613c3c8172daf2df2c38",
+ "context:focus-brief:json": "f48458ae3de4e1e32ac206bc50ef96d3f2ddb95664e6097b972959aab3161e77",
+ "context:focus-brief:text": "e98c232f9cefaf9cbdcd1fe3b0b65dd5023d8d2d2a4fcb677c708e40358de850",
+ "context:focus:json": "5d754a4d55d5852d33a84fb101031ed32b0452dad50563ce491748de9c5025c4",
+ "context:focus:text": "4274f3b33520869b95a111d5f8f1c77c45f7c0dda4a5ae9befcf32d82eb88b61",
+ "context:tables-brief:json": "c96aa4ba27cfff0f48c109243f9013fcf9f53d48d6545dd882ad6a74b1359309",
+ "context:tables-brief:text": "d17cb45808858291bf64a5de4ec9191f0e58d7e5db10fb53f619a6dae43dc696",
+ "context:tables:json": "ee042099b4f14b6530317cbe4947e9c81da02064bf180d58e3fce7d6d93d5190",
+ "context:tables:text": "819d546836703064e83a85d405e5dc022f066af9d05102437bd8d0c80d3df5db"
+}
