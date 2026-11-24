@@ -162,7 +162,8 @@ def _add_pending_tools(server: MCPServer, state: CatalogState) -> None:
     def list_pending(format: Format = "text") -> str:
         """The definitions recorded as missing in this server's pending file, grouped by
         what is missing, with the questions behind each, the table-semantics questions that
-        record the same column and the catalog objects that now carry the name. Same as
+        record the same column, the catalog objects that now carry the name and the owner's
+        latest reply (groups a reply resolved or rejected are left out). Same as
         `scope-lineage catalog pending list`."""
         return _answer(state.pending_list, format)
 
