@@ -30,6 +30,7 @@
 | S7 | 修订 | [`steps/S7.md`](steps/S7.md) |
 | S8 | 状态推进与复审 | [`steps/S8.md`](steps/S8.md) |
 | S9 | 全量校验与渲染表语义页 | [`steps/S9.md`](steps/S9.md) |
+| S9b | 为待确认问题写平台查询（可选） | [`steps/S9b.md`](steps/S9b.md) |
 | S10 | 本体目录：七小步的总述 | [`steps/S10.md`](steps/S10.md) |
 | S10a | 起点目录 | [`steps/S10a.md`](steps/S10a.md) |
 | S10b | 起草材料 digest | [`steps/S10b.md`](steps/S10b.md) |
@@ -63,6 +64,7 @@
 | S7 | 修订 | 子代理（每表一个） | 改过的文档 + 修订回执 | T4 |
 | S8 | 状态推进与复审 | 编排者 + 子代理 | 全部 `fixed` | T3、T4 |
 | S9 | 全量校验与渲染表语义页 | 编排者 | `validation.json`、`site/semantics/` | — |
+| S9b | 为待确认问题写平台查询（可选，有人能在平台上执行查询时） | 编排者 + 子代理 | `probes/question-probes.json`、`probes/check.txt` | T-probes |
 | S10 | 本体目录（S10a–S10g） | 编排者 + 子代理 | `catalog/`、`fragments/`、`merged/`、`onto/`、`site/` | T5、T6 |
 | S11 | 回归验收 | 编排者 + 子代理 | `round1/score/` | T7、T8 |
 | S12 | 确认回写（可选） | 编排者（改了结构化字段的表 + 子代理） | 带确认的文档 | T4（改了行粒度、列含义或码值的表） |
@@ -78,7 +80,7 @@ python3 "$SKILL/scripts/next_step.py" "$RUN"
 
 它打印三样东西：
 
-- S0–S13 的进度清单：`[x]` 做完，`[ ]` 没做，`[-]` 跳过（`Q` 为空时的 S11、可选的 S12、S0 已有领域配置时的 S2a），`[?]` 不知道；
+- S0–S13 的进度清单：`[x]` 做完，`[ ]` 没做，`[-]` 跳过（`Q` 为空时的 S11、可选的 S9b 与 S12、S0 已有领域配置时的 S2a），`[?]` 不知道；
 - 当前步、为什么是它、去读哪个文件（`steps/` 下那一步的文件，绝对路径）；
 - 表语义进行中（S4–S9）时，每张表的下一步和模板（附录 A）。
 
@@ -86,6 +88,7 @@ python3 "$SKILL/scripts/next_step.py" "$RUN"
 
 - 它说「当前：刷新状态」，是 `status.json` 不存在或比 `docs/`、`reviews/`、`packets/`、表语义页旧，
   它不知道每张表到了哪一步。照它打印的命令刷新 `status.json`，再跑一次。
+- 可选的 S9b 从不是「当前」：`probes/question-probes.json` 比 `probes/check.txt` 新（或没有报告）时，它在清单下面多打印一段，提示重跑检查。
 - 「做完」只表示这一步该写的文件已经在了，**不表示内容对**。每一步的完成判据仍然要照本手册跑。
 - 它和账本、和你的记忆不一致时，以它为准，把不一致记进问题清单。
 
