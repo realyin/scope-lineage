@@ -44,8 +44,8 @@ question, or leaves a note on it, in the answers file (``answers.py``, ``state.p
 semantics directory is never written. The two writing endpoints are refused (403) on a
 server other machines can reach -- a non-loopback ``--host``, or any ``--allow-host`` --
 unless it was started with ``--answers-allow-remote``: an answer's text reaches the
-context pack, the ask panel's model and MCP. Every text is NFKC-normalised, stripped and
-refused when blank, too long, or carrying a line break or a control character.
+context pack, the ask panel's model and MCP. Every text is kept as typed, stripped only,
+and refused when blank, too long, or carrying a line break or a control character.
 """
 
 from __future__ import annotations

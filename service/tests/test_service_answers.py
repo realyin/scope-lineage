@@ -249,11 +249,11 @@ def test_row_4_an_open_question_takes_the_answer(paths) -> None:
 def test_row_4_an_answer_changing_the_disk_answer_takes_effect(paths) -> None:
     answer_on_disk(paths["semantics"], CUSTOMER, "q2", "唯一。", "乙", "2026-01-01")
     state = _state(paths)
-    record = post(state, CUSTOMER, "q2", "不唯一。分库后重复。")
+    record = post(state, CUSTOMER, "q2", "不唯一：分库后重复（历史数据）。")
 
     assert record["base"] == {"answer": "唯一。", "answered_by": "乙", "answered_on": "2026-01-01"}
     assert judged(state, CUSTOMER, "q2").state == "effective"
-    assert question_of(state.inputs().semantics, CUSTOMER, "q2")["answer"] == "不唯一。分库后重复。"
+    assert question_of(state.inputs().semantics, CUSTOMER, "q2")["answer"] == "不唯一：分库后重复（历史数据）。"
 
 
 def test_row_5_someone_else_answered_the_same_text_on_disk(paths) -> None:

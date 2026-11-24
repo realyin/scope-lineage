@@ -309,10 +309,63 @@ def test_input_guards(server, change, kind) -> None:
         assert status == 400 and kind in body["error"]["message"], body
 
 
-def test_texts_are_normalised_and_counted_in_characters(server) -> None:
-    status, body = _answer(server, CUSTOMER, "q1", "  ＡＢＣ" + "字" * 994 + "  ", by=" 名" * 1)
+def test_texts_are_kept_as_typed_stripped_and_counted_in_characters(server) -> None:
+    """What a person typed is stored as typed: full-width letters and punctuation stay."""
+    typed = "ＡＢＣ：（测试），？" + "字" * 990
+    status, body = _answer(server, CUSTOMER, "q1", "  " + typed + "  ", by=" 名（甲） ")
     assert status == 201
-    assert body["record"]["answer"] == "ABC" + "字" * 994 and body["record"]["by"] == "名"
+    assert body["record"]["answer"] == typed and body["record"]["by"] == "名（甲）"
+    assert _answer(server, CUSTOMER, "q2", "字" * 1001)[0] == 400
+
+
+def test_full_width_punctuation_survives_to_the_pack_and_the_export(server) -> None:
+    answer = "会：同一代码可能对应多个值（测试回答），需要按日期区分？"
+    assert _answer(server, CUSTOMER, "q1", answer, choice="yes", to=None)[0] == 201
+
+    assert _item(server, CUSTOMER, "q1")["answer"] == f"是：{answer}"
+    text = _get(server, "/api/context", table=CUSTOMER, format="text")[2].decode()
+    assert f"回答（页面填写，尚未写回）：是：{answer}" in text
+    exported = _json(server, "/api/answers/export")["confirmations"][0]
+    assert exported["value"] == f"是：{answer}"
+
+
+def test_full_width_answer_written_back_end_to_end(server, paths, tmp_path, capsys) -> None:
+    """Rule 3 with ：（），？ and a choice: export, confirm, and the next request deletes it."""
+    answer = "否：分库后（历史数据）不唯一，要看分区？"
+    assert _answer(server, CUSTOMER, "q2", answer, choice="no", by="审核人（甲）")[0] == 201
+    file = tmp_path / "confirmations.json"
+    file.write_bytes(_get(server, "/api/answers/export")[2])
+
+    assert core_main(["semantic", "confirm", str(paths["semantics"]), "--confirmations",
+                      str(file), "--reviews", str(tmp_path / "reviews")]) == 0
+    assert "(unmatched=0)" in capsys.readouterr().out
+    from answer_fixtures import read_document, touch_later
+    question = read_document(paths["semantics"], CUSTOMER)["summary"]["questions"][1]
+    assert question["answer"] == f"否：{answer}" and question["answered_by"] == "审核人（甲）"
+    for path in paths["semantics"].glob("*.json"):
+        touch_later(path)
+    board = _json(server, "/api/questions", status="all")
+    assert json.loads(paths["answers"].read_text(encoding="utf-8"))["answers"] == []
+    assert board["answers"]["unmatched"] == []
+    item = _item(server, CUSTOMER, "q2")
+    assert item["answer"] == f"否：{answer}" and "written" not in item
+
+
+def test_a_file_written_with_normalised_texts_stays_readable(server, paths) -> None:
+    """Records the previous version wrote (NFKC-normalised) and records kept as typed
+    both read: the file rule is only that texts are stripped."""
+    from scope_lineage_service import answers as records_file
+
+    base = {"table": CUSTOMER, "asked": "?", "base": None, "kind": "answer",
+            "source": {"kind": "person"}, "by": "甲", "date": "2026-11-23"}
+    records_file.write_records(paths["answers"], [
+        {**base, "question": "q1", "answer": "会:是(旧版)"},
+        {**base, "question": "q2", "answer": "会：是（新版）", "by": "名（甲）"},
+    ])
+    assert _json(server, "/health")["answers"]["status"] == "ok"
+    records_file.write_records(paths["answers"], [{**base, "question": "q1", "answer": " 会 "}])
+    health = _json(server, "/health")["answers"]
+    assert health["status"] == "unreadable" and "stripped" in health["reason"]
 
 
 def test_a_forged_line_never_reaches_the_text_pack(server) -> None:

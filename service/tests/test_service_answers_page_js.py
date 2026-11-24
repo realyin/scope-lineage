@@ -101,6 +101,13 @@ def test_request_bodies() -> None:
         "table": CUSTOMER, "question": "q1", "seen": RECORD}
 
 
+def test_the_page_sends_what_was_typed() -> None:
+    """No NFKC on the page either: full-width punctuation in the text and the name stays."""
+    body = _call("answerBody", OPEN, {"kind": "answer", "text": "会：是（测试），对？",
+                                      "by": " 名（甲） "})
+    assert body["answer"] == "会：是（测试），对？" and body["by"] == "名（甲）"
+
+
 def test_answering_again_uses_the_question_as_it_is_now() -> None:
     entry = {"table": CUSTOMER, "question": "q1", "record": RECORD, "reason": "changed",
              "now": {"text": "新问题？", "status": "answered", "answer": "会。",

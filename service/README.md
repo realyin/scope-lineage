@@ -299,10 +299,12 @@ documents may have been rewritten meanwhile.
 - `/api/questions` adds `answers`: `{status, writable, effective, exported, digests, unmatched: [{table,
   question, record, reason, message, now}], refused?, reason?, problem?}`.
 
-**Texts and the injection path** -- an answer, a reason, a name and `to` are NFKC-normalised (full-width
-letters and punctuation become their ASCII forms) and stripped, and refused when blank, longer than 1000
-characters (an answer or a reason) or 60 (a name), or carrying a line break or a control or format
-character: they reach the text context pack, which is built line by line, and from there the ask panel's model
+**Texts and the injection path** -- an answer, a reason, a name and `to` are stored as typed, stripped of
+leading and trailing whitespace only (full-width punctuation such as `：（），？` stays as written, into the
+documents after `semantic confirm`), and refused when blank, longer than 1000 characters (an answer or a
+reason) or 60 (a name), counted on the stripped text, or carrying a line break or a control or format
+character. NFKC is used only to compare: question texts, and a new answer with the one already there.
+They reach the text context pack, which is built line by line, and from there the ask panel's model
 -- which holds a write tool -- and MCP clients. Answers from the page are always marked as not written back.
 
 **Who may answer** -- the server has no authentication. On a loopback address only programs on this machine

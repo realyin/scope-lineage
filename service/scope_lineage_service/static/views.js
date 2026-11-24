@@ -758,8 +758,9 @@ export function recordText(record) {
   return `${label}${to}：${choice}${text}`;
 }
 
+// a typed text with its ends stripped, nothing else changed (what the server stores)
 function normalised(value) {
-  return String(value === null || value === undefined ? "" : value).normalize("NFKC").trim();
+  return String(value === null || value === undefined ? "" : value).trim();
 }
 
 /** The sentence why a form cannot be sent yet, or null. Mirrors the server's guards. */
@@ -797,7 +798,8 @@ export function againBody(entry, form) {
 
 function recordBody(table, question, asked, seen, form) {
   const kind = form.kind || "answer";
-  const body = { table, question, kind, asked, seen, by: normalised(form.by) };
+  // sent as typed (the server strips the ends and stores nothing else changed)
+  const body = { table, question, kind, asked, seen, by: String(form.by || "").trim() };
   body[kind === "answer" ? "answer" : "reason"] = form.text;
   if (form.choice && CHOICE_KINDS.includes(kind)) body.choice = form.choice;
   if (kind === "redirect") body.to = form.to;

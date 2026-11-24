@@ -87,14 +87,16 @@ class TextRefused(ValueError):
 
 
 def clean_text(value, name: str, limit: int) -> str:
-    """``value`` NFKC-normalised and stripped; ``TextRefused`` when it is not a string,
-    blank, longer than ``limit`` characters, or carries a line break or a control
-    character."""
+    """``value`` as typed, stripped of leading and trailing whitespace only -- never
+    normalised, so full-width punctuation reaches the documents as it was written;
+    ``TextRefused`` when it is not a string, blank, longer than ``limit`` characters, or
+    carries a line break or a control character. NFKC is used only to compare texts
+    (``folded``)."""
     if value is None:
         raise TextRefused(f"{name} is empty")
     if not isinstance(value, str):
         raise TextRefused(f"{name} takes a string")
-    text = unicodedata.normalize("NFKC", value).strip()
+    text = value.strip()
     if not text:
         raise TextRefused(f"{name} is empty")
     bad = next((char for char in text if unicodedata.category(char) in _REFUSED), None)
@@ -109,7 +111,8 @@ def clean_text(value, name: str, limit: int) -> str:
 
 
 def folded(text) -> str:
-    """NFKC with whitespace folded: what two question texts are compared by."""
+    """NFKC with whitespace folded: what two question texts, or a new answer and the one
+    already there, are compared by. Never stored."""
     return " ".join(unicodedata.normalize("NFKC", str(text or "")).split())
 
 
@@ -125,8 +128,8 @@ def content(record: dict | None) -> tuple | None:
     are the same."""
     if record is None:
         return None
-    return (record.get("kind"), record.get("answer"), record.get("reason"),
-            record.get("choice"), record.get("to"))
+    return (record.get("kind"), folded(record.get("answer")), folded(record.get("reason")),
+            record.get("choice"), folded(record.get("to")))
 
 
 # ------------------------------------------------------------------ the file
@@ -193,7 +196,7 @@ def record_problem(record) -> str | None:
     for name, limit in checks:
         try:
             if clean_text(record.get(name), name, limit) != record.get(name):
-                return f"{name} is not normalised (NFKC, stripped)"
+                return f"{name} is not stripped (leading or trailing whitespace)"
         except TextRefused as error:
             return str(error)
     if "choice" in record and (kind not in CHOICE_KINDS or record["choice"] not in CHOICES):

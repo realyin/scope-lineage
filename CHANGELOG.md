@@ -32,8 +32,9 @@
   never leave the answers file. New endpoints `POST /api/answers` (409 when the page saw something else
   than what is there), `POST /api/answers/withdraw` and `GET /api/answers/export`, and the command
   `scope-lineage-service answers export ANSWERS --semantics DIR --out FILE`, write the answers in effect as
-  a `semantic-confirmations/1` file for `semantic confirm`. Texts are normalised and refused with a line
-  break, a control character or past 1000 characters (60 for a name). A server other machines can reach (a
+  a `semantic-confirmations/1` file for `semantic confirm`. Texts are stored as typed (stripped only; full-width
+  punctuation kept) and refused with a line break, a control character or past 1000 characters (60 for a
+  name). A server other machines can reach (a
   non-loopback `--host` or any `--allow-host`) refuses answers unless started with
   `--answers-allow-remote`, which warns at start. `/health` now lists the files the server writes
   (`writes`) instead of `read_only: true`; without `--answers` every other output is unchanged. The service
