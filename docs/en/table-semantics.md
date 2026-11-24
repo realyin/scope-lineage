@@ -393,7 +393,8 @@ One JSON document per target table. The schema is shipped as
 | `rules[]` | filters, joins, dedups, derivations and unions: business wording plus the SQL quoted as written |
 | `task` or `tasks[]` | the producing task(s): `name`, `purpose`, `outputs`, optionally `cycle`, `upstream_tasks`, `downstream_tasks` — exactly one of the two keys |
 | `concept` | optional link to the ontology catalog: `concept:<id>` and the table's representation kind |
-| `confirmed[]` | written by `semantic confirm`: every applied confirmation (`target`, `by`, `date`) |
+| `confirmed[]` | written by `semantic confirm`: every applied confirmation (`target`, `by`, `date`; an `input:` record also `columns`) |
+| `observed_inputs[]` | written by `semantic confirm` only, from `input:<db.table>` confirmations: what a platform query found about an input table this table reads (see Observed facts under `semantic confirm`) |
 
 ### Sources and confidence
 
@@ -410,7 +411,7 @@ is sourced `confirmed`.
 | Key | Content |
 | --- | --- |
 | `what` | one sentence: what the table is |
-| `row` | what one row is: `text`, `grain_columns`, `grain_source` (`declared` / `inferred` / `proven`), `unique` (`yes` / `no` / `unknown`), `note` for the risk when it is not unique |
+| `row` | what one row is: `text`, `grain_columns`, `grain_source` (`declared` / `inferred` / `proven` / `observed`), `unique` (`yes` / `no` / `unknown`; under `observed` only within the observed partitions), `note` for the risk when it is not unique; `observed` is written by `semantic confirm` only |
 | `refresh` | `cycle`, `time` (`snapshot` / `incremental` / `zipper` / `unknown`) and `how_to_read`: how to take one day and how to take a range |
 | `scope[]` | which records the table keeps, in business words, citing rules through `rule_refs` |
 | `upstream[]` | each input table's `role` (`main` / `enrich` / `filter` / `dedup` / `union_branch` / `lookup` / `other`) and what it `provides` |
@@ -426,7 +427,8 @@ A column holds `column`, `meaning` (the business name), `category` (`identifier`
 `derivation` (in business words; `branches[]` when branches differ), `source_columns`
 (`db.table.column` references the derivation reads), `code_values[]` (`value`, `meaning`,
 `sources`, and `unconfirmed: true` for a guess), optionally `unit`, `null_meaning` and
-`watch`, plus `sources` and `confidence`.
+`watch`, plus `sources` and `confidence`. `observed_values` is written by `semantic confirm`
+only: the values a query found, beside the code values and never one of them.
 
 A rule holds `id` (`r1`…), `kind` (`filter`, `join`, `dedup`, `derive`, `union`, `other`),
 `text`, `sql` (the SQL fragment as written in the script) and `sources`.
@@ -872,7 +874,10 @@ one target, the answer (`value`), who gave it (`by`) and when (`date`, `YYYY-MM-
 | `question:<id>` | the answer text | `status: answered`, `answer`, `answered_by`, `answered_on` |
 | `column:<c>.meaning` | the meaning text | replaces `meaning`; the column's `sources` gains `confirmed` |
 | `column:<c>.code_values` | a list of `{value, meaning}`, or one such object | a list replaces the code values, one object is merged into them; each confirmed value gains `confirmed` and `unconfirmed: false` |
-| `summary.row` | an object of row fields, or the row text | merged into `summary.row`; its `sources` gains `confirmed`. An object that sets `grain_columns` or `unique` but not `grain_source` turns an `inferred` grain into `declared` (a `declared` or `proven` one stays) |
+| `summary.row` | an object of row fields, or the row text | merged into `summary.row`; its `sources` gains `confirmed`. An object that sets `grain_columns` or `unique` but not `grain_source` turns an `inferred` or `observed` grain into `declared` (a `declared` or `proven` one stays). An object that sets `observed` or `grain_source: observed` is unmatched |
+| `summary.row.observed` | an observation with `grain_columns` (the columns the query counted), `unique` (`yes` / `no`), `within` (`each_partition` / `all_observed`), optionally `keys`, `duplicate_keys` | written to `summary.row.observed`, no `confirmed` in `sources`. An `inferred` or `observed` grain becomes `observed` with the observation's `unique`, and its grain columns become the counted ones -- unless the observation says unique and the document's grain columns contain them, which are then kept; a `declared` or `proven` grain only gains the observation |
+| `column:<c>.observed_values` | an observation with `complete`, optionally `values` (at most 50 `{value, count}`), `absent`, `distinct`, `nulls`, `observed_on` | written to the column's `observed_values`; the code values are left alone. Unmatched on an identifier column with `values` or `absent`, or when `observed_on` is not one of the column's `source_columns` |
+| `input:<db.table>` | an observation with `columns`, `unique`, `within`, optionally `keys`, `duplicate_keys` | one item of `observed_inputs[]` per input table (a catalog prefix ignored) and set of columns, a later one replacing it; its `confirmed[]` record carries the columns, so two sets of columns on one table are two records |
 
 Every applied confirmation is logged under `confirmed[]` (once per target, person and date),
 and applying the same confirmations twice changes nothing the second time: no byte of the
@@ -924,6 +929,45 @@ finding), handed to one revision that replays the confirmations before `semantic
 records it. Entries already in place change nothing, so a replayed directory decides on what
 is new. A table its review did not accept keeps its review untouched (its fix is still to be
 made); with `--out` no review is touched.
+
+### Observed facts
+
+The three observation targets (`summary.row.observed`, `column:<c>.observed_values`,
+`input:<db.table>`) carry what a platform query found, not what a person said. An
+observation is **not a definition**: it speaks of the partitions the query read on the day
+it ran, and a document never turns it into `proven` or "unique" without that limit. It is
+kept under the target table that read it, whose own read conditions it carries, and it is
+never carried over to another target table. Every value shares one evidence shape
+(`observation` in the schema):
+
+```json
+{
+  "query": "probe_1",
+  "on": "2026-11-20",
+  "rows": 120,
+  "partition": {"column": "dt", "values": ["20261119"]},
+  "requested": "20261120",
+  "filter": "src = 'a'",
+  "engine": "spark"
+}
+```
+
+`query`, `on`, `rows` and `partition` are required; `partition` is `values`, or `from` / `to`
+with a `count`, or `{"column": null}` for a whole table; `requested` names the partition first
+asked for when the query fell back to the latest available one. The limits hold in the
+schema and on replay: `rows` is at least 1 (an empty table has no duplicate and proves
+nothing); only counts (`rows`, `keys`, `duplicate_keys`, `distinct`, `nulls`) and at most 50
+values with their counts, each at most 64 characters without control characters; never
+detail rows; an identifier column (`identifier`, `foreign_identifier`) takes counts only;
+`unique: yes` with duplicate keys counted, or a value with a contact shape (an email, a phone
+number, an ID number), is unmatched. A value seen in the data is not a code value: when its
+meaning is unknown, the writer may still add it as `unconfirmed: true` and ask about it.
+
+Precedence on the row: `proven` (lineage) > `declared` (a comment or the owner) >
+`observed` > `inferred`. The observation slots are written by `semantic confirm` only,
+like `confirmed[]`. `table-semantics/1` and `semantic-confirmations/1` are extended, not
+versioned: a document or confirmations file without observations reads as before, and one
+with observations needs a version of the tool that knows them.
 
 ## `semantic facts`
 

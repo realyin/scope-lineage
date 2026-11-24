@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- **Added: observed facts -- what a platform query found -- as three confirmation targets that `semantic
+  confirm` replays into slots of their own.** `summary.row.observed` writes `summary.row.observed` and turns an
+  `inferred` grain into the new `grain_source: observed` (grain columns: the columns the query counted, unless
+  it found them unique and the document's grain columns contain them); a `declared` or `proven` grain only
+  gains the observation, and the owner's row confirmation turns `observed` into `declared` (`proven` >
+  `declared` > `observed` > `inferred`). `column:<c>.observed_values` writes the column's `observed_values`,
+  beside its code values and never into them. `input:<db.table>` writes one item of the new top-level
+  `observed_inputs` per input table (catalog prefix ignored) and set of columns; its `confirmed[]` record
+  carries `columns`, so two sets of columns on one table are two records. Every observation carries the query,
+  the date it ran, the partitions it read and its row count, at least 1; counts and at most 50 values only,
+  never detail rows, counts only on identifier columns; anything else is unmatched. An observation is not a
+  definition and gains no `confirmed` in `sources`. **Changed:** a `summary.row` object that sets `observed` or
+  `grain_source: observed` is now unmatched and adds nothing to the confirmed state. This extends
+  `table-semantics/1` and `semantic-confirmations/1` in place (no new version): documents and confirmations
+  files without observations read and replay byte for byte as before, but a document or confirmations file
+  with observations needs this version -- an older one refuses it. The page says 观测 for an observed grain;
+  validation, `semantic facts` and the other readers do not use observations yet.
 - **Changed: the runbook passes the owner's confirmations to every writer and reviewer, replays them after
   every write, and a confirmed slot sends a table to one revision.** The skill's T1 (write, rewrite, repair),
   T2 / T9 (review), T3 (re-review) and T4 (fix) prompts take `FACTS=@<file>` written by `semantic facts

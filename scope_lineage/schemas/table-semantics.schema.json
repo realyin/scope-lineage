@@ -43,7 +43,7 @@
       }
     },
     "confirmed": {
-      "description": "Written by `semantic confirm`: every confirmation applied to this document, in order.",
+      "description": "Written by `semantic confirm`: every confirmation applied to this document, in order. An `input:<db.table>` record names its table without a catalog prefix and carries `columns`, the observed columns in lower case and name order: one input table observed on two sets of columns is two records.",
       "type": "array",
       "items": {
         "type": "object",
@@ -52,9 +52,15 @@
         "properties": {
           "target": {"type": "string"},
           "by": {"type": "string"},
-          "date": {"type": "string"}
+          "date": {"type": "string"},
+          "columns": {"type": "array", "items": {"type": "string"}}
         }
       }
+    },
+    "observed_inputs": {
+      "description": "Written by `semantic confirm` from `input:<db.table>` confirmations, never by a writer: what a platform query found about an input table this table reads, under this table's own read conditions. One item per input table and set of columns, a later observation replacing an earlier one. An observation, not a definition: it says nothing about other partitions or other target tables.",
+      "type": "array",
+      "items": {"$ref": "#/definitions/observed_input"}
     }
   },
   "definitions": {
@@ -89,12 +95,22 @@
       "properties": {
         "text": {"$ref": "#/definitions/text"},
         "grain_columns": {"type": "array", "items": {"$ref": "#/definitions/text"}},
-        "grain_source": {"enum": ["declared", "inferred", "proven"]},
-        "unique": {"enum": ["yes", "no", "unknown"]},
+        "grain_source": {
+          "description": "`proven`: the lineage proves the key; `declared`: a comment or the owner says so; `observed`: a platform query found it (`observed` holds the query, the partitions and the date); `inferred`: read from the SQL. Ranked in this order.",
+          "enum": ["declared", "inferred", "proven", "observed"]
+        },
+        "unique": {
+          "description": "Whether a row is unique by `grain_columns`. When `grain_source` is `observed` it speaks only of the observed partitions.",
+          "enum": ["yes", "no", "unknown"]
+        },
         "note": {"type": "string"},
         "sources": {"$ref": "#/definitions/sources"},
         "confidence": {"$ref": "#/definitions/confidence"},
-        "watch": {"type": "string"}
+        "watch": {"type": "string"},
+        "observed": {
+          "description": "Written by `semantic confirm` from a `summary.row.observed` confirmation, never by a writer.",
+          "$ref": "#/definitions/observed_grain"
+        }
       }
     },
     "refresh": {
@@ -191,6 +207,10 @@
         },
         "source_columns": {"type": "array", "items": {"type": "string", "pattern": "^[^.\\s]+(\\.[^.\\s]+){2,3}$"}},
         "code_values": {"type": "array", "items": {"$ref": "#/definitions/code_value"}},
+        "observed_values": {
+          "description": "Written by `semantic confirm` from a `column:<c>.observed_values` confirmation, never by a writer: the values a platform query found. Not code values -- a value seen says nothing of what it means.",
+          "$ref": "#/definitions/observed_values"
+        },
         "unit": {"type": "string"},
         "null_meaning": {"type": "string"},
         "watch": {"type": "string"},
@@ -222,6 +242,97 @@
         "confidence": {"$ref": "#/definitions/confidence"},
         "watch": {"type": "string"}
       }
+    },
+    "observation": {
+      "description": "What one platform query observed and where: the query's id, the date it ran, the partitions it read (a fallback to the latest available one names the partition first asked for in `requested`), its own read condition and how many rows it saw (at least 1: an empty table proves nothing). Counts and at most 50 values only -- never detail rows. An observation is not a definition: it speaks of these partitions on this date.",
+      "type": "object",
+      "required": ["query", "on", "rows", "partition"],
+      "properties": {
+        "query": {"type": "string", "minLength": 1},
+        "on": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "rows": {"type": "integer", "minimum": 1},
+        "partition": {"$ref": "#/definitions/observed_partition"},
+        "requested": {"type": "string", "minLength": 1},
+        "filter": {"type": "string", "minLength": 1, "maxLength": 200},
+        "engine": {"type": "string", "minLength": 1}
+      }
+    },
+    "observed_partition": {
+      "description": "The partitions read: `values`, or a range `from`..`to` holding `count` partitions; `column` null for an unpartitioned table or the whole table.",
+      "type": "object",
+      "required": ["column"],
+      "additionalProperties": false,
+      "properties": {
+        "column": {"type": ["string", "null"], "minLength": 1},
+        "values": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "from": {"type": "string", "minLength": 1},
+        "to": {"type": "string", "minLength": 1},
+        "count": {"type": "integer", "minimum": 1}
+      },
+      "dependencies": {"from": ["to"], "to": ["from"]}
+    },
+    "observed_unique": {"enum": ["yes", "no"]},
+    "observed_within": {
+      "description": "`each_partition`: counted inside each partition; `all_observed`: across all the observed partitions together.",
+      "enum": ["each_partition", "all_observed"]
+    },
+    "observed_count": {"type": "integer", "minimum": 0},
+    "observed_value": {"type": "string", "maxLength": 64, "pattern": "^[^\\u0000-\\u001f\\u007f]*$"},
+    "observed_grain": {
+      "description": "An observation of the row's uniqueness. `grain_columns` are the columns the query counted, which need not be the document's grain columns.",
+      "allOf": [{"$ref": "#/definitions/observation"}],
+      "required": ["grain_columns", "unique", "within"],
+      "properties": {
+        "grain_columns": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/text"}},
+        "unique": {"$ref": "#/definitions/observed_unique"},
+        "within": {"$ref": "#/definitions/observed_within"},
+        "keys": {"$ref": "#/definitions/observed_count"},
+        "duplicate_keys": {"$ref": "#/definitions/observed_count"}
+      },
+      "propertyNames": {"enum": ["query", "on", "rows", "partition", "requested", "filter", "engine",
+                                 "grain_columns", "unique", "within", "keys", "duplicate_keys"]}
+    },
+    "observed_values": {
+      "description": "An observation of a column's values: at most 50 distinct values with their counts (`complete` when the query returned all of them), values asked about and not seen (`absent`), and counts. An identifier column carries counts only. `observed_on` names the source column observed when the query read it rather than this column (one of `source_columns`).",
+      "allOf": [{"$ref": "#/definitions/observation"}],
+      "required": ["complete"],
+      "properties": {
+        "values": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["value", "count"],
+            "additionalProperties": false,
+            "properties": {
+              "value": {"$ref": "#/definitions/observed_value"},
+              "count": {"$ref": "#/definitions/observed_count"}
+            }
+          }
+        },
+        "complete": {"type": "boolean"},
+        "absent": {"type": "array", "maxItems": 50, "items": {"$ref": "#/definitions/observed_value"}},
+        "distinct": {"$ref": "#/definitions/observed_count"},
+        "nulls": {"$ref": "#/definitions/observed_count"},
+        "observed_on": {"type": "string", "pattern": "^[^.\\s]+(\\.[^.\\s]+){2,3}$"}
+      },
+      "propertyNames": {"enum": ["query", "on", "rows", "partition", "requested", "filter", "engine",
+                                 "values", "complete", "absent", "distinct", "nulls", "observed_on"]}
+    },
+    "observed_input": {
+      "description": "An observation of an input table's uniqueness by `columns`, under the reading table's own conditions.",
+      "allOf": [{"$ref": "#/definitions/observation"}],
+      "required": ["table", "columns", "unique", "within"],
+      "properties": {
+        "table": {"$ref": "#/definitions/table"},
+        "columns": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/text"}},
+        "unique": {"$ref": "#/definitions/observed_unique"},
+        "within": {"$ref": "#/definitions/observed_within"},
+        "keys": {"$ref": "#/definitions/observed_count"},
+        "duplicate_keys": {"$ref": "#/definitions/observed_count"}
+      },
+      "propertyNames": {"enum": ["query", "on", "rows", "partition", "requested", "filter", "engine",
+                                 "table", "columns", "unique", "within", "keys", "duplicate_keys"]}
     },
     "task": {
       "type": "object",

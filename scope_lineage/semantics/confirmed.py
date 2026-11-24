@@ -23,11 +23,16 @@ in a document, later entries winning:
   document's ``inferred`` grain into ``declared`` under a confirmed ``grain_columns`` or
   ``unique``, which is what check 4 asks of the document);
 - ``question:<id>``: the answer, with the question's text when the entry carries
-  ``asked``.
+  ``asked``;
+- the observations (:mod:`.observed`): ``summary.row.observed`` the row's, one
+  ``column:<c>.observed_values`` per column, one ``input:<db.table>`` per input table
+  (``bare_table``) and set of columns, its value with ``table`` added. They are kept
+  apart from the row fields: an observation is no owner's word.
 
 An entry whose value ``apply_confirmations`` would refuse whatever the document (a code
-value without a meaning, a row field the schema does not have, an empty answer) adds
-nothing. Each fact keeps who confirmed it and when.
+value without a meaning, a row field the schema does not have, an empty answer, a
+``summary.row`` object that sets ``observed`` or ``grain_source: observed``, an
+observation over no rows) adds nothing. Each fact keeps who confirmed it and when.
 """
 
 from __future__ import annotations
@@ -38,9 +43,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .names import bare_table
+from .observed import (
+    INPUT,
+    OBSERVED_ROW,
+    OBSERVED_VALUES,
+    input_key,
+    input_table,
+    observation_problem,
+)
 from .schema import CONFIRMATIONS_FORMAT, DOC_FORMAT, packaged_schema, schema_errors
 
-_COLUMN_TARGET = re.compile(r"column:(?P<column>[^.\s]+)\.(?P<slot>meaning|code_values)")
+_COLUMN_TARGET = re.compile(
+    r"column:(?P<column>[^.\s]+)\.(?P<slot>meaning|code_values|observed_values)")
 # The row fields `semantic facts` prints first, in this order; any other confirmed row
 # field follows in name order.
 _ROW_ORDER = ("grain_columns", "grain_source", "unique", "text", "note")
@@ -84,6 +98,11 @@ class TableConfirmed:
     meanings: dict[str, Fact] = field(default_factory=dict)
     codes: dict[str, dict[str, Fact]] = field(default_factory=dict)
     answers: dict[str, Fact] = field(default_factory=dict)
+    # What platform queries observed, apart from what a person said.
+    observed_row: Fact | None = None
+    observed_values: dict[str, Fact] = field(default_factory=dict)
+    # (input table, its observed columns in lower case and name order) -> the observation
+    observed_inputs: dict[tuple[str, tuple[str, ...]], Fact] = field(default_factory=dict)
 
     def code_meanings(self, column: str) -> dict[str, str]:
         """``value -> meaning`` confirmed on one column, in confirmed order."""
@@ -94,7 +113,8 @@ class TableConfirmed:
         return {name: fact.value for name, fact in self.row.items()}
 
     def __bool__(self) -> bool:
-        return bool(self.row or self.meanings or self.codes or self.answers)
+        return bool(self.row or self.meanings or self.codes or self.answers
+                    or self.observed_row or self.observed_values or self.observed_inputs)
 
 
 @dataclass
@@ -169,6 +189,16 @@ def _take(state: TableConfirmed, entry: dict) -> None:
         for name, item in (fields or {}).items():
             state.row[name] = Fact(item, by, date)
         return
+    if target == OBSERVED_ROW:
+        if observation_problem(OBSERVED_ROW, value) is None:
+            state.observed_row = Fact(value, by, date)
+        return
+    if target.startswith(INPUT):
+        if observation_problem(INPUT, value) is None:
+            table = input_table(target)
+            state.observed_inputs[input_key(table, value["columns"])] = Fact(
+                {"table": table, **value}, by, date)
+        return
     match = _COLUMN_TARGET.fullmatch(target)
     if match is None:
         return
@@ -176,6 +206,10 @@ def _take(state: TableConfirmed, entry: dict) -> None:
     if match["slot"] == "meaning":
         if isinstance(value, str) and value.strip():
             state.meanings[column] = Fact(value, by, date)
+        return
+    if match["slot"] == OBSERVED_VALUES:
+        if observation_problem(OBSERVED_VALUES, value) is None:
+            state.observed_values[column] = Fact(value, by, date)
         return
     items = value if isinstance(value, list) else [value] if isinstance(value, dict) else None
     if not items or not all(_is_code(item) for item in items):
@@ -194,10 +228,13 @@ def _is_code(item) -> bool:
 
 def _row_fields(value) -> dict | None:
     """The row fields a ``summary.row`` value sets, or None when ``apply_confirmations``
-    would refuse it: a string is the text; an object must fit the row's schema."""
+    would refuse it: a string is the text; an object must fit the row's schema, and may not
+    set ``observed`` or ``grain_source: observed`` (an observation has its own target)."""
     if isinstance(value, str):
         return {"text": value} if value.strip() else None
     if not isinstance(value, dict) or not value:
+        return None
+    if "observed" in value or value.get("grain_source") == "observed":
         return None
     schema = packaged_schema(DOC_FORMAT)
     row = schema["definitions"]["row"]

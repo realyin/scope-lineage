@@ -11,6 +11,7 @@ from ..render.catalog_concept_page import table_head, table_row
 from .page_words import (
     GRAIN_SOURCE_TEXT,
     NONE,
+    OBSERVED_UNIQUE_TEXT,
     ROLE_TEXT,
     TICK,
     TIME_TEXT,
@@ -51,7 +52,9 @@ def join_blocks(blocks: list[list[str]]) -> list[str]:
 def _row_text(row: dict) -> str:
     grain = " + ".join(code(column) for column in row["grain_columns"])
     body = sentence(row["text"]) + (f"粒度按 {grain}" if grain else "粒度未写明")
-    body += f"，来源为{GRAIN_SOURCE_TEXT[row['grain_source']]}，{UNIQUE_TEXT[row['unique']]}。"
+    source = row["grain_source"]
+    unique = (OBSERVED_UNIQUE_TEXT if source == "observed" else UNIQUE_TEXT)[row["unique"]]
+    body += f"，来源为{GRAIN_SOURCE_TEXT.get(source, source)}，{unique}。"
     return body + (sentence(row["note"]) if row.get("note") else "")
 
 

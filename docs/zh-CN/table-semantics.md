@@ -297,7 +297,8 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | `rules[]` | 过滤、关联、去重、派生、合并：业务说法加上照抄的 SQL 原文 |
 | `task` 或 `tasks[]` | 生产任务：`name`、`purpose`、`outputs`，可选 `cycle`、`upstream_tasks`、`downstream_tasks`——两个键只能出现一个 |
 | `concept` | 可选，链接本体目录：`concept:<id>` 与本表的表现类型 |
-| `confirmed[]` | 由 `semantic confirm` 写入：每条已套用的确认（`target`、`by`、`date`） |
+| `confirmed[]` | 由 `semantic confirm` 写入：每条已套用的确认（`target`、`by`、`date`；`input:` 的记录另带 `columns`） |
+| `observed_inputs[]` | 只由 `semantic confirm` 按 `input:<db.table>` 确认写入：平台查询对本表所读输入表的观测（见 `semantic confirm` 下的「观测事实」） |
 
 ### 来源与置信
 
@@ -311,7 +312,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | 键 | 内容 |
 | --- | --- |
 | `what` | 一句话：这张表是什么 |
-| `row` | 一行是什么：`text`、`grain_columns`、`grain_source`（`declared` / `inferred` / `proven`）、`unique`（`yes` / `no` / `unknown`），不唯一时在 `note` 写风险 |
+| `row` | 一行是什么：`text`、`grain_columns`、`grain_source`（`declared` / `inferred` / `proven` / `observed`）、`unique`（`yes` / `no` / `unknown`；来源为 `observed` 时只指观测的分区），不唯一时在 `note` 写风险；`observed` 只由 `semantic confirm` 写 |
 | `refresh` | `cycle`、`time`（`snapshot` / `incremental` / `zipper` / `unknown`）与 `how_to_read`：怎么取一天、怎么取一段 |
 | `scope[]` | 收哪些记录，业务说法，用 `rule_refs` 引用规则 |
 | `upstream[]` | 每张输入表的 `role`（`main` / `enrich` / `filter` / `dedup` / `union_branch` / `lookup` / `other`）与它 `provides` 什么 |
@@ -326,6 +327,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 `state`、`measure`、`time`、`technical`）、`derivation`（业务说法的口径；多分支时用 `branches[]`）、
 `source_columns`（口径读到的 `db.table.column`）、`code_values[]`（`value`、`meaning`、`sources`，猜测的
 标 `unconfirmed: true`），可选 `unit`、`null_meaning`、`watch`，以及 `sources` 与 `confidence`。
+`observed_values` 只由 `semantic confirm` 写：查询看到的取值，与码值并列，从不算码值。
 
 规则包括 `id`（`r1`…）、`kind`（`filter`、`join`、`dedup`、`derive`、`union`、`other`）、`text`、`sql`
 （脚本里的 SQL 原文片段）与 `sources`。
@@ -707,7 +709,10 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 | `question:<id>` | 回答文字 | `status: answered`，写入 `answer`、`answered_by`、`answered_on` |
 | `column:<c>.meaning` | 含义文字 | 替换 `meaning`；该列 `sources` 加 `confirmed` |
 | `column:<c>.code_values` | `{value, meaning}` 列表，或单个这样的对象 | 列表整体替换码值，单个对象合并进去；每个被确认的码值加 `confirmed` 并置 `unconfirmed: false` |
-| `summary.row` | 行字段组成的对象，或行描述文字 | 合并进 `summary.row`；其 `sources` 加 `confirmed`。对象设了 `grain_columns` 或 `unique` 而没设 `grain_source` 时，`inferred` 的粒度改成 `declared`（`declared`、`proven` 不动） |
+| `summary.row` | 行字段组成的对象，或行描述文字 | 合并进 `summary.row`；其 `sources` 加 `confirmed`。对象设了 `grain_columns` 或 `unique` 而没设 `grain_source` 时，`inferred` 或 `observed` 的粒度改成 `declared`（`declared`、`proven` 不动）。对象设了 `observed` 或 `grain_source: observed` 时 unmatched |
+| `summary.row.observed` | 一条观测，带 `grain_columns`（查询实际计数的列）、`unique`（`yes` / `no`）、`within`（`each_partition` / `all_observed`），可选 `keys`、`duplicate_keys` | 写入 `summary.row.observed`，`sources` 不加 `confirmed`。`inferred` 或 `observed` 的粒度改成 `observed` 并取观测的 `unique`，粒度列写成计数列——观测说唯一且文档的粒度列包含计数列时保留文档的；`declared`、`proven` 只挂上观测 |
+| `column:<c>.observed_values` | 一条观测，带 `complete`，可选 `values`（至多 50 个 `{value, count}`）、`absent`、`distinct`、`nulls`、`observed_on` | 写入该列的 `observed_values`，码值不动。标识类列带 `values` 或 `absent`、`observed_on` 不是该列的 `source_columns` 之一时 unmatched |
+| `input:<db.table>` | 一条观测，带 `columns`、`unique`、`within`，可选 `keys`、`duplicate_keys` | 按输入表（忽略 catalog 前缀）和列集合各占 `observed_inputs[]` 一项，后来的覆盖前面的；`confirmed[]` 的记录带列，同一张表两组列是两条记录 |
 
 每条已套用的确认记入 `confirmed[]`（同一目标、同一人、同一天只记一次）。同样的确认套用两次，第二次不改变任何东西：
 文档一个字节都不变，`confirmed[]` 不新增，摘要行里变化的表是 0 张。所以运行中每次写作或修订之后都可以重放确认；
@@ -741,6 +746,34 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 `<db.table>  fix record not carried: <目标> changed; …`，表是 `reviewed fix_unconfirmed`（审读没有高、中级问题时是
 `valid review_stale`），交给一轮修订，修订在 `semantic fixed` 写回执之前重放确认。已经套用过的条目不改变什么，所以重放
 整个目录时只按新的条目判断。审读没有认可的表，审读文件不动（修订还没做完）；给了 `--out` 时不动任何审读。
+
+### 观测事实
+
+三种观测目标（`summary.row.observed`、`column:<c>.observed_values`、`input:<db.table>`）记的是平台查询看到的结果，
+不是人的话。观测**不是定义**：它只说明查询在执行那天读到的分区，文档不得把它写成 `proven`，也不写不带这个限定的「唯一」。
+它记在读它的目标表名下，带的是这张目标表自己的读取条件，从不扩到别的目标表。每条观测共用一组依据（Schema 里的 `observation`）：
+
+```json
+{
+  "query": "probe_1",
+  "on": "2026-11-20",
+  "rows": 120,
+  "partition": {"column": "dt", "values": ["20261119"]},
+  "requested": "20261120",
+  "filter": "src = 'a'",
+  "engine": "spark"
+}
+```
+
+`query`、`on`、`rows`、`partition` 必填；`partition` 写 `values`，或 `from` / `to` 加 `count`，全表写 `{"column": null}`；
+查询回退到最近可用分区时，`requested` 写原定的分区。边界同时落在 Schema 与重放上：`rows` 至少 1（空表没有重复，什么也证明不了）；
+只有计数（`rows`、`keys`、`duplicate_keys`、`distinct`、`nulls`）与至多 50 个取值及其计数，单值至多 64 字、不含控制字符；
+从不带明细行；标识类列（`identifier`、`foreign_identifier`）只给计数；`unique: yes` 却数到重复键、或取值有联系方式的形状
+（邮箱、电话、证件号），都是 unmatched。数据里看到的值不是码值：含义不知道时，写作者照样可以写成 `unconfirmed: true` 并提问。
+
+行粒度的优先级：`proven`（血缘）＞ `declared`（注释或负责人）＞ `observed` ＞ `inferred`。观测槽位与 `confirmed[]` 一样只由
+`semantic confirm` 写。`table-semantics/1` 与 `semantic-confirmations/1` 是扩展、不升版本：没有观测的文档和确认文件照旧可读，
+带观测的需要认识它们的工具版本。
 
 ## `semantic facts`
 

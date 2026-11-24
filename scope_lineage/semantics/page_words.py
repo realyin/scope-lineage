@@ -39,8 +39,11 @@ TIME_TEXT = {
     "zipper": "**拉链**表，一行是一个有效期窗口",
     "unknown": "时间语义未写明",
 }
-GRAIN_SOURCE_TEXT = {"declared": "声明", "inferred": "推断", "proven": "已证明"}
+GRAIN_SOURCE_TEXT = {"declared": "声明", "inferred": "推断", "proven": "已证明", "observed": "观测"}
 UNIQUE_TEXT = {"yes": "全表唯一", "no": "**不能保证唯一**", "unknown": "是否唯一未知"}
+# An observed grain speaks of the partitions a query read, never of the whole table.
+OBSERVED_UNIQUE_TEXT = {"yes": "在观测的分区内无重复（观测，不是定义）",
+                        "no": "在观测的分区内**有重复**", "unknown": "是否唯一未知"}
 ROLE_TEXT = {
     "main": "主表",
     "enrich": "补充字段",
