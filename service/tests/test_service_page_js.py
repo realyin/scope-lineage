@@ -292,7 +292,7 @@ _ROW = {**_EVIDENCE, "grain_columns": ["customer_id"], "unique": "yes", "within"
 _INPUT = {**_RANGE, "table": "db.t", "columns": ["k"], "unique": "no", "within": "all_observed",
           "keys": 100, "duplicate_keys": 3}
 _COLUMN = {"column": "c", "observed_values": {
-    **_EVIDENCE, "values": [{"value": "F", "count": 60}, {"value": "X", "count": 10}],
+    **_EVIDENCE, "values": [{"value": "F", "count": 60}, {"value": "", "count": 10}],
     "complete": True, "absent": ["U"], "distinct": 2, "nulls": 0, "observed_on": "db.t.c"}}
 
 
@@ -322,6 +322,7 @@ def test_an_observation_reads_as_the_table_page_says_it_never_as_unique() -> Non
     assert words["row"] == observed_row_text(_ROW)
     assert words["input"] == observed_input_text(_INPUT)
     assert words["values"] == observed_values_text(_COLUMN)
+    assert "''（空串）（10 行）" in words["values"]
     assert words["observed"] == words["row"]
     for key in ("row", "input", "values", "observed", "bare"):
         assert "唯一" not in words[key], words[key]

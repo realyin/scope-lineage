@@ -134,10 +134,12 @@ class Confirmations:
         return self.tables.get(bare_table(table))
 
 
-def read_confirmations(path: str | Path) -> Confirmations | None:
-    """The confirmations at ``path`` (a file or a directory); None when a directory holds
-    no confirmations file. Raises :class:`ConfirmationsError` when ``path`` does not exist
-    or a file cannot be read or fits no schema."""
+def read_confirmations(path: str | Path) -> Confirmations:
+    """The confirmations at ``path`` (a file or a directory). A directory holding no
+    confirmations file is an empty state (no files, no entries), not "no path": a run's
+    ``confirmations/`` nobody answered into backs no observation. Raises
+    :class:`ConfirmationsError` when ``path`` does not exist or a file cannot be read or
+    fits no schema."""
     root = Path(path)
     if root.is_dir():
         candidates = sorted(item for item in root.glob("*.json") if item.is_file())
@@ -166,8 +168,6 @@ def read_confirmations(path: str | Path) -> Confirmations | None:
         entries += document["confirmations"]
     if messages:
         raise ConfirmationsError(messages)
-    if not files:
-        return None
     return Confirmations(path=str(root), files=files, entries=entries,
                          tables=confirmed_state(entries))
 

@@ -60,6 +60,12 @@ _OTHERWISE_FIRST = re.compile(r"\s*(?:否则|不然|反之)")
 # (「观测（查询 …，分区 …，… 执行）：…」, D16 5).
 _OBSERVED = re.compile(r"观测")
 _OBSERVED_FORM = re.compile(r"观测\s*[（(]\s*查询")
+# Words that make an observation a proof; never in a sentence relaxed by one (D16 3.3). One
+# right after a negation (不保证, 不一定, 无法保证 ...) says what is not known, not a proof.
+_PROOF = re.compile(r"已证明|证明了|保证|一定|必然")
+_PROOF_NEGATED = re.compile(r"(?:不|未|没有?|无法|不能|难以|并不|并未)\s*$")
+# What in a no-fan-out clause names the observed partitions besides one of their values.
+_THESE_PARTITIONS = re.compile(r"该分区|这些分区|此分区|本分区|这个分区|全表")
 
 
 def check_fan_out(document: dict, packet: dict, confirmed=None) -> list[dict]:
@@ -275,27 +281,45 @@ def _harmless_left(
 
 
 def _about(text: str, named: list[dict]) -> list[dict]:
-    """The joins a sentence speaks of: those it names by rule number (pN) when it names any
-    that way, else all it names. 「T 按 (k) 无重复，p62 不放大」 is about p62, though the
-    table's name also names every other join onto T."""
-    return [rule for rule in named if _mentions(text, [rule["id"]])] or named
+    """The joins a sentence speaks of: all it names, less the joins onto a right side it
+    names by another join's rule number (pN). 「T 按 (k) 无重复，p62 不放大」 is about p62, though
+    the table's name also names every other join onto T; a pN picks among the joins of its
+    own right side only, so another right table the sentence names (by table or alias)
+    is spoken of too."""
+    by_id = [rule for rule in named if _mentions(text, [rule["id"]])]
+    picked = {_right_side(rule) for rule in by_id}
+    return by_id + [rule for rule in named if rule not in by_id and _right_side(rule) not in picked]
 
 
 def _observed_claim(text: str, claims: list[re.Match], about: list[dict], confirmed) -> bool:
     """Whether a sentence's no-effect claims report observations the confirmations back.
 
-    The sentence says 观测; no claim's clause speaks of every join (都, 所有 ...); and each
-    join it is about has its own observation found unique, whose partition the sentence
-    names (a value, an end of the range, or 全表).
+    The sentence says 观测 and claims no proof (已证明, 保证, 一定, 必然, unless negated);
+    no claim's clause speaks of every join (都, 所有 ...); every claim's clause keeps to
+    the observed partitions (该分区 / 这些分区, a value or an end of the range, 全表) --
+    「别的分区同样不放大」 carries the observation where it was not made; and each join it is
+    about has its own observation found unique, whose partition the sentence names (a
+    value, an end of the range, or 全表).
     """
-    if confirmed is None or not _OBSERVED.search(text):
+    if confirmed is None or not _OBSERVED.search(text) or _claims_proof(text):
         return False
     if any(_UNIVERSAL.search(_clause(text, claim)) for claim in claims):
+        return False
+    found = [obs for rule in about for obs in observations(rule, confirmed)]
+    if not all(
+        _THESE_PARTITIONS.search(clause)
+        or any(_names_partition(clause, obs["partition"]) for obs in found)
+        for clause in (_clause(text, claim) for claim in claims)
+    ):
         return False
     return all(
         any(_names_partition(text, obs["partition"]) for obs in observations(rule, confirmed))
         for rule in about
     )
+
+
+def _claims_proof(text: str) -> bool:
+    return any(not _PROOF_NEGATED.search(text[: m.start()]) for m in _PROOF.finditer(text))
 
 
 def _names_partition(text: str, partition: dict) -> bool:

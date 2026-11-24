@@ -8,7 +8,8 @@ table's state (:class:`~.confirmed.TableConfirmed`) and tells three cases apart:
 
 - ``None``: no confirmations path was given -- a slot cannot be checked and warns
   (「无法核对观测来源」);
-- an empty state: a path was given and has nothing for this table -- every slot fails;
+- an empty state: a path was given and has nothing for this table -- a run's empty
+  ``confirmations/`` too -- every slot fails;
 - a state with entries: each slot must be the confirmation's.
 
 A slot that is not the confirmation's is no writer's to fix: the message says to replay
@@ -20,6 +21,7 @@ anything, so every report is what it was before observations existed.
 
 from __future__ import annotations
 
+from ..observation_words import value_word
 from ..render.semantic_text import PASS_THROUGH_TEXT_PREFIXES
 from .names import bare_column, bare_table
 from .observed import IDENTIFIER_CATEGORIES, input_key, observation_text
@@ -78,8 +80,10 @@ def seen_value(observation: dict | None, value: str) -> bool:
 
 def check_observed_values(ci: int, column: dict, packet: dict, confirmed) -> list[dict]:
     """Check 3 on one column's observation: the slot is the confirmation's; an identifier
-    column carries no values; observed values off the code list warn once; a code value
-    the observation asked about and did not see warns."""
+    column carries no values; observed values off the code list warn once. A code value
+    the observation asked about and did not see is not reported (D16 3.1): a few
+    partitions cannot tell a code is gone, no writer could clear the warning, and the page
+    shows 「没有出现 …」 beside the code list."""
     name, at = column["column"], f"columns[{ci}].observed_values"
     slot = column.get("observed_values")
     fact = confirmed.observed_values.get(name) if confirmed else None
@@ -107,15 +111,9 @@ def check_observed_values(ci: int, column: dict, packet: dict, confirmed) -> lis
     else:
         off = [item for item in items if str(item["value"]) not in listed]
         if off:
-            seen = "、".join(f"{item['value']}（{item['count']} 行）" for item in off)
+            seen = "、".join(f"{value_word(item['value'])}（{item['count']} 行）" for item in off)
             results.append(_result("code_values", "warn", f"columns[{ci}].code_values", (
                 f"列 {name} 观测到码值表外的值 {seen}（{where}）；问含义，或写成 unconfirmed")))
-    absent = {str(value) for value in comparable.get("absent") or []}
-    for vi, code in enumerate(codes):
-        if str(code["value"]) in absent:
-            results.append(_result("code_values", "warn", f"columns[{ci}].code_values[{vi}]", (
-                f"码值 {code['value']!r} 在观测里没有出现（{where}，计数为 0）：码值不必删，"
-                "写明这批数据里没有它，或问 owner 是否已停用")))
     return results
 
 
@@ -130,7 +128,8 @@ def check_observed_grain(row: dict, confirmed, owner_row: bool) -> list[dict]:
     prose says it is an observation. The slot is the confirmation's. With a confirmed
     observation an ``inferred`` grain fails (the replay writes ``observed``; when the owner
     confirmed the row, the owner's check already fails it) and a ``declared`` one warns
-    when the observation contradicts it -- a comment's word is no writer's to change.
+    when the observation contradicts it (yes against no, other columns; ``unique:
+    unknown`` contradicts nothing) -- a comment's word is no writer's to change.
     ``proven`` is not judged here."""
     source, slot = row["grain_source"], row.get("observed")
     fact = confirmed.observed_row if confirmed else None
@@ -208,8 +207,11 @@ def _against(row: dict, observation: dict, owner_row: bool) -> list[dict]:
 
 
 def _agrees(row: dict, observation: dict) -> bool:
+    """Whether a declared grain and the observation can both hold. ``unique: unknown``
+    claims nothing an observation could contradict; other columns than those counted, or
+    yes against no, do."""
     counted, grain = set(observation["grain_columns"]), set(row["grain_columns"])
-    if row["unique"] != observation["unique"]:
+    if row["unique"] not in ("unknown", observation["unique"]):
         return False
     return grain >= counted if observation["unique"] == "yes" else grain == counted
 

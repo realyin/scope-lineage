@@ -647,15 +647,20 @@ export function observedInputText(o) {
   return `${observedWhere(o)}${observedCount(o, o.columns)}；${effect}`;
 }
 
+/** An observed value; the empty string as 「''（空串）」, not as nothing. */
+function observedValueWord(value) {
+  return String(value) === "" ? "''（空串）" : String(value).split(/\s+/).filter(Boolean).join(" ");
+}
+
 /** A column's observed values with their counts; never a code list. */
 export function observedValuesText(column) {
   const o = column.observed_values;
   const items = o.values || [];
   const parts = [];
   if (items.length) {
-    parts.push(`出现 ${items.map((v) => `${v.value}（${v.count} 行）`).join("、")}，${o.complete ? "已列全" : "未列全"}`);
+    parts.push(`出现 ${items.map((v) => `${observedValueWord(v.value)}（${v.count} 行）`).join("、")}，${o.complete ? "已列全" : "未列全"}`);
   }
-  if (o.absent && o.absent.length) parts.push(`没有出现 ${o.absent.join("、")}`);
+  if (o.absent && o.absent.length) parts.push(`没有出现 ${o.absent.map(observedValueWord).join("、")}`);
   const counts = [o.distinct !== undefined ? `去重 ${o.distinct} 个` : "",
     o.nulls !== undefined ? `空值 ${o.nulls} 个` : ""].filter(Boolean).join("、");
   if (!items.length) parts.push(counts ? `只给计数：${counts}` : "只给计数");

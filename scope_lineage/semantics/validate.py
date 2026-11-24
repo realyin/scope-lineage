@@ -69,8 +69,9 @@ def validate_document(
     from a run's confirmations files) gives checks 3, 4, 6 and 10 what the owner confirmed and
     the platform queries observed for the document's own table. Three cases differ only
     for a document or table with observations: None (no confirmations path: an observation
-    slot cannot be checked and warns), confirmations with no entry for the table (each
-    observation slot fails), entries for the table (each slot must be the confirmation's).
+    slot cannot be checked and warns), confirmations with no entry for the table -- an
+    empty confirmations directory too (each observation slot fails), entries for the table
+    (each slot must be the confirmation's).
     Without observations the first two check what they always did.
     """
     if packet is None:
@@ -135,7 +136,7 @@ def check_file(
 def validation_report(entries: list[dict], confirmations=None) -> dict:
     """The ``--json`` document: every file's entry and one summary line's numbers.
 
-    With ``confirmations`` read, the report gains ``confirmations`` -- the path, the files
+    With confirmations files read, the report gains ``confirmations`` -- the path, the files
     and the number of entries the checks held the documents to; without, it has no such
     key, as before."""
     checked = [entry for entry in entries if not entry["schema_errors"]]
@@ -155,7 +156,7 @@ def validation_report(entries: list[dict], confirmations=None) -> dict:
             "pass_rate": round((total - failed) / total, 4) if total else None,
         },
     }
-    if confirmations is not None:
+    if confirmations is not None and confirmations.files:
         report["confirmations"] = confirmations_summary(confirmations)
     return report
 

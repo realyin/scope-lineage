@@ -25,23 +25,31 @@
   `--documents DIR`: the row's line then says when the counted columns are not the document's grain columns.
   Without observations the output is byte for byte as before.
 - **Added: validation holds a document's observations to the confirmations files (checks 3, 4, 6).** Check 4:
-  a `declared` grain the confirmed row observation agrees with passes, one it contradicts warns; `inferred`
+  a `declared` grain the confirmed row observation agrees with passes, and so does one of `unique: unknown` on
+  the counted columns; one it contradicts (yes against no, other columns) warns; `inferred`
   with a row observation fails; `grain_source: observed` must carry `row.observed` and say its `unique` and
   counted columns, and its prose should say 观测 (warn); `proven` is judged as before and never met by an
   observation. Check 3: an observed value is never a code (written as one without `unconfirmed` it still
   fails, the message saying it was observed); observed values off the code list warn once per column, a code
-  value asked about and not seen warns, and only a column that passes its single source column through is
+  value asked about and not seen is not reported (no writer could clear it; the page shows 「没有出现 …」), and
+  only a column that passes its single source column through is
   compared with an observation of that source; values on an identifier column fail. Check 6: an observed input
   table must be a lineage input. Every observation slot must be the confirmation's: `validate_document` now
   tells no confirmations path (warn 「无法核对观测来源」) from a path with nothing for the table (fail) and from
-  entries for the table; a failure the writer cannot fix says 「拿回确认文件改」. Without observations every
-  report is byte for byte as before.
+  entries for the table. **Changed:** a confirmations directory with no confirmations file -- the run's
+  `confirmations/` nobody answered into -- is now a path with nothing in it, not "no path" (`read_confirmations`
+  returns an empty `Confirmations`, not None): an observation a document claims there fails. Nothing is announced
+  on stderr and no report gains a `confirmations` key for it; a failure the writer cannot fix says
+  「拿回确认文件改」. Without observations every report is byte for byte as before.
 - **Changed: check 10 (`fan_out`) reads observations of a join's right side.** Naming a join whose right side
   is not proven unique stays required. A sentence calling it harmless to the row count no longer warns when the
   right side is a single table T (`right_tables` is `[T]`, a physical table or a one-table subquery), the
   confirmations hold an `input:T` observation that found T unique on columns among the join's keys on T, and
   the sentence says 观测 and names the observed partition; a clause about every join (都, 所有 …) does not
-  qualify, and every join the sentence speaks of needs its own observation. **New warning:** a sentence in the
+  qualify, every no-fan-out clause keeps to the observed partition (该分区 / 这些分区, a partition value, 全表:
+  「别的分区同样不放大」 does not qualify), a sentence claiming proof (已证明, 保证, 一定, 必然, unless negated) does
+  not qualify, and every join the sentence speaks of needs its own observation (a pN picks among the joins onto
+  its own right side only: another right table the sentence names still counts). **New warning:** a sentence in the
   observation form 「观测（查询 …」 about a join the confirmations hold no observation of. An observation that
   found duplicates relaxes nothing and is quoted in the failure to name the join. Without a confirmations path
   the check is byte for byte as before. A one-table subquery that multiplies T's rows (explode, self-join,
@@ -51,7 +59,8 @@
   outright.** The table page writes an `observed` grain as 「在分区 … 内（查询 …，… 执行，N 行）按 (k) 计数无重复
   …，只说明这些分区，不是定义」 instead of 「全表唯一」 (a `declared` or `proven` grain keeps its words and gains the
   observation), closes a column's 口径 with its observed values (off-list values and unseen codes marked when the
-  query read the column itself) and lists each observed input table as 「上游观测：」 under 数据从哪来.
+  query read the column itself; an empty-string value reads 「''（空串）」, `'' (empty string)` in the digest) and
+  lists each observed input table as 「上游观测：」 under 数据从哪来.
   `catalog digest` carries `grain.observed`, a column's `observed_values` and `observed_inputs`, and its Grain
   line reads `observed in <partition> on <date> (...): no duplicate by (...) -- not a definition` instead of
   `unique: yes`. The context pack's `row` gains `grain_source` and `observed` when there is an observation, its

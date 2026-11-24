@@ -145,6 +145,41 @@ def test_every_join_the_sentence_names_needs_its_own_observation() -> None:
     assert _problems(packet, sentence, both) == []
 
 
+def test_a_rule_number_picks_among_joins_of_its_table_not_other_tables() -> None:
+    # pN only says which join onto T the sentence means; another right table it names, by
+    # table or by alias, is spoken of too and needs an observation of its own.
+    packet = _packet(_join("p1", "b", "open_id"), _join("p2", "h", "open_id", tables=(OTHER,)))
+    for claim in (f"在该分区内不放大，{OTHER} 的关联也在该分区内不放大",
+                  "在该分区内不放大，h 也在该分区内不放大"):
+        sentence = _said("p1", claim=claim)
+        warnings = _problems(packet, sentence, _observed(OPEN_ID))
+        assert any(WARNING in w["message"] for w in warnings), claim
+        assert _problems(packet, sentence, _observed(OPEN_ID, _of(OTHER, "open_id"))) == []
+
+
+def test_every_no_fan_out_clause_carries_the_observed_partition() -> None:
+    for claim in ("在该分区内不放大，别的分区同样不放大", "在该分区内不放大，其余日期也不放大"):
+        (warning,) = _problems(ONE, _said("p1", claim=claim), _observed(OPEN_ID))
+        assert WARNING in warning["message"], claim
+    # the partition's value, 这些分区 or 全表 in the clause says it as well as 该分区
+    for claim in ("在 dt=20261119 内不放大", "在这些分区内不放大"):
+        assert _problems(ONE, _said("p1", claim=claim), _observed(OPEN_ID)) == [], claim
+
+
+def test_a_sentence_claiming_proof_is_no_observation() -> None:
+    for sentence in (
+        f"观测（查询 probe_1，{PARTITION}，2026-11-20 执行）：{USER} 按 open_id 唯一，已证明 p1 不放大",
+        _said("p1", claim="在该分区内保证不放大"),
+        _said("p1", claim="在该分区内一定不放大"),
+        _said("p1", claim="在该分区内必然不放大"),
+    ):
+        (warning,) = _problems(ONE, sentence, _observed(OPEN_ID))
+        assert WARNING in warning["message"], sentence
+    # saying what the observation does not guarantee is no claim of proof
+    hedged = _said("p1", claim="在该分区内不放大，不保证别的分区")
+    assert _problems(ONE, hedged, _observed(OPEN_ID)) == []
+
+
 def test_a_sentence_without_the_partition_still_warns() -> None:
     sentence = _said("p1").replace(f"{PARTITION}，", "")
     (warning,) = _problems(ONE, sentence, _observed(OPEN_ID))

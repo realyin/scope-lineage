@@ -6,14 +6,15 @@ one the files do not is held to the files. Three states are kept apart -- no
 confirmations path at all, a path with nothing for this table, entries for this table --
 and without any observation every report is what it always was.
 
-- Check 4: a ``declared`` grain the observation agrees with passes, one it contradicts
-  warns (a comment's word is no writer's to change); an ``inferred`` grain with an
+- Check 4: a ``declared`` grain the observation agrees with passes, and so does one of
+  ``unique: unknown`` on the observed columns; one it contradicts (yes against no, other
+  columns) warns (a comment's word is no writer's to change); an ``inferred`` grain with an
   observation fails (the replay writes ``observed``); a document claiming ``observed``
   fails when the files have no such observation and warns when there are no files; the
   ``observed`` slot is the confirmation's. ``proven`` is judged as before.
 - Check 3: an observed value is never a code: written as one without ``unconfirmed`` it
-  still fails. Observed values off the code list warn once per column; a value asked
-  about and not seen that the document lists as a code warns. Only a column that passes
+  still fails. Observed values off the code list warn once per column; a code asked
+  about and not seen is not reported (the page shows 「没有出现 …」). Only a column that passes
   its single source column through is compared with an observation of that source.
 - Check 6: an observed input table must be one of the lineage's input tables.
 
@@ -26,6 +27,7 @@ with one thing changed.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -105,6 +107,25 @@ def test_a_declared_grain_the_observation_contradicts_warns(tmp_path, document, 
     assert warn["at"] == "summary.row.grain_source" and "声明与观测不一致" in warn["message"]
 
 
+@pytest.mark.parametrize("observed", [_grain(), _grain(unique="no", duplicate_keys=4)],
+                         ids=["observed-unique", "observed-duplicates"])
+def test_a_declared_grain_of_unknown_uniqueness_does_not_contradict(
+    tmp_path, document, packet, observed
+) -> None:
+    entry = _entry("summary.row.observed", observed)
+    document = _replayed(_row(document, grain_source="declared", unique="unknown"), entry)
+    report = _validate(tmp_path, document, packet, entry)
+    assert _found(report, "grain", "fail") == [] and _found(report, "grain", "warn") == []
+
+
+def test_a_declared_grain_on_other_columns_than_observed_warns(tmp_path, document, packet) -> None:
+    entry = _entry("summary.row.observed",
+                   _grain(grain_columns=["verified_customer_no"], unique="no", duplicate_keys=2))
+    document = _replayed(_row(document, grain_source="declared", unique="unknown"), entry)
+    (warn,) = _found(_validate(tmp_path, document, packet, entry), "grain", "warn")
+    assert "声明与观测不一致" in warn["message"]
+
+
 def test_an_inferred_grain_with_an_observation_fails(tmp_path, document, packet) -> None:
     document = _replayed(_row(document, grain_source="declared"), ROW)
     _row(document, grain_source="inferred")
@@ -135,6 +156,45 @@ def test_observed_without_any_confirmations_path_warns(tmp_path, document, packe
     assert _found(report, "grain", "fail") == []
     (warn,) = [item for item in _found(report, "grain", "warn") if "无法核对观测来源" in item["message"]]
     assert warn["at"] == "summary.row.grain_source"
+
+
+def _claims_observed_in_a_run(tmp_path: Path, packets: Path, document: dict) -> Path:
+    from .test_semantic_confirmed_facts import _run_dir
+
+    document = _row(document, grain_source="observed", observed=_grain(),
+                    note="观测：在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行）按 "
+                         "(customer_id) 无重复。")
+    return _run_dir(tmp_path, packets, document)
+
+
+def test_an_empty_confirmations_directory_holds_a_claimed_observation_to_nothing(
+    tmp_path, packets, document
+) -> None:
+    from .test_semantic_confirmed_facts import _run
+
+    run_dir = _claims_observed_in_a_run(tmp_path, packets, document)
+    docs, packets_dir = run_dir / "docs", run_dir / "packets"
+    validate = ("semantic", "validate", docs, "--packets", packets_dir, "--json")
+    status = ("semantic", "status", run_dir, "--json")
+    # no confirmations directory at all: nothing to check the slot against, a warning
+    code, out, _ = _run(*validate)
+    (warn,) = [item for item in json.loads(out)["tables"][0]["failures"]
+               if item["check"] == "grain"]
+    assert warn["status"] == "warn" and "无法核对观测来源" in warn["message"]
+    # S0 always creates confirmations/: empty, it is a path with nothing for this table
+    (run_dir / "confirmations").mkdir()
+    for argv in (validate, ("semantic", "validate", docs, "--packets", packets_dir,
+                            "--confirmations", run_dir / "confirmations", "--json")):
+        code, out, err = _run(*argv)
+        report = json.loads(out)
+        (fail,) = [item for item in report["tables"][0]["failures"] if item["check"] == "grain"]
+        assert code == 1 and fail["status"] == "fail" and GIVE_BACK in fail["message"]
+        assert "没有给确认文件" not in fail["message"]
+        assert err == "" and "confirmations" not in report
+    code, out, err = _run(*status)
+    entry = next(item for item in json.loads(out)["tables"] if item["table"] == DEMO_TABLE)
+    assert "invalid" in entry["flags"] and entry["failures"] == 1 and err == ""
+    assert "confirmations" not in json.loads(out)["directories"]
 
 
 def test_the_observed_slot_is_the_confirmation_s(tmp_path, document, packet) -> None:
@@ -252,15 +312,16 @@ def test_a_case_column_is_not_compared_with_its_source(tmp_path, document, packe
     assert _found(_validate(tmp_path, document, packet, entry), "code_values", "warn")
 
 
-def test_a_code_the_observation_did_not_see_warns(tmp_path, document, packet) -> None:
-    entry = _values_entry()  # U asked about, not seen
+def test_a_code_the_observation_did_not_see_is_not_reported(tmp_path, document, packet) -> None:
+    # D16 3.1: a code absent from a few partitions may well exist; no writer can clear a
+    # warning about it, so validation says nothing and the page shows 「没有出现 …」.
+    entry = _values_entry(values=[{"value": "F", "count": 60}, {"value": "M", "count": 60}],
+                          distinct=2)  # U asked about, not seen
     document = _replayed(document, entry)
-    _column(document, "gender_cd")["code_values"].append(
-        {"value": "X", "meaning": "其他", "unconfirmed": True, "sources": ["inferred"]})
+    assert "U" in {code["value"] for code in _column(document, "gender_cd")["code_values"]}
     report = _validate(tmp_path, document, packet, entry)
-    (warn,) = _found(report, "code_values", "warn")
-    assert warn["at"] == f"columns[{_index(document, 'gender_cd')}].code_values[2]"
-    assert "'U'" in warn["message"] and "probe_1" in warn["message"]
+    assert _found(report, "code_values", "warn") == []
+    assert _found(report, "code_values", "fail") == []
 
 
 def test_values_on_an_identifier_column_fail(tmp_path, document, packet) -> None:

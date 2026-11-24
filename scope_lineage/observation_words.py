@@ -71,11 +71,11 @@ def values_text(value: dict) -> str:
     parts = []
     items = value.get("values") or []
     if items:
-        seen = "、".join(f"{one_line(item['value'])}（{item['count']} 行）" for item in items)
+        seen = "、".join(f"{value_word(item['value'])}（{item['count']} 行）" for item in items)
         parts.append(f"出现 {seen}，{'已列全' if value['complete'] else '未列全'}")
     absent = value.get("absent") or []
     if absent:
-        parts.append(f"没有出现 {'、'.join(one_line(item) for item in absent)}")
+        parts.append(f"没有出现 {'、'.join(value_word(item) for item in absent)}")
     counts = [f"去重 {value['distinct']} 个" if value.get("distinct") is not None else "",
               f"空值 {value['nulls']} 个" if value.get("nulls") is not None else ""]
     counts = "、".join(item for item in counts if item)
@@ -92,6 +92,14 @@ def columns_text(columns) -> str:
 
 def one_line(text) -> str:
     return " ".join(str(text if text is not None else "").split())
+
+
+EMPTY_STRING = "''（空串）"
+
+
+def value_word(value) -> str:
+    """An observed value as a reader sees it: the empty string as 「''（空串）」, not as nothing."""
+    return EMPTY_STRING if str(value) == "" else one_line(value)
 
 
 def observed_row_text(value: dict) -> str:
@@ -123,10 +131,10 @@ def observed_values_text(column: dict) -> str:
         seen = [str(item["value"]) for item in value.get("values") or []]
         off = [item for item in seen if item not in codes]
         if off:
-            parts.append(f"码值表外：{'、'.join(one_line(item) for item in off)}")
+            parts.append(f"码值表外：{'、'.join(value_word(item) for item in off)}")
         absent = {str(item) for item in value.get("absent") or []}
         unseen = [item for item in codes if item not in seen and item not in absent]
         if value["complete"] and unseen:
-            parts.append(f"码值表里没出现：{'、'.join(one_line(item) for item in unseen)}")
+            parts.append(f"码值表里没出现：{'、'.join(value_word(item) for item in unseen)}")
     parts.append("观测不给含义，不是码值表")
     return "；".join(parts)

@@ -466,13 +466,18 @@ def _observed_text(value: dict, columns) -> str:
     return f"{_observed_place(value)}: {counted} by ({', '.join(columns)})"
 
 
+def _value_word(value) -> str:
+    """An observed value; the empty string as ``'' (empty string)``, not as nothing."""
+    return "'' (empty string)" if str(value) == "" else str(value)
+
+
 def _observed_values_text(value: dict) -> str:
     """``observed in … on …: F x60, M x50, complete; absent U -- not a code list``."""
     items = value.get("values") or []
-    seen = ", ".join(f"{item['value']} x{item['count']}" for item in items)
+    seen = ", ".join(f"{_value_word(item['value'])} x{item['count']}" for item in items)
     parts = [f"{seen}, {'complete' if value['complete'] else 'not complete'}" if items else "counts only"]
     if value.get("absent"):
-        parts.append(f"absent {', '.join(str(item) for item in value['absent'])}")
+        parts.append(f"absent {', '.join(_value_word(item) for item in value['absent'])}")
     return f"{_observed_place(value)}: {'; '.join(parts)} -- not a code list"
 
 

@@ -189,11 +189,13 @@ def add_confirmations_option(parser, default: str) -> None:
 
 def load_confirmations(args: argparse.Namespace, default: Path) -> Confirmations | None | int:
     """``--confirmations``, else ``default`` when it is a directory: the confirmations
-    read, None when there are none, or 2 (reported) when they cannot be read.
+    read (an empty state when the directory holds no confirmations file), None when there
+    is no path, or 2 (reported) when they cannot be read.
 
-    Confirmations that were read are announced on stderr with where they came from, as a
-    domain profile is: they change a verdict, so they must never do it unnoticed. With
-    none, nothing is printed and every output is what it was without them.
+    Confirmations files that were read are announced on stderr with where they came from,
+    as a domain profile is: they change a verdict, so they must never do it unnoticed. With
+    no file, nothing is printed and every output of a document without observations is what
+    it was without them; an observation such a document claims has nothing behind it.
     """
     path, source = getattr(args, "confirmations", None), "--confirmations"
     if not path:
@@ -206,7 +208,7 @@ def load_confirmations(args: argparse.Namespace, default: Path) -> Confirmations
         for message in error.messages:
             print(message, file=sys.stderr)
         return 2
-    if confirmations is not None:
+    if confirmations.files:
         print(
             f"confirmations: {confirmations.path} ({len(confirmations.files)} file(s), "
             f"{len(confirmations.entries)} entry(ies), from {source})",
@@ -749,7 +751,7 @@ def _run_confirm(args: argparse.Namespace) -> int:
         for message in error.messages:
             print(message, file=sys.stderr)
         return 2
-    confirmations = read.entries if read is not None else []
+    confirmations = read.entries
     documents, files = _semantic_documents(directory)
     if args.only:
         wanted = {bare_table(name) for name in args.only}

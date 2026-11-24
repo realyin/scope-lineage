@@ -111,6 +111,22 @@ def test_the_digest_states_an_observed_grain_as_an_observation(observed: dict) -
     assert "F x60, M x50, X x10, complete; absent U -- not a code list]" in gender_line
 
 
+def test_an_empty_string_value_is_shown_as_one(observed: dict) -> None:
+    from scope_lineage.catalog.digest import _observed_values_text
+    from scope_lineage.observation_words import observed_values_text, values_text
+
+    column = copy.deepcopy(next(c for c in observed["columns"] if c["column"] == "gender_cd"))
+    value = column["observed_values"]
+    value["values"] = [{"value": "", "count": 804}, {"value": "A", "count": 2}]
+    value["absent"] = [""]
+    said = values_text(value)
+    assert said.startswith("出现 ''（空串）（804 行）、A（2 行）")
+    assert "没有出现 ''（空串）" in said and "出现 （" not in said
+    assert "''（空串）（804 行）" in observed_values_text(column)
+    digested = _observed_values_text(value)
+    assert "'' (empty string) x804, A x2" in digested and "absent '' (empty string)" in digested
+
+
 # ------------------------------------------------------------------ the context pack
 
 
