@@ -534,3 +534,85 @@ def test_a_table_whose_slots_were_just_confirmed_gets_one_revision_not_a_bare_fi
     assert "semantic fixed" not in line
     if stage == "valid":    # a review without high or medium findings: status alone cannot route it
         assert "--next fix 不列出" in line and "不审读" in line
+
+
+# ------------------------------------------------------------------ digest after confirmation
+#
+# S12 writes answers into docs/ in place. The digest is the drafter's only input: one built
+# before the answers neither lists them (``- Answered qN``) nor drops their ``- Open`` lines.
+# S10b is deterministic (no model), so a digest older than a document of the run's tables
+# is rebuilt; the catalog is not re-drafted (no S10c) but edited by hand in S10f.
+
+RENDERED = [{"table": T1, "stage": "rendered"}, {"table": T2, "stage": "rendered"}]
+
+
+def _later(path: Path, seconds: float) -> Path:
+    moment = time.time() + seconds
+    os.utime(path, (moment, moment))
+    return path
+
+
+def _confirmed_after_the_catalog(run: Path, table: str = T1) -> None:
+    """A finished catalog, then S12 rewrote ``table``'s document and S9 re-rendered."""
+    _through_s10(run)
+    _write(run / "digest" / "digest.json", "{}")
+    _write(run / "RESULT.md")
+    _later(_write(run / "docs" / f"{table}.json", "{}"), 2)
+    _status(run, RENDERED)
+
+
+def test_a_document_newer_than_the_digest_sends_the_run_back_to_s10b(run):
+    _confirmed_after_the_catalog(run)
+    out = _drive(run).stdout
+    assert _current(out) == "S10b"
+    assert f"docs/{T1}.json" in out
+    assert "不回 S10c" in out
+
+
+def test_a_digest_rebuilt_after_the_documents_is_current(run):
+    _confirmed_after_the_catalog(run)
+    for name in ("digest.md", "digest.json"):
+        _later(run / "digest" / name, 3)
+    assert _current(_drive(run).stdout) != "S10b"
+
+
+def test_either_digest_file_older_than_a_document_is_stale(run):
+    _confirmed_after_the_catalog(run)
+    _later(run / "digest" / "digest.md", 3)       # json still from before the confirmation
+    assert _current(_drive(run).stdout) == "S10b"
+
+
+def test_documents_of_tables_outside_the_run_do_not_make_the_digest_stale(run):
+    _through_s10(run)
+    _write(run / "RESULT.md")
+    _later(_write(run / "docs" / "demo_dwd.other.json", "{}"), 2)
+    _write(run / "blocked.txt", f"{T2}\n")
+    _later(_write(run / "docs" / f"{T2}.json", "{}"), 2)
+    _status(run, RENDERED)
+    assert _current(_drive(run).stdout) == "完成"
+
+
+def _digest_rebuilt(run: Path, answered: list | None = None) -> None:
+    _confirmed_after_the_catalog(run)
+    tables = [{"table": T1, "answered_questions": answered or []}, {"table": T2}]
+    for name, text in (("digest.md", "x\n"), ("digest.json", json.dumps({"tables": tables}))):
+        _later(_write(run / "digest" / name, text), 3)
+
+
+def test_after_the_digest_is_rebuilt_the_catalog_is_edited_by_hand_not_redrafted(run):
+    answer = {"id": "q2", "text": "编号跨来源唯一吗？", "answer": "只在来源内唯一。"}
+    _digest_rebuilt(run, [answer])
+    out = _drive(run).stdout
+    assert _current(out) == "S10f"
+    assert f"{T1} q2: 编号跨来源唯一吗？ -> 只在来源内唯一。" in out
+
+
+def test_s10f_after_the_rebuild_is_done_once_catalog_changes_is_newer_than_the_digest(run):
+    _digest_rebuilt(run)
+    changes = run / "catalog_changes.md"
+    _later(_write(changes, changes.read_text(encoding="utf-8") + "确认后无改动\n"), 4)
+    out = _drive(run).stdout
+    assert _current(out) == "S10g"           # the hand edits are rebuilt and checked again
+    for name in ("onto/ontology.json", "catalog_check.txt"):
+        _later(run / name, 5)
+    assert _current(_drive(run).stdout) == "完成"

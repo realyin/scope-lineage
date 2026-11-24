@@ -1,6 +1,36 @@
 # Changelog
 
 ## Unreleased
+- **Added: `catalog pending reply` -- the owner's reply to a missing definition, appended to the same
+  `catalog-pending/1` file.** A reply is a line of its own (`kind: reply`, `missing`, `reply`, `status`,
+  optional `by`, `date`), keyed by the `missing` text the way `list` groups entries; it is not a hit -- no
+  count, no question, no date moves. `--status` is `answered` (defined, not in the catalog yet), `resolved`
+  or `rejected` (both close the item). Texts must fit on one line (no line break or control character;
+  2000 characters, 100 for `--by`), refused with exit 2; a `missing` no entry names is refused with exit 1;
+  nothing is written on a refusal. `catalog pending list` shows each item's latest reply and status and by
+  default leaves out closed items (new `--status active|open|answered|resolved|rejected|all`); its JSON
+  gains `status`/`reply` per item and `replies`/`status`/`closed` only when the file has a reply, so a file
+  without replies lists byte for byte as before. A malformed reply line, or one naming no entry, is a line
+  that cannot be read (exit 1); older versions read every reply line that way. The service's
+  `list_pending` / `GET /api/pending` follow `list`'s default; its question board counts a replied pending
+  item as answered and the page shows the reply. The service writes no replies.
+- **Added: `catalog digest` carries an answered question with its answer.** A question answered by
+  `semantic confirm` used to leave the digest altogether: only `open` questions were listed, so the drafter of
+  a catalog saw less after the owner answered than before. Each table now has `answered_questions`
+  (`[{id, text, answer}]`, plus `answered_by` and `answered_on` when recorded), printed in `digest.md` as
+  `- Answered q1: <question> -> <answer> (<by>, <on>)`. A table with no answered question has no such key and
+  no such line, so its digest is byte for byte what it was; a question marked `answered` without answer text
+  carries nothing. Only answers written into the documents count: one a browsing page still holds in its
+  record file is not read.
+- **Changed (runbook): the catalog drafter follows those answers, and confirmation rebuilds the digest.** T5
+  takes an `- Answered` line as the owner's answer for that table only: it writes `scope`, `maps_to` and the
+  rest accordingly with 「依据 digest Answered qN」 in `notes`, asks no 「待 owner 确认」 on a point already
+  answered, and follows an answer in tension with the table's SQL while recording the tension; its reply
+  counts the answers used. After S12, a run that already has a catalog reruns S10b (no model) and edits the
+  catalog by hand in S10f instead of re-drafting at S10c, then S10g. `next_step.py` sends the run back to S10b
+  when a document of the run's tables is newer than `digest.md` or `digest.json`, to S10f (listing the
+  digest's answered questions) when `catalog_changes.md` is older than the digest, and to S10g when
+  `onto/ontology.json` or `catalog_check.txt` is older than `catalog_changes.md`.
 - **Added: structured page answers in the core overlay and the context pack.** `overlay_answers` applies,
   besides `question:<id>`, the three shapes a browsing page produces: `summary.row` with exactly `{unique,
   grain_columns}`, `column:<c>.meaning` with a text, and `column:<c>.code_values` with one `{value, meaning}`

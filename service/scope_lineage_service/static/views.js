@@ -1231,9 +1231,14 @@ function pendingCard(item, concepts) {
         : null],
       ["目录现在有同名对象", item.catalog_objects.length
         ? list(item.catalog_objects, (o) => objectLink(o)) : null],
+      ["负责人的回复", item.reply ? [`${word(PENDING_REPLY_TEXT, item.reply.status)}：${item.reply.reply}`,
+        h("span", { class: "muted" }, `（${[item.reply.by, item.reply.date].filter(Boolean).join("，")}）`)] : null],
     ]),
   ];
 }
+
+/** ``catalog pending reply`` statuses (``render.catalog_pending.REPLY_STATUSES``). */
+const PENDING_REPLY_TEXT = { answered: "已答复", resolved: "已解决", rejected: "不予定义" };
 
 /** The answer box of a semantics card, or its actions (修改 / 撤回), by its state. */
 function answerPart(card, item, context) {

@@ -35,7 +35,7 @@ When you do not know which step a run has reached, run the progress script `next
 | S9 | Full validation and render the semantics pages | Orchestrator | `site/semantics/` |
 | S10 | Ontology catalog: start, digest, draft, fragments, merge, fix-up, build and render | Orchestrator and sub-agents | `catalog/`, `merged/`, `onto/`, `site/concepts/` |
 | S11 | Regression acceptance | Orchestrator and sub-agents | `round1/score/` |
-| S12 | Write confirmations back (optional) | Orchestrator | Documents with confirmations |
+| S12 | Write confirmations back (optional) | Orchestrator | Documents with confirmations; with a catalog, the digest rebuilt (S10b, with `- Answered` lines) and the catalog edited by hand (S10f, not re-drafted), then S10g |
 | S13 | Deliver | Orchestrator | `RESULT.md` |
 
 ## Three rules you cannot skip

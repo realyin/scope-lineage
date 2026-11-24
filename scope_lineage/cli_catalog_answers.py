@@ -285,20 +285,84 @@ def read_pending_file(path: str) -> str:
 
 
 def pending_answer(
-    text: str, document: dict | None = None, semantics: dict | None = None
+    text: str, document: dict | None = None, semantics: dict | None = None,
+    status: str = "active",
 ) -> CatalogAnswer:
-    """``catalog pending list`` of a pending file's text."""
+    """``catalog pending list`` of a pending file's text; ``status`` is ``--status``."""
     from .render.catalog_pending import pending_report, read_pending, render_pending_text
 
     entries, problems = read_pending(text.splitlines())
-    report = pending_report(entries, problems, document=document, semantics=semantics)
-    return CatalogAnswer(report, 1 if problems else 0, render_pending_text)
+    report = pending_report(
+        entries, problems, document=document, semantics=semantics, status=status
+    )
+    return CatalogAnswer(report, 1 if report["problems"] else 0, render_pending_text)
 
 
 def pending_list(
-    path: str, document: dict | None = None, semantics: dict | None = None
+    path: str, document: dict | None = None, semantics: dict | None = None,
+    status: str = "active",
 ) -> CatalogAnswer:
-    return pending_answer(read_pending_file(path), document, semantics)
+    return pending_answer(read_pending_file(path), document, semantics, status)
+
+
+def pending_reply(
+    path: str,
+    *,
+    missing: str,
+    reply: str,
+    status: str,
+    by: str | None = None,
+    date: str | None = None,
+) -> dict:
+    """Append what ``catalog pending reply`` appends; the line written.
+
+    Exit 2: a text that does not fit on one line, an unknown status, a bad date, or a file
+    that cannot be read or written; exit 1: no entry of the file names ``missing``.
+    Nothing is written on a refusal."""
+    from .cli_catalog_pending import _append, _is_date, today
+    from .render.catalog_pending import (
+        BY_LIMIT,
+        REPLY_LIMIT,
+        REPLY_STATUSES,
+        read_pending,
+        reply_line,
+        reply_text_problem,
+        same_missing,
+    )
+
+    problem = (
+        reply_text_problem(missing, "--missing", REPLY_LIMIT)
+        or reply_text_problem(reply, "--reply", REPLY_LIMIT)
+        or (reply_text_problem(by, "--by", BY_LIMIT) if by is not None else None)
+    )
+    if problem is None and status not in REPLY_STATUSES:
+        problem = f"--status takes {', '.join(REPLY_STATUSES)}, not {status!r}"
+    if problem is None and date is not None and not _is_date(date):
+        problem = f"--date takes YYYY-MM-DD, not {date!r}"
+    if problem:
+        raise CatalogAnswerError(2, f"catalog pending reply: {problem}")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise CatalogAnswerError(
+            2, f"catalog pending reply: cannot read {path}: {error}"
+        ) from error
+    entries, _ = read_pending(text.splitlines())
+    known = {same_missing(e["missing"]) for e in entries if e.get("kind") != "reply"}
+    if same_missing(missing) not in known:
+        raise CatalogAnswerError(
+            1, f"catalog pending reply: no entry of {path} names {missing.strip()!r}; "
+            "nothing written (catalog pending list shows what is there)"
+        )
+    line = reply_line(missing=missing, reply=reply, status=status, by=by,
+                      date=date or today())
+    try:
+        _append(Path(path), [line])
+    except OSError as error:
+        raise CatalogAnswerError(
+            2, f"catalog pending reply: cannot write {path}: {error}"
+        ) from error
+    return line
 
 
 # ------------------------------------------------------------------ browsing
@@ -388,7 +452,7 @@ def questions(
 
     report = None
     if pending_text is not None:
-        report = pending_answer(pending_text, document, semantics).result
+        report = pending_answer(pending_text, document, semantics, status="all").result
     return _browse(lambda: questions_board(
         document, semantics, report, page_states=page_states, **request
     ))

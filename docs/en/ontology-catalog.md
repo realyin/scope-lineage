@@ -1406,6 +1406,38 @@ which entries are answered. It records and reports; it never edits the catalog o
 - 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
 ```
 
+The owner answers an item with `reply`, which is one more line appended to the same file; existing lines
+are still never rewritten:
+
+```bash
+scope-lineage catalog pending reply pending.jsonl --missing "注销的客户算不算" \
+  --reply "不算：注销的客户不进新增" --status answered [--by owner] [--date 2026-11-23]
+scope-lineage catalog pending list pending.jsonl [--status active|open|answered|resolved|rejected|all]
+```
+
+```json
+{"doc_format": "catalog-pending/1", "kind": "reply", "date": "2026-11-23", "missing": "注销的客户算不算", "reply": "不算：注销的客户不进新增", "status": "answered", "by": "owner"}
+```
+
+`--missing` finds the item by the same rule `list` groups by (NFKC, case folding, collapsed whitespace);
+when no entry names it nothing is written and the exit code is `1`. `--status` is one of `answered` (a
+definition is given, the catalog does not carry it yet), `resolved` (the catalog carries it) and `rejected`
+(it will not be defined); the last two close the item. `--reply`, `--missing` and `--by` must fit on one
+line: blank, a line break or a control character, or longer than the limit (2000 characters for `--reply`
+and `--missing`, 100 for `--by`) is refused with exit code `2`, as are a bad date and a file that cannot be
+read or written. A reply is not a hit: it adds no count, no question and moves no date.
+
+`list` gives every item its latest reply (by line) and status (`open` when none); the default `--status
+active` leaves out the closed items and says under the heading how many there are. In the text each item
+gains a line 「状态：已答复（date, by, line N）：reply」; in `--json` each item gains `status` and `reply`
+(`{reply, status, by, date, line}` or `null`), and the report `replies` (reply lines read), `status` (the
+filter) and `closed` (closed items the filter left out). For a file without replies (and a `--status` that
+is not a reply status) the text and the JSON are byte for byte what they were. A malformed reply line is
+reported as a line that cannot be read, like a malformed entry (exit `1`), and so is a reply naming no
+entry. Older versions read a reply line as a line they cannot read. The service's question board counts a
+pending item with a reply as answered (the reply's own status is in `reply`); the service has no endpoint
+that writes a reply -- replies are written on the command line.
+
 ## Serving the answers: HTTP and MCP
 
 `search`, `context`, `query`, `check-sql` and `pending list/add` can also be answered by a long-running
@@ -1591,7 +1623,12 @@ is skipped with a line on stderr) and writes `digest.md` and `digest.json`
 - the table's `rules` (`[{id, kind, text}]`, `- Rule r1 (filter): ...` in `digest.md`); a
   constraint that carries one names it `<db.table>#<id>` in its `rules`;
 - the tables it is built from (with their role) and the tables that read it; what to watch
-  and the open questions.
+  and the open questions;
+- the answered questions with their answers (`answered_questions`: `[{id, text, answer}]`,
+  plus `answered_by` and `answered_on` when recorded; `- Answered q1: <question> -> <answer>
+  (<by>, <on>)` in `digest.md`). A table with no answered question has no such key and no
+  such line. Only answers written into the documents (`semantic confirm`) count: an answer a
+  browsing page still holds in its record file is not read.
 
 With `--catalog` a "catalog coverage" section comes first: tables with no representation,
 and columns of represented tables with no binding (table names match ignoring case and a

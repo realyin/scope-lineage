@@ -1,4 +1,4 @@
-"""``scope-lineage catalog pending add`` and ``catalog pending list``: missing definitions.
+"""``scope-lineage catalog pending add|list|reply``: missing definitions.
 
 An agent answering a data question writes ``/* 待确认：… */`` where the catalog gives no
 definition (``scope.sql_placeholders``). ``add`` appends what is missing to a JSON Lines
@@ -6,14 +6,18 @@ file (``catalog-pending/1``) -- one line from options, or one a placeholder of a
 -- and never rewrites a line already there. ``list`` reads the file back for the catalog's
 owner: the same missing thing grouped, how often and in which questions it came up, and,
 given ``--semantics`` and ``--ontology``, the question a table already records about the
-same column and the catalog object that now carries the name. Files are read and written
+same column and the catalog object that now carries the name. ``reply`` appends the
+owner's reply to one group -- a line of its own, not a hit -- and ``list`` shows each
+group's latest reply, leaving out those a reply closed unless ``--status`` asks. Files are read and written
 here; ``render.catalog_pending`` works on plain data and reads no clock: the one place
 the date comes from when ``--date`` is not given is ``today`` below.
 
 Exit codes. add: 0 appended; 1 the SQL holds no placeholder, or a placeholder says
 nothing (nothing appended); 2 bad options, an input could not be read, or the SQL does
 not parse. list: 0 every line read; 1 some line is not a ``catalog-pending/1`` entry
-(the rest are still listed); 2 an input could not be read.
+(the rest are still listed); 2 an input could not be read. reply: 0 appended; 1 no
+entry names that missing thing (nothing appended); 2 bad options or text, or the file
+could not be read or written.
 """
 
 from __future__ import annotations
@@ -24,6 +28,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+from .render.catalog_pending import LIST_STATUSES, REPLY_STATUSES
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -84,14 +90,59 @@ def add_pending_parser(actions) -> None:
         help="A directory of table-semantics documents: mark questions recorded on the same column",
     )
     listing.add_argument(
+        "--status", choices=LIST_STATUSES, default="active",
+        help=(
+            "Which groups to list by their latest reply: active (default: every group no "
+            "reply closed), open (no reply), answered, resolved, rejected, or all"
+        ),
+    )
+    listing.add_argument(
         "--json", action="store_true", help="Print the catalog-pending-list/1 JSON instead of text"
     )
+    reply = steps.add_parser(
+        "reply",
+        help=(
+            "Append the owner's reply to the entries naming one missing thing (a reply line, "
+            "not a hit); exit 1 when no entry names it"
+        ),
+    )
+    reply.add_argument("pending", help="The catalog-pending/1 file")
+    reply.add_argument(
+        "--missing", required=True,
+        help="The missing thing replied to, as an entry names it (compared as list groups)",
+    )
+    reply.add_argument("--reply", required=True, help="The reply, on one line")
+    reply.add_argument(
+        "--status", required=True, choices=REPLY_STATUSES,
+        help=(
+            "answered (defined, the catalog does not carry it yet), resolved (the catalog "
+            "carries it) or rejected (it will not be defined); the last two close the group"
+        ),
+    )
+    reply.add_argument("--by", help="Who replies")
+    reply.add_argument("--date", help="YYYY-MM-DD to record (default: today)")
 
 
 def run_pending(args: argparse.Namespace) -> int:
     if args.pending_action == "add":
         return _run_add(args)
+    if args.pending_action == "reply":
+        return _run_reply(args)
     return _run_list(args)
+
+
+def _run_reply(args: argparse.Namespace) -> int:
+    from .cli_catalog import _refused_or
+    from .cli_catalog_answers import pending_reply
+
+    line = _refused_or(
+        pending_reply, args.pending, missing=args.missing, reply=args.reply,
+        status=args.status, by=args.by, date=args.date,
+    )
+    if isinstance(line, int):
+        return line
+    print(f"Appended reply ({line['status']}) to {line['missing']!r} -> {args.pending}")
+    return 0
 
 
 def _run_add(args: argparse.Namespace) -> int:
@@ -189,4 +240,4 @@ def _run_list(args: argparse.Namespace) -> int:
     semantics = _semantics_option(args.semantics)
     if isinstance(semantics, int):
         return semantics
-    return _print_answer(pending_answer(text, document, semantics), args.json)
+    return _print_answer(pending_answer(text, document, semantics, args.status), args.json)
