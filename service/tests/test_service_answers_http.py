@@ -167,7 +167,7 @@ def test_answering_changes_neither_the_documents_nor_the_pending_file(server, pa
 # ------------------------------------------------------------------ the six kinds (6.4)
 
 
-def test_the_six_kinds_against_the_output_table(server) -> None:
+def test_the_six_kinds_against_the_output_table(server, paths) -> None:
     assert _answer(server, CUSTOMER, "q1", "不会。", choice="no")[0] == 201
     assert _answer(server, CUSTOMER, "q2", "同分区唯一", kind="partial", choice="yes")[0] == 201
     assert _answer(server, CUSTOMER, "q3", "等上游答复", kind="deferred")[0] == 201
@@ -215,7 +215,7 @@ def test_the_six_kinds_against_the_output_table(server) -> None:
     exported = _json(server, "/api/answers/export")
     assert exported == {"doc_format": "semantic-confirmations/1", "confirmations": [
         {"table": CUSTOMER, "target": "question:q1", "value": "否：不会。", "by": "审核人甲",
-         "date": "2026-11-23"}]}
+         "date": "2026-11-23", "asked": text_of(paths["semantics"], CUSTOMER, "q1")}]}
     assert board["answers"]["digests"].keys() == {CUSTOMER}
 
 
@@ -513,7 +513,10 @@ def test_the_export_command(paths, tmp_path, capsys) -> None:
     assert service_main(["answers", "export", str(paths["answers"]), "--semantics",
                          str(paths["semantics"]), "--out", str(out)]) == 0
     err = capsys.readouterr().err
-    assert len(json.loads(out.read_text(encoding="utf-8"))["confirmations"]) == 2
+    entries = json.loads(out.read_text(encoding="utf-8"))["confirmations"]
+    assert len(entries) == 2
+    assert [(c["asked"], "replace" in c) for c in entries] == [
+        (text_of(paths["semantics"], c["table"], "q1"), False) for c in entries]
     assert f"{CUSTOMER}  document_digest " in err and f"{LOAN}  document_digest " in err
 
     set_question(paths["semantics"], LOAN, "q1", text="改写过的问题？")

@@ -19,7 +19,8 @@ Each record is judged against the documents on disk (``judge``), in order, the f
 that holds deciding:
 
 - the table or the question is gone -> not matched;
-- the question's text differs from ``asked`` (NFKC and whitespace folded) -> not matched;
+- the question's text differs from ``asked`` (NFKC and whitespace folded, the core's
+  ``folded_text``) -> not matched;
 - an answer the disk now holds exactly (text, who and date) -> written back; a note on a
   question the disk now answers -> void. Both are deleted by the one process that writes
   the file;
@@ -27,8 +28,11 @@ that holds deciding:
 - anything else (an answer) -> not matched: the disk changed under it.
 
 Only answers in effect are overlaid on the documents and exported as a
-``semantic-confirmations/1`` file; notes are never written back. Nothing here reads the
-semantics directory or writes outside the record file.
+``semantic-confirmations/1`` file; notes are never written back. Each exported entry
+carries ``asked``, and ``replace: true`` when its ``base`` is an answer, so ``semantic
+confirm`` applies the same judgement on its side: a rewritten question is refused there
+too, and an answer on disk is changed only where the person changed it. Nothing here
+reads the semantics directory or writes outside the record file.
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ from pathlib import Path
 
 from scope_lineage.render.catalog_context import PAGE_KINDS
 from scope_lineage.semantics.names import bare_table
+from scope_lineage.semantics.names import folded_text as folded
 
 ANSWERS_FORMAT = "question-answers/1"
 CONFIRMATIONS_FORMAT = "semantic-confirmations/1"
@@ -108,12 +113,6 @@ def clean_text(value, name: str, limit: int) -> str:
     if len(text) > limit:
         raise TextRefused(f"{name} is {len(text)} characters; at most {limit}")
     return text
-
-
-def folded(text) -> str:
-    """NFKC with whitespace folded: what two question texts, or a new answer and the one
-    already there, are compared by. Never stored."""
-    return " ".join(unicodedata.normalize("NFKC", str(text or "")).split())
 
 
 def sentence(record: dict) -> str:
@@ -303,9 +302,14 @@ def judge(record: dict, semantics: dict | None) -> Judged:
 
 
 def confirmation(record: dict) -> dict:
-    """The ``semantic-confirmations/1`` entry of an answer record."""
-    return {"table": record["table"], "target": f"question:{record['question']}",
-            "value": sentence(record), "by": record["by"], "date": record["date"]}
+    """The ``semantic-confirmations/1`` entry of an answer record: the question as it was
+    asked, and ``replace`` when the person changed an answer already on disk."""
+    entry = {"table": record["table"], "target": f"question:{record['question']}",
+             "value": sentence(record), "by": record["by"], "date": record["date"],
+             "asked": record["asked"]}
+    if record["base"] is not None:
+        entry["replace"] = True
+    return entry
 
 
 def note_state(record: dict) -> dict:

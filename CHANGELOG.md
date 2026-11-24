@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- **Changed: `semantic confirm` holds an answer to the question that was asked.** A `question:<id>` entry of
+  `semantic-confirmations/1` may carry two new optional fields: `asked`, the question's text as the person
+  saw it, and `replace`. With `asked`, an entry whose question now reads otherwise (compared after NFKC and
+  folding whitespace, letter case kept) is unmatched (`question was rewritten`); one whose question already
+  holds the same answer, by the same person on the same date, is skipped -- nothing changes, nothing is
+  logged, and the summary line ends `(unmatched=K, skipped=S)`; one whose question holds another answer is
+  unmatched (`question already answered differently`) unless it says `replace: true`. `asked` on any other
+  target is unmatched. Entries without `asked` are applied exactly as before, whatever `replace` says, and
+  the summary line is unchanged when nothing is skipped. The browse page's export
+  (`scope-lineage-service`) now writes `asked` on every entry and `replace: true` on an answer that changes
+  one already in the document, so a question rewritten after the export is refused by `semantic confirm`
+  itself; the page's overlay is unchanged. The question-text comparison moved into the core
+  (`semantics.names.folded_text`); the service imports it.
 - **New: answered questions carry their answers into the context pack and the questions board.** A
   table-semantics question whose status is `answered` now carries `answer`, `answered_by` and `answered_on`
   in `catalog context` (under a table and under a named column) and on the board (`questions`); the text

@@ -413,7 +413,10 @@ def overlay_answers(
     the very object it was, so a caller's cache keyed by those objects stays valid;
     ``semantics`` and its documents are not changed. Each entry not applied is
     ``{table, target, reason}``: first the targets that are not questions, then those
-    ``apply_confirmations`` refused (an unknown table or question, an empty answer).
+    ``apply_confirmations`` refused (an unknown table or question, an empty answer, a
+    question that no longer reads as ``asked``, an answer on disk changed without
+    ``replace``). An entry it skipped -- the very answer is already on disk -- changes
+    nothing and is not listed.
     """
     from .semantics.confirm import apply_confirmations
     from .semantics.names import bare_table
