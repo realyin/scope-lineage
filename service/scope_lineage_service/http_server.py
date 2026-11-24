@@ -18,7 +18,7 @@ their length; a request whose Host or Origin is not this machine (or an allowed 
 refused, which keeps a web page elsewhere from reaching the server through DNS rebinding;
 ``POST /api/pending`` takes only ``application/json``, which a browser cannot send to
 another origin without a preflight this server never grants. No endpoint runs SQL, and
-the pending file is the only thing written.
+the pending file is the only thing written -- and, with ``--answers``, the answers file.
 
 The browse page (``GET /``) is a fixed set of files packaged with this module
 (``static/``), each served at one fixed path from ``STATIC_FILES``: no request path is ever
@@ -37,10 +37,20 @@ origin: an ``Origin`` header, when sent, must name exactly this server's host an
 and a ``Sec-Fetch-Site`` header, when sent, must say ``same-origin`` -- so no other site
 open in the browser, not even another port on this machine, can make the server spend
 money or write the pending file. The ask POSTs take ``application/json`` only.
+
+The answers endpoints (``/api/answers...``) exist only when the server was started with
+``--answers`` (otherwise 404 ``not_configured``): the page answers a table-semantics
+question, or leaves a note on it, in the answers file (``answers.py``, ``state.py``); the
+semantics directory is never written. The two writing endpoints are refused (403) on a
+server other machines can reach -- a non-loopback ``--host``, or any ``--allow-host`` --
+unless it was started with ``--answers-allow-remote``: an answer's text reaches the
+context pack, the ask panel's model and MCP. Every text is kept as typed, stripped only,
+and refused when blank, too long, or carrying a line break or a control character.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import sys
 from functools import lru_cache
@@ -50,6 +60,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from scope_lineage.cli_catalog_answers import CatalogAnswerError
 from scope_lineage.render.catalog_browse import (
+    BOARD_PAGE_STATUSES,
     BOARD_SOURCES,
     BOARD_STATUSES,
     DEFAULT_LIMIT,
@@ -63,8 +74,15 @@ from scope_lineage.render.catalog_query import QUERY_KINDS
 from scope_lineage.render.catalog_search import SEARCH_KINDS
 
 from . import __version__
+from . import answers as records_file
 from .ask.service import AskError
-from .state import CatalogState, PendingNotConfigured
+from .state import (
+    AnswerRefused,
+    AnswersNotConfigured,
+    AnswersUnavailable,
+    CatalogState,
+    PendingNotConfigured,
+)
 
 EXIT_HEADER = "X-Scope-Lineage-Exit-Code"
 DEFAULT_MAX_BODY = 1024 * 1024
@@ -92,6 +110,14 @@ ASK_NOT_CONFIGURED = (
     "to enable it"
 )
 ASK_FIELDS = {"question": str, "conversation": str, "model": str}
+ANSWER_FIELDS = {"table", "question", "asked", "seen", "kind", "answer", "reason", "choice",
+                 "to", "by"}
+ANSWERS_REMOTE_REFUSED = (
+    "this server can be reached from other machines (a non-loopback --host, or --allow-host): "
+    "it takes no answers, whose text reaches the context pack, the ask panel's model and MCP; "
+    "start it with --answers-allow-remote to accept them anyway"
+)
+EXPORT_NAME = "semantic-confirmations.json"
 DEFAULT_WAIT = 20
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
@@ -242,6 +268,41 @@ ENDPOINTS = [
         "method": "GET", "path": "/api/ask/conversation", "ask": True,
         "description": "A conversation's questions and the brief the next one carries. JSON only.",
         "params": {"conversation": "required: the conversation id"},
+    },
+    {
+        "method": "POST", "path": "/api/answers", "answers": True,
+        "description": (
+            "Answer one table-semantics question, or leave a note on it, in the answers file "
+            "(one record per question; a new one replaces it). 201 with the record. 409 when "
+            "the question or its answer is not what the page saw (asked, seen); 403 on a "
+            "server other machines reach, unless started with --answers-allow-remote."
+        ),
+        "params": {
+            "body": (
+                "application/json: table, question (its id), kind (answer, partial, deferred, "
+                "redirect, invalid, not_applicable), answer (kind answer) or reason (the "
+                "others), choice (yes/no; answer and partial only), to (redirect: who to ask), "
+                "by (who answers), asked (the question's text as shown), seen ({disk: the "
+                "document's answer {answer, answered_by, answered_on} or null, record: the "
+                "page record shown or null})"
+            ),
+        },
+    },
+    {
+        "method": "POST", "path": "/api/answers/withdraw", "answers": True,
+        "description": "Delete one page record. 404 when there is none; 409 when it is not "
+                       "the one the page saw.",
+        "params": {"body": "application/json: table, question, seen (the record as shown)"},
+    },
+    {
+        "method": "GET", "path": "/api/answers/export", "answers": True,
+        "description": (
+            "The answers in effect as a semantic-confirmations/1 file, for `scope-lineage "
+            "semantic confirm`; notes and answers not matched are left out. Writes nothing. "
+            "JSON only."
+        ),
+        "params": {},
+        "cli": "scope-lineage-service answers export ANSWERS --semantics DIR --out FILE",
     },
     {
         "method": "GET", "path": "/",
@@ -431,8 +492,12 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 path = self.path.partition("?")[0]
                 headers["Allow"] = ", ".join(sorted(self._routes()[path]))
             self._send_error(error, headers)
-        except PendingNotConfigured as error:
+        except (PendingNotConfigured, AnswersNotConfigured) as error:
             self._send_error(RequestError(404, "not_configured", error.message))
+        except AnswersUnavailable as error:
+            self._send_error(RequestError(503, "answers_unavailable", error.message))
+        except AnswerRefused as error:
+            self._send_error(RequestError(error.status, error.kind, error.message))
         except AskError as error:
             self._send_error(RequestError(error.status, error.kind, error.message))
 
@@ -453,6 +518,10 @@ class CatalogHandler(BaseHTTPRequestHandler):
             "/api/semantics": {"GET": self._semantics},
             "/api/units": {"GET": self._units},
             "/api/questions": {"GET": self._questions},
+            # Answered 404 not_configured when the server was started without --answers.
+            "/api/answers": {"POST": self._answer_post},
+            "/api/answers/withdraw": {"POST": self._answer_withdraw},
+            "/api/answers/export": {"GET": self._answer_export},
             # Answered 404 not_configured when the server was started without --ask.
             "/api/ask/status": {"GET": self._ask_status},
             "/api/ask": {"POST": self._ask},
@@ -492,22 +561,48 @@ class CatalogHandler(BaseHTTPRequestHandler):
         _Params(query, set())
         configured = self.server.state.pending_path is not None
         asking = self.server.ask is not None
+        answering = self.server.state.answers_path is not None
         listing = [
-            {key: value for key, value in item.items() if key not in ("pending", "ask")}
+            {key: value for key, value in item.items() if key not in ("pending", "ask", "answers")}
             for item in ENDPOINTS
             if (configured or not item.get("pending")) and (asking or not item.get("ask"))
+            and (answering or not item.get("answers"))
         ]
-        self._send_json(200, {
+        if answering:
+            for item in listing:
+                if item["path"] == "/api/questions":
+                    item["params"] = {**item["params"],
+                                      "status": f"{', '.join(BOARD_PAGE_STATUSES)} (default open)"}
+        body = {
             "service": "scope-lineage-service", "version": __version__,
             "read_only": True, "executes_sql": False, "asks_a_model": asking,
             "exit_code_header": EXIT_HEADER, "endpoints": listing,
-        })
+        }
+        if answering:
+            body["answers"] = self._answers_status()
+        self._send_json(200, body)
+
+    def _answers_status(self) -> dict:
+        """Whether the page may answer now, and why not: the answers file's status and the
+        remote switch. The page reads this to show answer boxes or read-only cards."""
+        health = self.server.state.health().get("answers") or {}
+        status = {"status": health.get("status"), "writable": False}
+        if health.get("reason"):
+            status["reason"] = self.server.state.public_text(health["reason"])
+        if self.server.answers_remote_refused:
+            status["refused"] = ANSWERS_REMOTE_REFUSED
+        elif health.get("status") == "ok":
+            status["writable"] = True
+        return status
 
     def _health(self, query: str) -> None:
         _Params(query, set())
         health = self.server.state.health()
         if health.get("problem"):
             health["problem"] = self.server.state.public_text(health["problem"])
+        for key in ("reason", "problem"):
+            if (health.get("answers") or {}).get(key):
+                health["answers"][key] = self.server.state.public_text(health["answers"][key])
         self._send_json(200, health)
 
     def _search(self, query: str) -> None:
@@ -648,7 +743,67 @@ class CatalogHandler(BaseHTTPRequestHandler):
             text=params.one("text"), offset=params.integer("offset", 0),
             limit=params.integer("limit", DEFAULT_LIMIT),
         )
-        self._answer(lambda: self.server.state.questions(**request), "json", nothing_found=200)
+        self._answer(lambda: self._board(request), "json", nothing_found=200)
+
+    def _board(self, request: dict):
+        answer = self.server.state.questions(**request)
+        if "answers" in answer.result:
+            summary = answer.result["answers"]
+            status = self._answers_status()
+            summary["writable"] = status["writable"]
+            for key in ("reason", "refused"):
+                if key in status:
+                    summary[key] = status[key]
+            if summary.get("problem"):
+                summary["problem"] = self.server.state.public_text(summary["problem"])
+        return answer
+
+    # ------------------------------------------------------------------ answers
+
+    def _answers_writable(self) -> None:
+        if self.server.state.answers_path is None:
+            raise AnswersNotConfigured()
+        if self.server.answers_remote_refused:
+            raise RequestError(403, "forbidden_remote", ANSWERS_REMOTE_REFUSED)
+
+    def _answer_post(self, query: str) -> None:
+        _Params(query, set())
+        self._answers_writable()
+        payload = self._answer_payload(ANSWER_FIELDS)
+        request = _answer_request(payload)
+        record = self.server.state.save_answer(request)
+        self._send_json(201, {"record": record})
+
+    def _answer_withdraw(self, query: str) -> None:
+        _Params(query, set())
+        self._answers_writable()
+        payload = self._answer_payload({"table", "question", "seen"})
+        for name in ("table", "question"):
+            if not isinstance(payload.get(name), str) or not payload[name].strip():
+                raise _bad(f"{name} is required")
+        if not isinstance(payload.get("seen"), dict):
+            raise _bad("seen is the record as the page showed it")
+        record = self.server.state.withdraw_answer(payload["table"], payload["question"],
+                                                   payload["seen"])
+        self._send_json(200, {"withdrawn": record})
+
+    def _answer_export(self, query: str) -> None:
+        _Params(query, set()).json_only()
+        document = self.server.state.export_answers()
+        body = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        self._send(200, body, "application/json; charset=utf-8",
+                   {"Content-Disposition": f'attachment; filename="{EXPORT_NAME}"'})
+
+    def _answer_payload(self, fields: set) -> dict:
+        body, content_type = self._read_body()
+        if content_type != "application/json":
+            raise RequestError(415, "unsupported_media_type",
+                               f"POST {self.path.partition('?')[0]} takes application/json")
+        payload = self._json_object(body)
+        unknown = sorted(set(payload) - fields)
+        if unknown:
+            raise _bad(f"unknown field(s): {', '.join(unknown)}")
+        return payload
 
     # ------------------------------------------------------------------ ask
 
@@ -811,13 +966,64 @@ def _static_bytes(name: str) -> bytes:
     return (resources.files(__package__) / "static" / name).read_bytes()
 
 
+def _answer_request(payload: dict) -> dict:
+    """``POST /api/answers``'s body held to its fields, its texts cleaned (``_bad`` when
+    one is refused)."""
+    kind = payload.get("kind")
+    if kind not in records_file.KINDS:
+        raise _bad(f"kind must be one of {', '.join(records_file.KINDS)}")
+    text_key, other = ("answer", "reason") if kind == records_file.ANSWER else ("reason", "answer")
+    if payload.get(other) is not None:
+        raise _bad(f"a {kind} carries {text_key}, not {other}")
+    for name in ("table", "question", "asked"):
+        if not isinstance(payload.get(name), str) or not payload[name].strip():
+            raise _bad(f"{name} is required")
+    seen = payload.get("seen")
+    if not isinstance(seen, dict) or set(seen) != {"disk", "record"} or not all(
+        value is None or isinstance(value, dict) for value in seen.values()
+    ):
+        raise _bad("seen is {disk, record}: what the page showed, each an object or null")
+    request = {"table": payload["table"].strip(), "question": payload["question"].strip(),
+               "asked": payload["asked"], "seen": seen, "kind": kind}
+    try:
+        request[text_key] = records_file.clean_text(payload.get(text_key), text_key,
+                                                    records_file.MAX_TEXT)
+        request["by"] = records_file.clean_text(payload.get("by"), "by", records_file.MAX_NAME)
+        if kind == "redirect":
+            request["to"] = records_file.clean_text(payload.get("to"), "to", records_file.MAX_NAME)
+        elif payload.get("to") is not None:
+            raise records_file.TextRefused("only a redirect names who to ask (to)")
+    except records_file.TextRefused as error:
+        raise _bad(str(error)) from None
+    choice = payload.get("choice")
+    if choice is not None:
+        if kind not in records_file.CHOICE_KINDS or choice not in records_file.CHOICES:
+            raise _bad(f"choice is yes or no, on {' or '.join(records_file.CHOICE_KINDS)} only")
+        request["choice"] = choice
+    return request
+
+
+def _reachable_from_elsewhere(host: str, allow_hosts) -> bool:
+    """Whether machines other than this one may reach the server: a non-loopback address,
+    or another name allowed (a proxy or a tunnel in front of a loopback address)."""
+    if allow_hosts:
+        return True
+    if host == "localhost":
+        return False
+    try:
+        return not ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return True
+
+
 class CatalogHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, address, state: CatalogState, *, max_body: int, allowed_hosts, quiet,
-                 ask=None):
+                 ask=None, answers_remote_refused=False):
         self.state = state
         self.ask = ask
+        self.answers_remote_refused = answers_remote_refused
         self.max_body = max_body
         self.allowed_hosts = frozenset(allowed_hosts)
         self.quiet = quiet
@@ -833,10 +1039,15 @@ def make_server(
     allow_hosts=(),
     quiet: bool = False,
     ask=None,
+    answers_allow_remote: bool = False,
 ) -> CatalogHTTPServer:
     """A server bound to ``host:port`` (port 0: any free port); call ``serve_forever``.
-    ``ask`` is an ``ask.service.AskService``, or None for no ask endpoints."""
+    ``ask`` is an ``ask.service.AskService``, or None for no ask endpoints.
+    ``answers_allow_remote`` lets the answers endpoints write on a server other machines
+    can reach (``_reachable_from_elsewhere``)."""
     allowed = set(LOOPBACK) | {_host_of(host)} | {_host_of(item) for item in allow_hosts}
+    refused = _reachable_from_elsewhere(host, allow_hosts) and not answers_allow_remote
     return CatalogHTTPServer(
-        (host, port), state, max_body=max_body, allowed_hosts=allowed, quiet=quiet, ask=ask
+        (host, port), state, max_body=max_body, allowed_hosts=allowed, quiet=quiet, ask=ask,
+        answers_remote_refused=refused,
     )

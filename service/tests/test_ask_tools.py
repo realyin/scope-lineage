@@ -162,3 +162,21 @@ def test_check_input_takes_only_the_schema_subset() -> None:
 
     assert check_input(schema, {"a": ["x"]}) is None
     assert "string" in check_input(schema, {"a": [1]})
+
+
+def test_the_context_tool_carries_the_pages_answers(inputs, tmp_path) -> None:
+    """With an answers file the panel's model reads the page's answer, marked unwritten."""
+    from scope_lineage_service import answers as records_file
+
+    question = json.loads((inputs["semantics"] / f"{CUSTOMER}.json").read_text(
+        encoding="utf-8"))["summary"]["questions"][0]
+    file = tmp_path / "answers.json"
+    records_file.write_records(file, [{
+        "table": CUSTOMER, "question": question["id"], "asked": question["text"], "base": None,
+        "kind": "answer", "answer": "不会。", "source": {"kind": "person"}, "by": "审核人甲",
+        "date": "2026-11-23"}])
+    state = CatalogState(str(inputs["ontology"]), semantics=str(inputs["semantics"]),
+                         answers=str(file))
+    outcome = ToolBox(state, max_sql=4096).call("catalog_context", {"tables": [CUSTOMER]})
+
+    assert outcome.ok and "回答（页面填写，尚未写回）：不会。" in outcome.text

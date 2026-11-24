@@ -200,6 +200,22 @@ th.col-expr, td.col-expr { min-width: 16em; }
 th.col-name, th.col-prose, th.col-expr { white-space: nowrap; }
 td.num { text-align: right; white-space: nowrap; }
 
+/* The page's answers on the questions board (a server with --answers). */
+.answer-who { display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; align-items: center; }
+.answer-who input { min-width: 10rem; }
+.answer-box { border-top: 1px dashed var(--line); margin-top: 0.4rem; padding-top: 0.4rem; }
+.answer-form { display: flex; flex-direction: column; gap: 0.4rem; }
+.answer-form textarea {
+  font: inherit; color: var(--text); background: var(--panel); width: 100%; max-width: 100%;
+  border: 1px solid var(--line); border-radius: 4px; padding: 0.3rem 0.5rem; resize: vertical;
+}
+.answer-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.answer-actions input { flex: 1 1 10rem; min-width: 0; }
+a.button {
+  display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 0.25rem 0.6rem;
+  background: var(--accent-soft);
+}
+
 @media (max-width: 40rem) {
   .main { padding: 0.75rem; }
   .ask-run { padding: 0.2rem 0.6rem 0.5rem; }

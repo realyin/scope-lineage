@@ -94,4 +94,4 @@ def test_health_names_the_inputs_and_whether_they_load(inputs) -> None:
     assert health["ontology"]["doc_format"] == "ontology-json/3"
     assert health["semantics"]["documents"] == 1
     assert health["pending"]["configured"] is True
-    assert health["read_only"] is True
+    assert health["writes"] == ["pending.jsonl"] and "read_only" not in health

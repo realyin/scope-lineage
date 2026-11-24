@@ -1,8 +1,16 @@
-"""``scope-lineage-service http|mcp ONTOLOGY [--semantics DIR] [--pending FILE]``.
+"""``scope-lineage-service http|mcp ONTOLOGY [--semantics DIR] [--pending FILE] [--answers FILE]``.
 
-The files named here are the only ones a server reads (and the pending file the only one
-it writes); they are read once at start -- an unreadable one stops the server with the
-``catalog`` command's sentence and exit code -- and again whenever they change.
+The files named here are the only ones a server reads (and the pending file -- with
+``http``, the answers file too -- the only ones it writes); they are read once at start --
+an unreadable one stops the server with the ``catalog`` command's sentence and exit code --
+and again whenever they change.
+
+``--answers FILE`` keeps the browsing page's answers to table-semantics questions
+(``answers.py``). ``http`` is the file's one writer; ``mcp`` overlays it read-only. On an
+address other machines reach the page's answers are refused unless
+``--answers-allow-remote`` is given. ``scope-lineage-service answers export ANSWERS
+--semantics DIR --out FILE`` writes the answers in effect as a ``semantic-confirmations/1``
+file for ``scope-lineage semantic confirm``, without a server and without writing ANSWERS.
 
 ``http --ask`` adds the ask panel (a model on this server answers data questions through
 the catalog tools; it costs money and sends catalog text to the model provider, so it is
@@ -16,7 +24,9 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 import sys
+from pathlib import Path
 
 from scope_lineage.cli_catalog_answers import CatalogAnswerError
 
@@ -42,7 +52,20 @@ def _parser() -> argparse.ArgumentParser:
             "--pending",
             help="A catalog-pending/1 file: enables pending list and add (the only file written)",
         )
+        mode.add_argument(
+            "--answers", metavar="FILE",
+            help=("A question-answers/1 file of the browsing page's answers to table-semantics "
+                  "questions, overlaid on the documents; http writes it (created on the first "
+                  "answer), mcp only reads it. Keep it outside the semantics directory")
+            if name == "http" else
+            "A question-answers/1 file an http server writes: its answers are overlaid, read-only",
+        )
         if name == "http":
+            mode.add_argument(
+                "--answers-allow-remote", action="store_true",
+                help="Take the page's answers even when other machines can reach this server "
+                     "(a non-loopback --host, or --allow-host): anyone who reaches the port can "
+                     "answer under any name, and the text reaches models and MCP")
             mode.add_argument("--host", default="127.0.0.1",
                               help="IPv4 address to bind (default 127.0.0.1, this machine only)")
             mode.add_argument("--port", type=int, default=8765,
@@ -55,7 +78,74 @@ def _parser() -> argparse.ArgumentParser:
             )
             mode.add_argument("--quiet", action="store_true", help="Do not log each request")
             _ask_options(mode)
+    answers = modes.add_parser("answers", help="Work with a --answers file without a server")
+    actions = answers.add_subparsers(dest="action", required=True)
+    export = actions.add_parser(
+        "export",
+        help="Write the answers in effect as a semantic-confirmations/1 file "
+             "(for scope-lineage semantic confirm); exit 1 when a record did not match",
+    )
+    export.add_argument("answers", help="The question-answers/1 file a server keeps")
+    export.add_argument("--semantics", required=True,
+                        help="The directory of table-semantics documents the answers are for")
+    export.add_argument("--out", required=True, help="Where to write the confirmations file")
     return parser
+
+
+def _export(args) -> int:
+    """``answers export``: the answers in effect, judged against the documents on disk now.
+    The reason of each record not matched and the digest of each table answered go to
+    stderr; exit 1 when a record did not match (the others are still written)."""
+    from scope_lineage import cli_catalog_answers as core
+    from scope_lineage.semantics.digests import document_digest
+
+    from . import answers as records_file
+
+    try:
+        semantics = core.load_semantics(args.semantics)
+    except CatalogAnswerError as error:
+        print(error.message, file=sys.stderr)
+        return error.exit_code
+    try:
+        records = records_file.read_records(Path(args.answers))
+    except records_file.AnswersFileError as error:
+        print(f"{args.answers}: {error}", file=sys.stderr)
+        return 2
+    judgement = records_file.judge_all(records, semantics)
+    effective = [item.record for item in judgement.of(records_file.EFFECTIVE)
+                 if item.record["kind"] == records_file.ANSWER]
+    _, refused = core.overlay_answers(
+        semantics, [records_file.confirmation(record) for record in effective]
+    )
+    refused_keys = {(item.get("table"), str(item.get("target")).split(":", 1)[-1]): item["reason"]
+                    for item in refused}
+    unmatched = [item for item in judgement.of(records_file.UNMATCHED)
+                 if item.record["kind"] == records_file.ANSWER]
+    kept = []
+    for record in effective:
+        reason = refused_keys.get((record["table"], record["question"]))
+        if reason is None:
+            kept.append(record)
+        else:
+            unmatched.append(records_file.Judged(
+                record, records_file.UNMATCHED, records_file.NOT_APPLIED, None,
+                f"{records_file.REASON_TEXT[records_file.NOT_APPLIED]}：{reason}"))
+    out = Path(args.out)
+    out.write_text(json.dumps(records_file.export_document(kept), ensure_ascii=False, indent=2)
+                   + "\n", encoding="utf-8")
+    print(f"Exported {len(kept)} answer(s) to {out} (not matched={len(unmatched)})",
+          file=sys.stderr)
+    for item in unmatched:
+        entry = item.listing()
+        now = entry["now"]
+        held = "不存在" if now is None else (
+            f"问题「{now['text']}」，" + (f"回答「{now['answer']}」（{now['answered_by'] or '—'}，"
+                                      f"{now['answered_on'] or '—'}）" if now["answer"] else "待确认"))
+        print(f"  not matched: {entry['table']} {entry['question']}: {entry['message']}；"
+              f"磁盘上现在：{held}", file=sys.stderr)
+    for table in sorted({record["table"] for record in kept}):
+        print(f"  {table}  document_digest {document_digest(semantics[table])}", file=sys.stderr)
+    return 1 if unmatched else 0
 
 
 def _ask_options(mode: argparse.ArgumentParser) -> None:
@@ -207,10 +297,33 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+ANSWERS_REMOTE_WARNING = (
+    "warning: --answers-allow-remote: this server takes the page's answers from other "
+    "machines, with no authentication -- any program that can reach the port can answer under "
+    "any name, and the answers' text enters the model's context (the ask panel) and the MCP "
+    "output"
+)
+
+
+def _answers_notice(args) -> str | None:
+    """What to print at start about the page's answers on an address others reach."""
+    from .http_server import _reachable_from_elsewhere
+
+    if not args.answers or not _reachable_from_elsewhere(args.host, args.allow_host):
+        return None
+    if args.answers_allow_remote:
+        return ANSWERS_REMOTE_WARNING
+    return ("answers: other machines can reach this server, so the page's answers are refused "
+            "(read-only cards); --answers-allow-remote takes them anyway")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.mode == "answers":
+        return _export(args)
     try:
-        state = CatalogState(args.ontology, semantics=args.semantics, pending=args.pending)
+        state = CatalogState(args.ontology, semantics=args.semantics, pending=args.pending,
+                             answers=args.answers, answers_writer=args.mode == "http")
     except CatalogAnswerError as error:
         print(error.message, file=sys.stderr)
         return error.exit_code
@@ -244,9 +357,12 @@ def main(argv: list[str] | None = None) -> int:
         except CatalogAnswerError as error:
             print(error.message, file=sys.stderr)
             return error.exit_code
+    answers_notice = _answers_notice(args)
+    if answers_notice:
+        print(answers_notice, file=sys.stderr)
     httpd = make_server(
         state, args.host, args.port, max_body=args.max_body, allow_hosts=args.allow_host,
-        quiet=args.quiet, ask=ask,
+        quiet=args.quiet, ask=ask, answers_allow_remote=args.answers_allow_remote,
     )
     host, port = httpd.server_address[:2]
     print(f"Serving catalog answers on http://{host}:{port}/ (open it in a browser to browse "
