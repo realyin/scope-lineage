@@ -333,7 +333,12 @@ def test_facts_do_not_break_on_observations(tmp_path: Path) -> None:
     plain = read_confirmations(CONFIRMATIONS)
     entries = read_json(CONFIRMATIONS)["confirmations"]
     mixed = read_confirmations(_file(tmp_path / "c.json", *entries, *ALL))
-    assert render_facts(mixed, [DEMO_TABLE]) == render_facts(plain, [DEMO_TABLE])
+    before = render_facts(plain, [DEMO_TABLE])
+    after = render_facts(mixed, [DEMO_TABLE])
+    # the confirmed facts stay as they were; the observations follow them, one line each
+    assert after.startswith(before)
+    added = after[len(before):].splitlines()
+    assert len(added) == len(ALL) and all(line.startswith("- 观测：") for line in added)
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         assert run("semantic", "facts", "--confirmations", tmp_path / "c.json",

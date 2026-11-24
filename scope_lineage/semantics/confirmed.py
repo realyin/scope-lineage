@@ -252,7 +252,8 @@ def _row_fields(value) -> dict | None:
 # ------------------------------------------------------------------ facts text
 
 
-def render_facts(confirmations: Confirmations | None, tables: list[str]) -> str:
+def render_facts(confirmations: Confirmations | None, tables: list[str], *,
+                 grains: dict[str, list[str]] | None = None) -> str:
     """The confirmed facts of each table as plain lines, the text a writing prompt's
     ``{FACTS}`` takes.
 
@@ -262,6 +263,11 @@ def render_facts(confirmations: Confirmations | None, tables: list[str]) -> str:
     it and when (``unique`` and ``grain_source`` in words, the field's value after them); ``无`` when the table has none. Line breaks inside a confirmed text are
     folded to spaces, so one line is always one fact. When none of the tables has a fact
     the whole text is ``无``: the prompt reads as it did before there were confirmations.
+
+    The observations follow, one line each (:func:`_observed_lines`): the row's, then each
+    column's, then each input table's. ``grains`` (``db.table -> grain columns``, read from
+    the documents) lets the row's line say when the columns the query counted are not the
+    document's grain columns; it changes nothing else.
     """
     lines: list[str] = []
     found = False
@@ -269,7 +275,8 @@ def render_facts(confirmations: Confirmations | None, tables: list[str]) -> str:
         name = bare_table(table)
         state = confirmations.for_table(name) if confirmations else None
         lines.append(f"表 {name} 已确认的事实：")
-        facts = _fact_lines(state) if state else []
+        grain = {bare_table(key): value for key, value in (grains or {}).items()}.get(name)
+        facts = _fact_lines(state) + _observed_lines(state, grain) if state else []
         found = found or bool(facts)
         lines += facts or ["无"]
     return "\n".join(lines) + "\n" if found else "无\n"
@@ -298,6 +305,109 @@ def _fact_lines(state: TableConfirmed) -> list[str]:
         lines.append(f"- 问题 {question_id}（问：{_one_line(fact.asked)}）的回答："
                      f"{_one_line(fact.value)}{_by(fact)}")
     return lines
+
+
+def _observed_lines(state: TableConfirmed, grain: list[str] | None) -> list[str]:
+    """One line per observation, each 「观测：<对象>在分区 … 内（查询 …，… 执行，N 行）…」.
+
+    An observation is no definition, so no line says 「唯一」: a row or an input table is
+    "counted by (columns) without a duplicate", within the partitions read; a column's
+    values come with their counts, and the line says they are no code list."""
+    lines = []
+    if state.observed_row:
+        fact = state.observed_row
+        value = fact.value
+        counted = list(value["grain_columns"])
+        text = f"本表{_where(value)}{_counted(value, counted)}"
+        if grain is not None and set(grain) != set(counted):
+            text += f"；计数列 {_columns(counted)} 不是文档的行粒度列 {_columns(grain)}"
+        lines.append(f"- 观测：{text}；只说明这些分区，不是定义{_noted(fact)}")
+    for column, fact in state.observed_values.items():
+        lines.append(f"- 观测：列 {column} {_where(fact.value)}{_values_text(fact.value)}"
+                     f"；观测不给含义，不是码值表{_noted(fact)}")
+    for fact in state.observed_inputs.values():
+        value = fact.value
+        if value["unique"] == "yes":
+            effect = "按这几列关联它时在该分区内不放大，别的分区没观测"
+        else:
+            effect = "按这几列关联它时会放大行数"
+        lines.append(f"- 观测：输入表 {value['table']} {_where(value)}"
+                     f"{_counted(value, value['columns'])}；{effect}{_noted(fact)}")
+    return lines
+
+
+def _where(value: dict) -> str:
+    """「在分区 … 内（查询 …，… 执行，N 行）」: where and by which query an observation was made."""
+    partition = value["partition"]
+    column = partition.get("column")
+    if column is None:
+        place = "在全表内"
+    elif "from" in partition:
+        count = f" 共 {partition['count']} 个分区" if partition.get("count") else ""
+        place = f"在分区 {column} {partition['from']}–{partition['to']}{count}内"
+    else:
+        values = [str(item) for item in partition.get("values") or []]
+        place = (f"在分区 {column}={values[0]} 内" if len(values) == 1
+                 else f"在分区 {column} {'、'.join(values)} 内" if values
+                 else f"在分区 {column} 内")
+    parts = [f"查询 {_one_line(value['query'])}"]
+    if value.get("requested"):
+        parts.append(f"原定 {_one_line(value['requested'])}，回退到最近可用分区")
+    if value.get("filter"):
+        parts.append(f"条件 {_one_line(value['filter'])}")
+    parts.append(f"{value['on']} 执行")
+    parts.append(f"{value['rows']} 行")
+    if value.get("observed_on"):
+        parts.append(f"取自 {_one_line(value['observed_on'])}")
+    return f"{place}（{'，'.join(parts)}）"
+
+
+def _counted(value: dict, columns) -> str:
+    """「按 (a, b) 计数无重复（N 个键）」, or with duplicates; how the partitions were counted
+    when there were several."""
+    keys = value.get("keys")
+    if value["unique"] == "yes":
+        text = f"按 {_columns(columns)} 计数无重复" + (f"（{keys} 个键）" if keys is not None else "")
+    else:
+        duplicates = value.get("duplicate_keys")
+        counts = [f"{keys} 个键里" if keys is not None else None,
+                  f"{duplicates} 个重复" if duplicates is not None else None]
+        detail = " ".join(item for item in counts if item)
+        text = f"按 {_columns(columns)} 计数有重复" + (f"（{detail}）" if detail else "")
+    partition = value["partition"]
+    several = "from" in partition or len(partition.get("values") or []) > 1
+    if several:
+        text += ("，每个分区内分别计数" if value["within"] == "each_partition"
+                 else "，所有观测分区合起来计数")
+    return text
+
+
+def _values_text(value: dict) -> str:
+    """The values a column was seen to hold, with counts; the values not seen; the counts."""
+    parts = []
+    items = value.get("values") or []
+    if items:
+        seen = "、".join(f"{_one_line(item['value'])}（{item['count']} 行）" for item in items)
+        parts.append(f"出现 {seen}，{'已列全' if value['complete'] else '未列全'}")
+    absent = value.get("absent") or []
+    if absent:
+        parts.append(f"没有出现 {'、'.join(_one_line(item) for item in absent)}")
+    counts = [f"去重 {value['distinct']} 个" if value.get("distinct") is not None else "",
+              f"空值 {value['nulls']} 个" if value.get("nulls") is not None else ""]
+    counts = "、".join(item for item in counts if item)
+    if not items:
+        parts.append(f"只给计数：{counts}" if counts else "只给计数")
+    elif counts:
+        parts.append(counts)
+    return "；".join(parts)
+
+
+def _columns(columns) -> str:
+    return f"({', '.join(str(column) for column in columns)})"
+
+
+def _noted(fact: Fact) -> str:
+    return f"（{_one_line(fact.by)} 于 {fact.date} 记录）"
 
 
 def _question_order(question_id: str) -> tuple:

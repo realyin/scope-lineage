@@ -166,6 +166,13 @@ def _add_facts_parser(actions) -> None:
         "--table", required=True, action="append", metavar="TABLE",
         help="A table (db.table, a catalog prefix is ignored); repeatable, printed in this order",
     )
+    facts.add_argument(
+        "--documents", metavar="DIR",
+        help=(
+            "A directory of table-semantics/1 documents: an observed row's line then says "
+            "when the columns the query counted are not the document's grain columns"
+        ),
+    )
 
 
 def add_confirmations_option(parser, default: str) -> None:
@@ -843,7 +850,17 @@ def _run_facts(args: argparse.Namespace) -> int:
         for message in error.messages:
             print(message, file=sys.stderr)
         return 2
-    print(render_facts(confirmations, args.table), end="")
+    grains = None
+    if args.documents:
+        if not Path(args.documents).is_dir():
+            print(f"--documents does not exist: {args.documents}", file=sys.stderr)
+            return 2
+        documents, _ = _semantic_documents(Path(args.documents))
+        grains = {table: list(document["summary"]["row"]["grain_columns"])
+                  for table, document in documents.items()
+                  if isinstance((document.get("summary") or {}).get("row"), dict)
+                  and isinstance(document["summary"]["row"].get("grain_columns"), list)}
+    print(render_facts(confirmations, args.table, grains=grains), end="")
     return 0
 
 

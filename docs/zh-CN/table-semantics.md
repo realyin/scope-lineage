@@ -778,7 +778,7 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 ## `semantic facts`
 
 ```bash
-scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...]
+scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...] [--documents <dir>]
 ```
 
 按给出的顺序，把 owner 为每张表确认过的事实逐行打印出来：这就是写作、审读提示词里「已确认事实」要填的文字。
@@ -799,10 +799,25 @@ scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [-
 - 列 gender_cd 的码值「U」：未知（demo-reviewer 于 2026-09-26 确认）
 ```
 
+观测（见 `semantic confirm` 下的「观测事实」）排在后面，每条一行：先行的，再各列的，再各输入表的，每行末尾写明谁在哪天
+记录。每行以「观测：」开头，写明在哪、哪条查询：「在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）」；
+区间写「dt 20261116–20261122 共 7 个分区」，回退写「原定 …，回退到最近可用分区」，有查询条件写「条件 …」，有
+`observed_on` 写「取自 …」。行与输入表写「按 (列) 计数无重复（N 个键）」或「计数有重复（N 个键里 M 个重复）」，
+从不写「唯一」，行的那一条以「只说明这些分区，不是定义」收尾；列写出现的取值及行数、「已列全」或「未列全」、被问到而
+没出现的「没有出现 …」、去重数与空值数（标识类列只有计数），并写「观测不给含义，不是码值表」。给了 `--documents <dir>`
+（表语义文档目录）时，查询计数的列不是文档的粒度列，行的那一条还写「计数列 (…) 不是文档的行粒度列 (…)」。没有观测时
+输出逐字节不变。
+
+```text
+- 观测：本表在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (customer_id) 计数无重复（120 个键）；只说明这些分区，不是定义（demo-reviewer 于 2026-11-21 记录）
+- 观测：列 gender_cd 在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行，取自 demo_ods.ods_core_customer_df.gender）出现 F（60 行）、M（50 行）、X（10 行），已列全；没有出现 U；去重 3 个、空值 0 个；观测不给含义，不是码值表（demo-reviewer 于 2026-11-21 记录）
+- 观测：输入表 demo_ods.ods_core_customer_df 在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (cust_no) 计数无重复（120 个键）；按这几列关联它时在该分区内不放大，别的分区没观测（demo-reviewer 于 2026-11-21 记录）
+```
+
 | 退出码 | 条件 |
 | --- | --- |
 | 0 | 已打印（含没有确认事实的表） |
-| 2 | `--confirmations` 不存在，确认文件读不了或不合 Schema，或没有 `--table` |
+| 2 | `--confirmations` 或 `--documents` 不存在，确认文件读不了或不合 Schema，或没有 `--table` |
 
 ## `semantic render`
 

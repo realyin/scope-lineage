@@ -972,7 +972,7 @@ with observations needs a version of the tool that knows them.
 ## `semantic facts`
 
 ```bash
-scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...]
+scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...] [--documents <dir>]
 ```
 
 Prints what the owner confirmed for each table, in the order given, as plain lines: the text
@@ -1000,10 +1000,30 @@ answer to `q1` carries no `asked`, so it is not printed):
 - 列 gender_cd 的码值「U」：未知（demo-reviewer 于 2026-09-26 确认）
 ```
 
+The observations (see Observed facts under `semantic confirm`) follow, one line each: the
+row's, then each column's, then each input table's, each ending with who recorded it and
+when. Every line starts 「观测：」 and says where and by which query: 「在分区 dt=20261119
+内（查询 probe_1，2026-11-20 执行，120 行）」, with a range 「dt 20261116–20261122 共 7 个分区」,
+a fallback 「原定 …，回退到最近可用分区」, the query's condition 「条件 …」 and `observed_on`
+「取自 …」 when there are any. A row or an input table is 「按 (columns) 计数无重复（N
+个键）」 or 「计数有重复（N 个键里 M 个重复）」 -- never 「唯一」 -- and the row's line closes with
+「只说明这些分区，不是定义」; a column lists its values with their row counts, 「已列全」 or
+「未列全」, 「没有出现 …」 for the values asked about and not seen, the distinct and null counts
+(counts only on an identifier column) and 「观测不给含义，不是码值表」. With `--documents <dir>`
+(a directory of table-semantics documents) the row's line also says 「计数列 (…) 不是文档的行粒度列
+(…)」 when the columns the query counted are not the document's grain columns. Without any
+observation the output is byte for byte what it was.
+
+```text
+- 观测：本表在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (customer_id) 计数无重复（120 个键）；只说明这些分区，不是定义（demo-reviewer 于 2026-11-21 记录）
+- 观测：列 gender_cd 在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行，取自 demo_ods.ods_core_customer_df.gender）出现 F（60 行）、M（50 行）、X（10 行），已列全；没有出现 U；去重 3 个、空值 0 个；观测不给含义，不是码值表（demo-reviewer 于 2026-11-21 记录）
+- 观测：输入表 demo_ods.ods_core_customer_df 在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (cust_no) 计数无重复（120 个键）；按这几列关联它时在该分区内不放大，别的分区没观测（demo-reviewer 于 2026-11-21 记录）
+```
+
 | Exit code | Condition |
 | --- | --- |
 | 0 | printed (a table with no confirmed fact included) |
-| 2 | `--confirmations` does not exist, a confirmations file cannot be read or fits no schema, or `--table` is missing |
+| 2 | `--confirmations` or `--documents` does not exist, a confirmations file cannot be read or fits no schema, or `--table` is missing |
 
 ## `semantic render`
 
