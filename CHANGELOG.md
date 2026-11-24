@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- **Added: `catalog pending reply` -- the owner's reply to a missing definition, appended to the same
+  `catalog-pending/1` file.** A reply is a line of its own (`kind: reply`, `missing`, `reply`, `status`,
+  optional `by`, `date`), keyed by the `missing` text the way `list` groups entries; it is not a hit -- no
+  count, no question, no date moves. `--status` is `answered` (defined, not in the catalog yet), `resolved`
+  or `rejected` (both close the item). Texts must fit on one line (no line break or control character;
+  2000 characters, 100 for `--by`), refused with exit 2; a `missing` no entry names is refused with exit 1;
+  nothing is written on a refusal. `catalog pending list` shows each item's latest reply and status and by
+  default leaves out closed items (new `--status active|open|answered|resolved|rejected|all`); its JSON
+  gains `status`/`reply` per item and `replies`/`status`/`closed` only when the file has a reply, so a file
+  without replies lists byte for byte as before. A malformed reply line, or one naming no entry, is a line
+  that cannot be read (exit 1); older versions read every reply line that way. The service's
+  `list_pending` / `GET /api/pending` follow `list`'s default; its question board counts a replied pending
+  item as answered and the page shows the reply. The service writes no replies.
 - **Added: observed facts -- what a platform query found -- as three confirmation targets that `semantic
   confirm` replays into slots of their own.** `summary.row.observed` writes `summary.row.observed` and turns an
   `inferred` grain into the new `grain_source: observed` (grain columns: the columns the query counted, unless

@@ -43,6 +43,7 @@ def _lines(pending: Path) -> list[dict]:
 
 
 def _list(pending: Path, capsys, *argv: str) -> tuple[int, dict]:
+    capsys.readouterr()  # what an earlier command printed
     code = main(["catalog", "pending", "list", str(pending), "--json", *argv])
     return code, json.loads(capsys.readouterr().out)
 
@@ -315,3 +316,190 @@ def test_the_report_reads_the_catalogs_names_once_for_every_item(monkeypatch) ->
     assert len(calls) == 1
     named = next(item for item in report["items"] if item["missing"] == "客户")
     assert [o["id"] for o in named["in_catalog"]] == ["concept:customer"]
+
+
+# ------------------------------------------------------------------ replies
+#
+# The owner answers a group with ``pending reply``: one more line in the same file
+# (``kind: reply``), never a rewrite. A reply is not a hit: it adds no question and moves
+# no date. ``list`` shows each group's latest reply and its status, and by default leaves
+# out the groups a reply closed (``resolved``, ``rejected``); ``--status`` picks others.
+
+
+def _reply(pending: Path, missing: str, *argv: str) -> int:
+    return main(["catalog", "pending", "reply", str(pending), "--missing", missing,
+                 "--date", "2026-01-09", *argv])
+
+
+def _two_groups(tmp_path: Path) -> Path:
+    return _write(
+        tmp_path / "pending.jsonl",
+        {"missing": "哪些码算 未接通", "question": "问一", "tables": [LOAN]},
+        {"missing": "哪些码算 未接通", "question": "问二", "date": "2026-01-05"},
+        {"missing": "豁免的范围", "question": "问三"},
+    )
+
+
+def test_reply_appends_one_reply_line_keyed_by_the_missing_text(tmp_path: Path, capsys) -> None:
+    pending = _two_groups(tmp_path)
+    before = pending.read_text(encoding="utf-8")
+    assert _reply(pending, "哪些码算　未接通 ", "--reply", "码 3、4 算未接通",
+                  "--status", "answered", "--by", "owner") == 0
+    after = pending.read_text(encoding="utf-8")
+    assert after.startswith(before)
+    reply = _lines(pending)[-1]
+    assert reply == {
+        "doc_format": PENDING_FORMAT, "kind": "reply", "date": "2026-01-09",
+        "missing": "哪些码算　未接通", "reply": "码 3、4 算未接通", "status": "answered",
+        "by": "owner",
+    }
+    assert "reply" in capsys.readouterr().out.lower()
+
+
+def test_a_reply_is_not_a_hit_and_moves_no_date(tmp_path: Path, capsys) -> None:
+    pending = _two_groups(tmp_path)
+    assert _reply(pending, "哪些码算 未接通", "--reply", "码 3、4", "--status", "answered") == 0
+    code, report = _list(pending, capsys)
+    assert code == 0
+    item = next(i for i in report["items"] if i["missing"] == "哪些码算 未接通")
+    assert item["hits"] == 2
+    assert item["questions"] == ["问一", "问二"]
+    assert item["dates"] == {"first": DATE, "last": "2026-01-05"}
+    assert item["lines"] == [1, 2]
+    assert report["lines"] == 3
+    assert report["replies"] == 1
+
+
+def test_list_shows_each_groups_latest_reply_and_status(tmp_path: Path, capsys) -> None:
+    pending = _two_groups(tmp_path)
+    assert _reply(pending, "哪些码算 未接通", "--reply", "先按码 3", "--status", "answered") == 0
+    assert _reply(pending, "哪些码算 未接通", "--reply", "码 3、4 都算",
+                  "--status", "answered", "--by", "owner") == 0
+    code, report = _list(pending, capsys)
+    assert code == 0
+    by_text = {item["missing"]: item for item in report["items"]}
+    replied = by_text["哪些码算 未接通"]
+    assert replied["status"] == "answered"
+    assert replied["reply"] == {
+        "reply": "码 3、4 都算", "status": "answered", "by": "owner", "date": "2026-01-09",
+        "line": 5,
+    }
+    assert by_text["豁免的范围"]["status"] == "open"
+    assert by_text["豁免的范围"]["reply"] is None
+    main(["catalog", "pending", "list", str(pending)])
+    text = capsys.readouterr().out
+    assert "码 3、4 都算" in text and "先按码 3" not in text
+    assert "已答复" in text
+
+
+def test_list_leaves_out_closed_groups_unless_status_asks(tmp_path: Path, capsys) -> None:
+    pending = _two_groups(tmp_path)
+    assert _reply(pending, "豁免的范围", "--reply", "目录已有", "--status", "resolved") == 0
+    code, report = _list(pending, capsys)
+    assert code == 0
+    assert [item["missing"] for item in report["items"]] == ["哪些码算 未接通"]
+    assert report["status"] == "active" and report["closed"] == 1
+    _, report = _list(pending, capsys, "--status", "resolved")
+    assert [item["missing"] for item in report["items"]] == ["豁免的范围"]
+    _, report = _list(pending, capsys, "--status", "open")
+    assert [item["missing"] for item in report["items"]] == ["哪些码算 未接通"]
+    _, report = _list(pending, capsys, "--status", "all")
+    assert len(report["items"]) == 2
+    main(["catalog", "pending", "list", str(pending)])
+    assert "1 项已关闭" in capsys.readouterr().out
+    # a later reply reopens it: the latest reply decides
+    assert _reply(pending, "豁免的范围", "--reply", "还要按产品分", "--status", "answered") == 0
+    _, report = _list(pending, capsys)
+    assert len(report["items"]) == 2
+
+
+def test_list_without_replies_prints_what_it_printed_before(tmp_path: Path, capsys) -> None:
+    pending = _two_groups(tmp_path)
+    code, report = _list(pending, capsys)
+    assert code == 0
+    assert set(report) == {"doc_format", "lines", "checked", "items", "problems"}
+    assert set(report["items"][0]) == {
+        "missing", "hits", "questions", "terms", "tables", "columns", "proposed", "dates",
+        "lines", "recorded_questions", "in_catalog",
+    }
+    main(["catalog", "pending", "list", str(pending)])
+    assert capsys.readouterr().out == (
+        "# 待确认的定义：3 条记录，2 项\n"
+        "\n"
+        "## 1. 哪些码算 未接通（2 次）\n"
+        "- 问到它的问题：问一；问二\n"
+        f"- 涉及：{LOAN}\n"
+        f"- 记录日期：{DATE} 至 2026-01-05（第 1、2 行）\n"
+        "\n"
+        "## 2. 豁免的范围（1 次）\n"
+        "- 问到它的问题：问三\n"
+        f"- 记录日期：{DATE}（第 3 行）\n"
+    )
+
+
+def test_reply_refuses_a_missing_text_no_entry_has(tmp_path: Path, capsys) -> None:
+    pending = _two_groups(tmp_path)
+    before = pending.read_text(encoding="utf-8")
+    assert _reply(pending, "没有记过的东西", "--reply", "x", "--status", "answered") == 1
+    assert "没有记过的东西" in capsys.readouterr().err
+    assert pending.read_text(encoding="utf-8") == before
+    assert _reply(tmp_path / "none.jsonl", "甲", "--reply", "x", "--status", "answered") == 2
+    assert not (tmp_path / "none.jsonl").exists()
+
+
+@pytest.mark.parametrize("argv", [
+    ["--reply", "两行\n文字", "--status", "answered"],
+    ["--reply", "带控制符\x07", "--status", "answered"],
+    ["--reply", "长" * 2001, "--status", "answered"],
+    ["--reply", "  ", "--status", "answered"],
+    ["--reply", "x", "--status", "answered", "--by", "a\tb"],
+    ["--reply", "x", "--status", "answered", "--date", "2026-13-01"],
+])
+def test_reply_refuses_text_that_does_not_fit_on_one_line(tmp_path: Path, argv: list) -> None:
+    pending = _two_groups(tmp_path)
+    before = pending.read_text(encoding="utf-8")
+    assert _reply(pending, "豁免的范围", *argv) == 2
+    assert pending.read_text(encoding="utf-8") == before
+
+
+def test_reply_takes_only_the_known_statuses(tmp_path: Path) -> None:
+    pending = _two_groups(tmp_path)
+    with pytest.raises(SystemExit) as raised:
+        _reply(pending, "豁免的范围", "--reply", "x", "--status", "done")
+    assert raised.value.code == 2
+
+
+def test_a_malformed_reply_line_is_reported_like_a_malformed_entry(tmp_path: Path, capsys) -> None:
+    pending = _two_groups(tmp_path)
+    with pending.open("a", encoding="utf-8") as handle:
+        for line in (
+            {"doc_format": PENDING_FORMAT, "kind": "reply", "date": DATE, "missing": "豁免的范围",
+             "reply": "x", "status": "done"},
+            {"doc_format": PENDING_FORMAT, "kind": "reply", "date": DATE, "missing": "豁免的范围",
+             "status": "resolved"},
+            {"doc_format": PENDING_FORMAT, "kind": "reply", "date": DATE, "missing": "谁也没问",
+             "reply": "x", "status": "resolved"},
+        ):
+            handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+    code, report = _list(pending, capsys)
+    assert code == 1
+    assert [p["line"] for p in report["problems"]] == [4, 5, 6]
+    assert {item["missing"]: item["status"] for item in report["items"]} == {
+        "哪些码算 未接通": "open", "豁免的范围": "open",
+    }
+
+
+def test_the_board_shows_a_replied_pending_item_as_answered(tmp_path: Path) -> None:
+    from scope_lineage.cli_catalog_answers import questions
+
+    pending = _two_groups(tmp_path)
+    assert _reply(pending, "豁免的范围", "--reply", "目录已有", "--status", "resolved") == 0
+    document = json.loads(ONTOLOGY.read_text(encoding="utf-8"))
+    text = pending.read_text(encoding="utf-8")
+    board = questions(document, None, text, status="all", source="pending").result
+    status = {item["missing"]: item["status"] for item in board["items"]}
+    assert status == {"哪些码算 未接通": "open", "豁免的范围": "answered"}
+    replied = next(item for item in board["items"] if item["missing"] == "豁免的范围")
+    assert replied["reply"]["reply"] == "目录已有"
+    board = questions(document, None, text, source="pending").result
+    assert [item["missing"] for item in board["items"]] == ["哪些码算 未接通"]
