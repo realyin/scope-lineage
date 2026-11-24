@@ -91,6 +91,8 @@ class ConfirmResult:
     changed: set = field(default_factory=set)
     # table -> the target of each applied entry that changed its document, in order
     changed_by: dict = field(default_factory=dict)
+    # the position in ``confirmations`` of each ``unmatched`` item, in the same order
+    unmatched_at: list = field(default_factory=list)
 
 
 NO_ASKED = ("no asked: a replay cannot tell which question this answers once a rewrite has "
@@ -105,15 +107,15 @@ def apply_confirmations(documents: dict, confirmations: list,
     instead of applied -- the replay after a write, where question ids may have moved."""
     result = ConfirmResult({bare_table(t): copy.deepcopy(d) for t, d in documents.items()})
     original = copy.deepcopy(result.documents)
-    for entry in confirmations:
+    for at, entry in enumerate(confirmations):
         table = bare_table(entry.get("table"))
         document = result.documents.get(table)
         if document is None:
-            result.unmatched.append(_miss(entry, "unknown table: no table-semantics document for it"))
+            _unmatched(result, at, _miss(entry, "unknown table: no table-semantics document for it"))
             continue
         if (require_asked and ASKED not in entry
                 and str(entry.get("target")).startswith("question:")):
-            result.unmatched.append(_miss(entry, NO_ASKED))
+            _unmatched(result, at, _miss(entry, NO_ASKED))
             continue
         if ASKED in entry:
             verdict = _check_asked(document, entry)
@@ -121,7 +123,7 @@ def apply_confirmations(documents: dict, confirmations: list,
                 result.skipped.append(_miss(entry, "the question already holds this answer"))
                 continue
             if verdict is not None:
-                result.unmatched.append(_miss(entry, verdict))
+                _unmatched(result, at, _miss(entry, verdict))
                 continue
         candidate = copy.deepcopy(document)
         reason = _apply_one(candidate, entry)
@@ -130,7 +132,7 @@ def apply_confirmations(documents: dict, confirmations: list,
             if errors:
                 reason = f"value does not fit table-semantics/1 ({errors[0]['at']}: {errors[0]['message']})"
         if reason is not None:
-            result.unmatched.append(_miss(entry, reason))
+            _unmatched(result, at, _miss(entry, reason))
             continue
         _log(candidate, entry)
         if candidate != document:
@@ -142,6 +144,11 @@ def apply_confirmations(documents: dict, confirmations: list,
     result.changed = {table for table, document in result.documents.items()
                       if document != original[table]}
     return result
+
+
+def _unmatched(result: ConfirmResult, at: int, item: dict) -> None:
+    result.unmatched.append(item)
+    result.unmatched_at.append(at)
 
 
 def _miss(entry: dict, reason: str) -> dict:

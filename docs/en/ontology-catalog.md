@@ -1451,6 +1451,25 @@ without `page_states`, or with an empty one, every output is what it was before 
 answers of answered questions). A note on a question the document already answers has no effect: the
 document's answer stands.
 
+A page may also answer a question with a structured value, and `overlay_answers` applies the three shapes a
+page produces besides `question:<id>`: `summary.row` with an object of exactly `unique` and `grain_columns`,
+`column:<c>.meaning` with a text, and `column:<c>.code_values` with one `{value, meaning}` object (never a
+list, which would replace every code value of the column); any other shape -- an observation, a row text, a
+row object with other keys -- is refused with `ONLY_PAGE_TARGETS`. With `indexed=True` each refusal carries
+`index`, the entry's position, so a caller can tell which of its records a refusal belongs to (a structured
+target does not name its question). The overlay has no groups: entries are applied one by one, as `semantic
+confirm` applies them. `page_states` then also takes `(table, slot)` keys -- `row`, `column:<c>.meaning`,
+`column:<c>.code_values:<value>` -- whose value is `{"written": false}` only; the pack marks the row
+`written: false` and a column `unwritten: ["meaning", "code_values:<value>", ...]` (under a table and under a
+named column), and its text adds `（页面填写，尚未写回）` after the row, `（页面填写，尚未写回：含义、码值 'X'）` after
+the column's line, and the mark after a named column's meaning and code values. Without slot keys nothing
+changes.
+
+The page keeps a record's two entries (the structured slot and the `question:` entry that closes the
+question) together: when either is refused, neither is overlaid. `semantic confirm` does not: replaying an
+exported file under `--require-asked`, a question that was rewritten leaves its `question:` entry unmatched,
+while the structured entry, addressed by column name, still applies. Read the unmatched list of the replay.
+
 Started with `--ask`, the page also gets an ask panel: a model on the server answers a data question by the
 skill's `catalog-answers.md` walk, with the answers above as its only tools, and the page shows the steps, the
 SQL, the basis of each condition and each 待确认 placeholder (a definition typed beside one is appended to the

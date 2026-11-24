@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- **Added: structured page answers in the core overlay and the context pack.** `overlay_answers` applies,
+  besides `question:<id>`, the three shapes a browsing page produces: `summary.row` with exactly `{unique,
+  grain_columns}`, `column:<c>.meaning` with a text, and `column:<c>.code_values` with one `{value, meaning}`
+  object (never a list); every other shape is refused with the new reason `ONLY_PAGE_TARGETS` (it was
+  `ONLY_QUESTIONS`, kept as a name). New keyword `indexed=True`: each refusal carries `index`, the entry's
+  position, so a caller maps refusals back to its records (`ConfirmResult.unmatched_at` gives the same for
+  `apply_confirmations`). `page_index` takes `(table, slot)` keys (`row`, `column:<c>.meaning`,
+  `column:<c>.code_values:<value>`, state `{"written": false}` only); the pack marks the row `written: false`
+  and a column `unwritten: [...]`, its text adding 「（页面填写，尚未写回）」. Without slot keys, and for an overlay
+  of `question:` entries only, every output is as before. The overlay has no groups; the docs say that a replay
+  under `--require-asked` applies a structured entry whose question was rewritten.
 - **Added: observed facts -- what a platform query found -- as three confirmation targets that `semantic
   confirm` replays into slots of their own.** `summary.row.observed` writes `summary.row.observed` and turns an
   `inferred` grain into the new `grain_source: observed` (grain columns: the columns the query counted, unless

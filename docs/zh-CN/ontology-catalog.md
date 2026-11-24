@@ -1241,6 +1241,18 @@ HTTP 服务还在 `/` 提供一个只读的浏览页面（浏览器打开 `http:
 文档本身不加任何键；不给 `page_states` 或给空映射时，所有输出与不支持它时相同（已回答问题的回答除外）。备注挂在文档里已回答的问题上时
 不起作用：以文档的回答为准。
 
+页面也可以用结构化的值回答问题。`overlay_answers` 除 `question:<id>` 外只套页面能产生的三种形状：`summary.row` 且值恰为 `unique`
+与 `grain_columns` 两键的对象、`column:<c>.meaning` 且值为文字、`column:<c>.code_values` 且值为单个 `{value, meaning}` 对象（不收列表：
+列表会替换整列码值）；其他形状（观测、行的文字、带别的键的行对象）一律拒收，理由是 `ONLY_PAGE_TARGETS`。传 `indexed=True` 时每条拒收
+多一个 `index`（条目在输入里的位置），调用方据此把拒收对回自己的记录（结构化目标不带问题 id）。叠加不分组：条目一条一条套，与
+`semantic confirm` 相同。`page_states` 此时还接受 `(表, 槽位)` 键（`row`、`column:<c>.meaning`、`column:<c>.code_values:<值>`），
+值只能是 `{"written": false}`；取数包给行标 `written: false`，给列标 `unwritten: ["meaning", "code_values:<值>", …]`（表下与点名的列下
+都标），文本在行后加 `（页面填写，尚未写回）`，在字段一览的列后加 `（页面填写，尚未写回：含义、码值 'X'）`，点名的列在含义与码值行后加同样的
+标注。不给槽位键时一切不变。
+
+页面把一条记录的两个条目（结构化槽位与关掉问题的 `question:` 条目）当作一体：任一条被拒，两条都不叠加。`semantic confirm` 不是这样：
+带 `--require-asked` 重放导出的文件时，问题若已改写，`question:` 条目对不上，而按列名定位的结构化条目照样生效。重放后要看 unmatched 清单。
+
 以 `--ask` 启动时，页面还多一个问数面板：服务器上的模型按技能的 `catalog-answers.md` 步骤回答数据问题，只能用上面这些回答作工具；页面显示每一步、
 SQL、每个条件的依据和每个待确认占位（在占位旁填写的定义会追加到待确认文件）。它从不执行 SQL；它会产生费用，并把目录文字发给模型提供方，所以默认关闭。
 `--ask-models FILE` 可以列出多个模型（Anthropic，或任何讲 OpenAI Chat Completions API 的端点，比如私有部署的模型），提问的人每题自选；

@@ -398,45 +398,90 @@ def questions(
 
 
 QUESTION_TARGET = "question:"
-ONLY_QUESTIONS = "only question:<id> answers are overlaid"
+ONLY_QUESTIONS = "only question:<id> answers are overlaid"  # the reason before page targets
+ONLY_PAGE_TARGETS = (
+    "only the targets a browsing page answers are overlaid: question:<id>, summary.row "
+    "{unique, grain_columns}, column:<c>.meaning (a text) and column:<c>.code_values (one "
+    "{value, meaning})"
+)
+ROW_TARGET = "summary.row"
+ROW_KEYS = frozenset({"unique", "grain_columns"})
+CODE_KEYS = frozenset({"value", "meaning"})
+
+
+def page_target(entry: dict) -> bool:
+    """Whether ``entry`` is one of the shapes a browsing page produces: a ``question:<id>``
+    answer, a ``summary.row`` object of exactly ``unique`` and ``grain_columns``, a
+    ``column:<c>.meaning`` text, or a ``column:<c>.code_values`` single ``{value, meaning}``
+    object (never a list: a list replaces every code value of the column)."""
+    target, value = str(entry.get("target") or ""), entry.get("value")
+    if target.startswith(QUESTION_TARGET):
+        return True
+    if target == ROW_TARGET:
+        return isinstance(value, dict) and set(value) == ROW_KEYS
+    column, _, slot = target.partition(".")
+    if not column.startswith("column:") or len(column) == len("column:"):
+        return False
+    if slot == "meaning":
+        return isinstance(value, str)
+    if slot == "code_values":
+        return isinstance(value, dict) and set(value) == CODE_KEYS
+    return False
 
 
 def overlay_answers(
-    semantics: dict | None, confirmations: Iterable[dict]
+    semantics: dict | None, confirmations: Iterable[dict], *, indexed: bool = False
 ) -> tuple[dict, list[dict]]:
     """``(semantics with the answers applied, the ones not applied)``.
 
     ``confirmations`` are ``semantic-confirmations/1`` entries a browsing page holds; only
-    ``question:<id>`` targets are applied, by ``semantic confirm``'s own
+    the shapes a page produces (``page_target``) are applied -- ``question:<id>`` answers,
+    ``summary.row`` ``{unique, grain_columns}``, ``column:<c>.meaning`` and one
+    ``column:<c>.code_values`` object --, by ``semantic confirm``'s own
     ``apply_confirmations``, to copies of the documents of the tables they name. The
     returned mapping keeps ``semantics``' keys, and every document no answer changed is
     the very object it was, so a caller's cache keyed by those objects stays valid;
     ``semantics`` and its documents are not changed. Each entry not applied is
-    ``{table, target, reason}``: first the targets that are not questions, then those
-    ``apply_confirmations`` refused (an unknown table or question, an empty answer, a
-    question that no longer reads as ``asked``, an answer on disk changed without
-    ``replace``). An entry it skipped -- the very answer is already on disk -- changes
-    nothing and is not listed.
+    ``{table, target, reason}``: first the shapes no page produces (``ONLY_PAGE_TARGETS``),
+    then those ``apply_confirmations`` refused (an unknown table, question or column, an
+    empty answer, a question that no longer reads as ``asked``, an answer on disk changed
+    without ``replace``). An entry it skipped -- the very answer is already on disk --
+    changes nothing and is not listed. ``indexed``: each entry not applied also carries
+    ``index``, its position in ``confirmations``, so a caller that grouped entries (one page
+    record exported as a structured entry and a ``question:`` entry) can tell which group
+    a refusal belongs to -- a structured target does not name its question.
+
+    Entries are applied one by one, as ``semantic confirm`` applies them: the overlay has no
+    groups. A caller that wants a record's entries to stand or fall together drops every
+    entry of a record with a refusal and overlays again.
     """
     from .semantics.confirm import apply_confirmations
     from .semantics.names import bare_table
 
     semantics = semantics or {}
+    confirmations = list(confirmations)
     keys: dict[str, str] = {}
     for key in semantics:
         keys.setdefault(bare_table(key), key)
-    refused, wanted = [], []
-    for entry in confirmations:
-        if str(entry.get("target") or "").startswith(QUESTION_TARGET):
+    refused, wanted, positions = [], [], []
+    for index, entry in enumerate(confirmations):
+        if page_target(entry):
             wanted.append(entry)
+            positions.append(index)
         else:
-            refused.append(
-                {"table": entry.get("table"), "target": entry.get("target"), "reason": ONLY_QUESTIONS}
-            )
+            item = {"table": entry.get("table"), "target": entry.get("target"),
+                    "reason": ONLY_PAGE_TARGETS}
+            if indexed:
+                item["index"] = index
+            refused.append(item)
     named = {bare_table(entry.get("table")) for entry in wanted}
     subset = {table: semantics[keys[table]] for table in named if table in keys}
     result = apply_confirmations(subset, wanted)
     changed = dict(semantics)
     for table in result.changed:
         changed[keys[table]] = result.documents[table]
-    return changed, refused + result.unmatched
+    unmatched = result.unmatched
+    if indexed:
+        unmatched = [{**item, "index": positions[at]}
+                     for item, at in zip(result.unmatched, result.unmatched_at)]
+    return changed, refused + unmatched
