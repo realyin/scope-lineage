@@ -30,7 +30,9 @@ nothing is read from disk here and nothing is written.
 - ``questions_board`` -- every open question registered for the catalog: those the
   table-semantics documents record, and the pending file's items (``pending_report``, its
   grouping and its catalog check unchanged), each placed at its tables' concepts and marked
-  when the catalog does not carry it; filtered and paged.
+  when the catalog does not carry it; filtered and paged. An answered question carries its
+  answer, and a browsing page's answers and notes are marked as the context pack marks
+  them (``catalog_context.mark_question``).
 
 The catalog view, the summary rows and the by-table rows are computed once for the
 document and semantics objects a caller holds, and kept for the next call with the same
@@ -49,7 +51,7 @@ import threading
 from collections.abc import Iterable, Mapping
 from typing import Optional
 
-from .catalog_context import unit_mark, unit_text
+from .catalog_context import SET_ASIDE, mark_question, page_index, unit_mark, unit_text
 from .catalog_index_tables import by_table_columns, coverage_note, figure_cells, table_figures
 from .catalog_overview import table_about
 from .catalog_pages import ANSWERING_USES, STRUCTURE_ONLY, USE_FIRST_HEADING, use_first_rows
@@ -58,6 +60,7 @@ from .catalog_units import material_documents
 from .catalog_view import CatalogView, catalog_table_name, realises
 
 __all__ = [
+    "BOARD_PAGE_STATUSES",
     "BOARD_SOURCES",
     "BOARD_STATUSES",
     "DEFAULT_LIMIT",
@@ -82,6 +85,8 @@ UNITS_FORMAT = "catalog-table-units/1"
 
 LIST_KINDS = ("concepts", "tables", "metrics")
 BOARD_STATUSES = ("open", "answered", "all")
+# the statuses a board takes when it is given a browsing page's states (``page_states``)
+BOARD_PAGE_STATUSES = ("open", "answered", SET_ASIDE, "all")
 BOARD_SOURCES = ("semantics", "pending")
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -619,6 +624,7 @@ def questions_board(
     text: Optional[str] = None,
     offset: int = 0,
     limit: int = DEFAULT_LIMIT,
+    page_states: Optional[Mapping] = None,
 ) -> dict:
     """The registered questions, filtered and paged.
 
@@ -630,18 +636,28 @@ def questions_board(
     (case and catalog prefix ignored); ``concept`` a concept id, name, synonym or term;
     ``text`` a piece of the question, the missing definition or the table name. ``concepts``
     counts the items per concept under ``status``, ``source`` and ``text`` alone, so a
-    filter list offers every choice."""
-    if status not in BOARD_STATUSES:
-        raise ValueError(f"status must be one of {', '.join(BOARD_STATUSES)}, not {status!r}")
+    filter list offers every choice.
+
+    An answered semantics question carries ``answer``, ``answered_by`` and
+    ``answered_on`` (those its document has). ``page_states`` is a browsing page's
+    ``{(table, question id): state}`` (``catalog_context.page_index``): an answer the page
+    overlaid gains ``written: false``, a noted question ``page``, and a question a note sets
+    aside has the status ``set_aside``. Only with ``page_states`` (even an empty one) does
+    ``status`` take ``set_aside`` (``BOARD_PAGE_STATUSES``); ``all`` includes those items, and
+    ``counts`` and ``concepts`` follow the status filter as they do for the others."""
+    statuses = BOARD_STATUSES if page_states is None else BOARD_PAGE_STATUSES
+    if status not in statuses:
+        raise ValueError(f"status must be one of {', '.join(statuses)}, not {status!r}")
     if source is not None and source not in BOARD_SOURCES:
         raise ValueError(f"source must be one of {', '.join(BOARD_SOURCES)}, not {source!r}")
     check_page(offset, limit)
+    states = page_index(page_states)
     view = CatalogView(document)
     items = []
     if source in (None, "pending") and pending is not None:
         items += [_pending_item(view, item) for item in pending.get("items") or []]
     if source in (None, "semantics"):
-        items += _semantics_items(view, semantics)
+        items += _semantics_items(view, semantics, states)
     if status != "all":
         items = [item for item in items if item["status"] == status]
     needle = _fold(text) if text else None
@@ -671,8 +687,9 @@ def questions_board(
     }
 
 
-def _semantics_items(view: CatalogView, semantics) -> list[dict]:
+def _semantics_items(view: CatalogView, semantics, states: Optional[Mapping] = None) -> list[dict]:
     found = []
+    states = states or {}
     for key, document in sorted(_documents(semantics).items()):
         rep = view.representation(key)
         bound = {b["column"].casefold() for b in (rep or {}).get("bindings") or []}
@@ -683,7 +700,7 @@ def _semantics_items(view: CatalogView, semantics) -> list[dict]:
             columns = [
                 ref.split(":", 1)[1] for ref in about if ref.casefold().startswith("column:")
             ]
-            found.append({
+            item = {
                 "source": "semantics",
                 "table": table,
                 "id": question.get("id"),
@@ -694,7 +711,8 @@ def _semantics_items(view: CatalogView, semantics) -> list[dict]:
                 "concept": concept,
                 "concepts": [concept] if concept else [],
                 "in_catalog": rep is not None,
-            })
+            }
+            found.append(mark_question(item, question, states.get((key, str(question.get("id"))))))
     return found
 
 
