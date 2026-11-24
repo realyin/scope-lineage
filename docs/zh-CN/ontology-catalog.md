@@ -1210,6 +1210,30 @@ scope-lineage catalog pending list pending.jsonl --ontology out/ontology.json --
 - 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
 ```
 
+负责人用 `reply` 回复一项，回复也是同一个文件里追加的一行，已有的行照样不改：
+
+```bash
+scope-lineage catalog pending reply pending.jsonl --missing "注销的客户算不算" \
+  --reply "不算：注销的客户不进新增" --status answered [--by owner] [--date 2026-11-23]
+scope-lineage catalog pending list pending.jsonl [--status active|open|answered|resolved|rejected|all]
+```
+
+```json
+{"doc_format": "catalog-pending/1", "kind": "reply", "date": "2026-11-23", "missing": "注销的客户算不算", "reply": "不算：注销的客户不进新增", "status": "answered", "by": "owner"}
+```
+
+`--missing` 按 `list` 分组的同一规则对上一项（NFKC、忽略大小写、合并空白）；没有哪条记录是它时什么都不写，退出码 `1`。
+`--status` 三选一：`answered`（给了定义，目录还没收进去）、`resolved`（目录已经有了）、`rejected`（不会给定义）；后两个关闭
+这一项。`--reply`、`--missing`、`--by` 要写在一行里：空白、带换行或控制字符、超过长度（`--reply`、`--missing` 2000 字，`--by`
+100 字）都拒绝，退出码 `2`，日期不对、文件读不了或写不了也是 `2`。回复不算命中：不加次数、不加问题、不动记录日期。
+
+`list` 给每一项带上它最新的一条回复（按行号）和状态（没有回复是 `open`）；默认 `--status active` 不列已关闭的项，抬头下面说
+另有几项已关闭。文本里每项多一行「状态：已答复（日期，回复人，第 N 行）：回复」，`--json` 的每项多 `status` 与 `reply`
+（`{reply, status, by, date, line}` 或 `null`），报告多 `replies`（回复的行数）、`status`（这次的筛选）、`closed`（被筛掉的已
+关闭项）。文件里没有回复时（且 `--status` 不是某个回复状态），文本和 JSON 与以前逐字节相同。格式不对的回复行和格式不对的
+记录一样列为读不了的行（退出码 `1`），指向没有记录的项的回复也是。旧版本把回复行当成读不了的行。服务的问题看板把有回复的
+待确认项算作「已回答」（回复自己的状态在 `reply` 里）；服务不提供写回复的接口，回复用命令行写。
+
 ## 以服务提供：HTTP 与 MCP
 
 `search`、`context`、`query`、`check-sql` 与 `pending list/add` 也可以不经命令行、由一个常驻服务回答。服务放在本仓库的

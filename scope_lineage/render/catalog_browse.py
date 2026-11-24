@@ -632,7 +632,9 @@ def questions_board(
     None: no pending file). A semantics question is ``in_catalog`` when the catalog has
     its table, and lists the columns it is ``about`` with whether the catalog binds each; a
     pending item is ``in_catalog`` when ``pending_report`` found catalog objects named by
-    its text (``catalog_objects``). Every pending item is open. ``table`` is a table name
+    its text (``catalog_objects``). A pending item is open until the owner replies to it
+    (``catalog pending reply``), then answered, whatever the reply's own status (kept in
+    its ``reply``); the report must be built with ``status="all"``. ``table`` is a table name
     (case and catalog prefix ignored); ``concept`` a concept id, name, synonym or term;
     ``text`` a piece of the question, the missing definition or the table name. ``concepts``
     counts the items per concept under ``status``, ``source`` and ``text`` alone, so a
@@ -728,7 +730,8 @@ def _pending_item(view: CatalogView, item: Mapping) -> dict:
             concepts.append(_ref(view, found["id"]))
     answer = {key: value for key, value in item.items() if key != "in_catalog"}
     answer.update(
-        source="pending", status="open", concepts=concepts,
+        source="pending", status="answered" if item.get("reply") else "open",
+        concepts=concepts,
         catalog_objects=objects, in_catalog=bool(objects),
     )
     return answer

@@ -16,6 +16,10 @@ This module turns each such missing definition into one line of a JSON Lines fil
   questions behind them, and, when given, marks two things: an open (or answered) question
   a table-semantics document already records about one of the entry's columns, and the
   catalog objects whose own name, synonym, term or id now *is* the entry's text or term.
+- ``reply_line`` builds the owner's reply to one group: a line of its own in the same file
+  (``kind: reply``), keyed by the same normalised ``missing`` text. A reply is not a hit --
+  it adds no question and moves no date; the group's latest reply (by line) gives its
+  status, and ``pending_report`` leaves out the groups that reply closed unless asked.
 
 It records and reports. It never edits the catalog or the table semantics, and never
 decides what a definition is; a match says where to look, the owner decides.
@@ -33,19 +37,38 @@ from .catalog_sql_check import placeholders_of
 from .catalog_view import catalog_table_name
 
 __all__ = [
+    "CLOSED_STATUSES",
     "LIST_FORMAT",
+    "LIST_STATUSES",
     "PENDING_FORMAT",
+    "REPLY_STATUSES",
     "lines_from_placeholders",
     "pending_line",
     "pending_report",
     "read_pending",
     "render_pending_text",
+    "reply_line",
+    "reply_text_problem",
+    "same_missing",
 ]
 
 PENDING_FORMAT = "catalog-pending/1"
 LIST_FORMAT = "catalog-pending-list/1"
 _REQUIRED_TEXT = ("missing", "question", "date")
 _LISTS = ("tables", "columns")
+
+REPLY = "reply"
+# answered: the owner gave the definition, the catalog does not carry it yet (still listed);
+# resolved: the catalog now carries it; rejected: it will not be defined (both close it)
+REPLY_STATUSES = ("answered", "resolved", "rejected")
+CLOSED_STATUSES = ("resolved", "rejected")
+OPEN = "open"  # a group no reply answers
+# what ``list --status`` takes: a group's status, ``active`` (not closed: the default) or all
+ACTIVE = "active"
+LIST_STATUSES = (ACTIVE, OPEN, *REPLY_STATUSES, "all")
+REPLY_LIMIT = 2000
+BY_LIMIT = 100
+_REFUSED = frozenset({"Cc", "Cf", "Cs", "Co", "Zl", "Zp"})
 
 
 def pending_line(
@@ -120,12 +143,52 @@ def lines_from_placeholders(
     return lines, empty
 
 
+def reply_line(
+    *, missing: str, reply: str, status: str, date: str, by: Optional[str] = None
+) -> dict:
+    """One ``catalog-pending/1`` reply: ``missing`` names the group (compared as ``list``
+    groups), ``status`` is one of ``REPLY_STATUSES``; ``by`` is left out when empty."""
+    line: dict = {
+        "doc_format": PENDING_FORMAT,
+        "kind": REPLY,
+        "date": date,
+        "missing": missing.strip(),
+        "reply": reply.strip(),
+        "status": status,
+    }
+    if by and by.strip():
+        line["by"] = by.strip()
+    return line
+
+
+def reply_text_problem(value: Optional[str], name: str, limit: int) -> Optional[str]:
+    """Why ``value`` cannot be written in a reply, or None: blank, longer than ``limit``
+    characters, or carrying a line break or a control character."""
+    text = (value or "").strip()
+    if not text:
+        return f"{name} must say something"
+    bad = next((char for char in text if unicodedata.category(char) in _REFUSED), None)
+    if bad is not None:
+        return (
+            f"{name} carries a line break or a control character (U+{ord(bad):04X}); "
+            "write it on one line"
+        )
+    if len(text) > limit:
+        return f"{name} is {len(text)} characters; at most {limit}"
+    return None
+
+
+def same_missing(text: str) -> str:
+    """The key ``list`` groups by: NFKC, case folding, whitespace collapsed."""
+    return _same_text(text)
+
+
 # --------------------------------------------------------------------- read
 
 
 def read_pending(lines: Iterable[str]) -> tuple[list[dict], list[dict]]:
-    """``(entries, problems)``: each entry with its 1-based ``line``; each problem
-    ``{line, message}``. A blank line is neither."""
+    """``(entries, problems)``: each entry -- a reply too (``kind: reply``) -- with its
+    1-based ``line``; each problem ``{line, message}``. A blank line is neither."""
     entries, problems = [], []
     for number, text in enumerate(lines, 1):
         if not text.strip():
@@ -148,6 +211,8 @@ def _problem(entry) -> Optional[str]:
         return "不是一个 JSON 对象"
     if entry.get("doc_format") != PENDING_FORMAT:
         return f"doc_format 不是 {PENDING_FORMAT}"
+    if entry.get("kind") == REPLY:
+        return _reply_problem(entry)
     for key in _REQUIRED_TEXT:
         if not isinstance(entry.get(key), str) or not entry[key].strip():
             return f"缺少 {key}，或它不是非空的文字"
@@ -161,6 +226,17 @@ def _problem(entry) -> Optional[str]:
     return None
 
 
+def _reply_problem(entry: Mapping) -> Optional[str]:
+    for key in ("missing", "reply", "date"):
+        if not isinstance(entry.get(key), str) or not entry[key].strip():
+            return f"回复缺少 {key}，或它不是非空的文字"
+    if entry.get("status") not in REPLY_STATUSES:
+        return f"回复的 status 不是 {'、'.join(REPLY_STATUSES)} 之一"
+    if "by" in entry and not isinstance(entry["by"], str):
+        return "回复的 by 不是文字"
+    return None
+
+
 # ------------------------------------------------------------------- report
 
 
@@ -170,30 +246,89 @@ def pending_report(
     *,
     document: Optional[Mapping] = None,
     semantics: Optional[Mapping[str, Mapping]] = None,
+    status: str = ACTIVE,
 ) -> dict:
     """``{doc_format, lines, checked, items, problems}``, the most-hit item first.
 
     ``recorded_questions`` / ``in_catalog`` are None when the table semantics / the
     ontology were not given, and a list (possibly empty) when they were.
+
+    Replies (``kind: reply``) are not entries: ``lines`` counts the entries. When there is
+    a reply or ``status`` names a reply's status, the report also has ``replies`` (how many
+    reply lines were read), ``status`` (the filter) and ``closed`` (the groups a reply
+    closed that the filter left out), and every item ``status`` (``open`` when no reply
+    answers it) and ``reply`` (its latest, or None); a reply naming no group is a problem.
+    ``status`` is one of ``LIST_STATUSES``: ``active`` lists every group not closed,
+    ``all`` every group, any other only the groups of that status.
     """
+    if status not in LIST_STATUSES:
+        raise ValueError(f"status must be one of {', '.join(LIST_STATUSES)}, not {status!r}")
     entries = list(entries)
+    replies = [entry for entry in entries if entry.get("kind") == REPLY]
+    entries = [entry for entry in entries if entry.get("kind") != REPLY]
+    problems = list(problems)
     groups: dict[str, list[Mapping]] = {}
     for entry in entries:
         groups.setdefault(_same_text(entry["missing"]), []).append(entry)
+    latest: dict[str, Mapping] = {}
+    for reply in sorted(replies, key=lambda r: r["line"]):
+        key = _same_text(reply["missing"])
+        if key in groups:
+            latest[key] = reply
+        else:
+            problems.append({"line": reply["line"], "message": "回复的 missing 没有对应的记录"})
+    if replies:
+        problems.sort(key=lambda problem: problem["line"])
     documents = (
         {catalog_table_name(name).lower(): doc for name, doc in semantics.items()}
         if semantics is not None else None
     )
     find = named_finder(document) if document is not None else None
-    items = [_item(group, find, documents) for group in groups.values()]
-    items.sort(key=lambda item: (-item["hits"], item["lines"][0]))
-    return {
+    items = []
+    for key, group in groups.items():
+        item = _item(group, find, documents)
+        reply = latest.get(key)
+        items.append((item, reply))
+    items.sort(key=lambda pair: (-pair[0]["hits"], pair[0]["lines"][0]))
+    report = {
         "doc_format": LIST_FORMAT,
         "lines": len(entries),
         "checked": {"ontology": document is not None, "semantics": semantics is not None},
-        "items": items,
-        "problems": list(problems),
+        "items": [item for item, _ in items],
+        "problems": problems,
     }
+    if not replies and status not in REPLY_STATUSES:
+        return report  # a file without replies reads exactly as it always did
+    for item, reply in items:
+        item["status"] = reply["status"] if reply else OPEN
+        item["reply"] = _reply_of(reply) if reply else None
+    shown = [item for item, _ in items if _wanted(item["status"], status)]
+    report.update(
+        replies=len(replies),
+        status=status,
+        closed=sum(
+            1 for item, _ in items
+            if item["status"] in CLOSED_STATUSES and not _wanted(item["status"], status)
+        ),
+        items=shown,
+    )
+    return report
+
+
+def _wanted(item_status: str, wanted: str) -> bool:
+    if wanted == "all":
+        return True
+    if wanted == ACTIVE:
+        return item_status not in CLOSED_STATUSES
+    return item_status == wanted
+
+
+def _reply_of(reply: Mapping) -> dict:
+    shown = {"reply": reply["reply"].strip(), "status": reply["status"]}
+    if isinstance(reply.get("by"), str) and reply["by"].strip():
+        shown["by"] = reply["by"].strip()
+    shown.update(date=reply["date"], line=reply["line"])
+    return shown
 
 
 def _item(group: list[Mapping], find, documents) -> dict:
@@ -270,6 +405,8 @@ def render_pending_text(report: Mapping) -> str:
     """One block an item, most hit first, then the lines that could not be read."""
     items = report["items"]
     lines = [f"# 待确认的定义：{report['lines']} 条记录，{len(items)} 项", ""]
+    if "status" in report:
+        lines += [_filter_line(report), ""]
     if not items:
         lines += ["没有待确认的定义。", ""]
     for number, item in enumerate(items, 1):
@@ -305,9 +442,35 @@ def render_pending_text(report: Mapping) -> str:
                 lines.append(f"- 目录现在有同名对象（核对是否已回答）：{found}")
             else:
                 lines.append("- 目录还没有同名对象")
+        if "status" in item:
+            lines.append(_reply_text(item))
         lines.append("")
     for problem in report["problems"]:
         lines.append(f"- 第 {problem['line']} 行读不了：{problem['message']}")
     if report["problems"]:
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+_STATUS_TEXT = {
+    OPEN: "未回复", "answered": "已答复", "resolved": "已解决", "rejected": "不予定义",
+    ACTIVE: "未关闭", "all": "全部",
+}
+
+
+def _filter_line(report: Mapping) -> str:
+    line = f"列出：{_STATUS_TEXT[report['status']]}（{report['replies']} 条回复）"
+    if report["closed"]:
+        line += f"；另有 {report['closed']} 项已关闭，--status all 列出全部"
+    return line
+
+
+def _reply_text(item: Mapping) -> str:
+    reply = item["reply"]
+    if reply is None:
+        return f"- 状态：{_STATUS_TEXT[OPEN]}"
+    who = f"，{reply['by']}" if reply.get("by") else ""
+    return (
+        f"- 状态：{_STATUS_TEXT[reply['status']]}（{reply['date']}{who}，第 {reply['line']} 行）"
+        f"：{reply['reply']}"
+    )
