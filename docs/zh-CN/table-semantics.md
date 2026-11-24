@@ -297,7 +297,8 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | `rules[]` | 过滤、关联、去重、派生、合并：业务说法加上照抄的 SQL 原文 |
 | `task` 或 `tasks[]` | 生产任务：`name`、`purpose`、`outputs`，可选 `cycle`、`upstream_tasks`、`downstream_tasks`——两个键只能出现一个 |
 | `concept` | 可选，链接本体目录：`concept:<id>` 与本表的表现类型 |
-| `confirmed[]` | 由 `semantic confirm` 写入：每条已套用的确认（`target`、`by`、`date`） |
+| `confirmed[]` | 由 `semantic confirm` 写入：每条已套用的确认（`target`、`by`、`date`；`input:` 的记录另带 `columns`） |
+| `observed_inputs[]` | 只由 `semantic confirm` 按 `input:<db.table>` 确认写入：平台查询对本表所读输入表的观测（见 `semantic confirm` 下的「观测事实」） |
 
 ### 来源与置信
 
@@ -311,7 +312,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | 键 | 内容 |
 | --- | --- |
 | `what` | 一句话：这张表是什么 |
-| `row` | 一行是什么：`text`、`grain_columns`、`grain_source`（`declared` / `inferred` / `proven`）、`unique`（`yes` / `no` / `unknown`），不唯一时在 `note` 写风险 |
+| `row` | 一行是什么：`text`、`grain_columns`、`grain_source`（`declared` / `inferred` / `proven` / `observed`）、`unique`（`yes` / `no` / `unknown`；来源为 `observed` 时只指观测的分区），不唯一时在 `note` 写风险；`observed` 只由 `semantic confirm` 写 |
 | `refresh` | `cycle`、`time`（`snapshot` / `incremental` / `zipper` / `unknown`）与 `how_to_read`：怎么取一天、怎么取一段 |
 | `scope[]` | 收哪些记录，业务说法，用 `rule_refs` 引用规则 |
 | `upstream[]` | 每张输入表的 `role`（`main` / `enrich` / `filter` / `dedup` / `union_branch` / `lookup` / `other`）与它 `provides` 什么 |
@@ -326,6 +327,8 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 `state`、`measure`、`time`、`technical`）、`derivation`（业务说法的口径；多分支时用 `branches[]`）、
 `source_columns`（口径读到的 `db.table.column`）、`code_values[]`（`value`、`meaning`、`sources`，猜测的
 标 `unconfirmed: true`），可选 `unit`、`null_meaning`、`watch`，以及 `sources` 与 `confidence`。
+`observed_values` 只由 `semantic confirm` 写：查询看到的取值，与码值并列，从不算码值。读者把空串取值写成
+「''（空串）」（digest 里是 `'' (empty string)`），不留空。
 
 规则包括 `id`（`r1`…）、`kind`（`filter`、`join`、`dedup`、`derive`、`union`、`other`）、`text`、`sql`
 （脚本里的 SQL 原文片段）与 `sources`。
@@ -345,10 +348,13 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 
 `--confirmations` 指定 owner 的确认：一个 `semantic-confirmations/1` 文件，或放这类文件的目录（目录下直接的每个
 `*.json`，`doc_format` 是 `semantic-confirmations/1` 的才读，按文件名顺序；其他文件跳过）。不给时，`<documents>`
-旁边有 `confirmations/` 就读它——运行目录里 `<run>/docs` 与 `<run>/confirmations` 并列。第 3、4 项随后按每份文档
-自己那张表的确认来查（见下表）。读到确认时，标准错误打印一行（`confirmations: <路径> (N file(s), M entry(ies),
+旁边有 `confirmations/` 就读它——运行目录里 `<run>/docs` 与 `<run>/confirmations` 并列。第 3、4、6、10 项随后按每份文档
+自己那张表的确认与观测来查（见下表）。观测只从确认文件取——文档里的 `observed*` 槽位是 `semantic confirm` 写进去的，
+不作依据；对带观测的文档或表分三种情形：完全没给确认（观测槽位无从核对，WARN「无法核对观测来源」）、给了确认但本表
+没有条目（每个观测槽位 FAIL；确认目录在而一个确认文件都没有也算这种，比如没人回答过的运行目录 `confirmations/`）、本表有条目（每个槽位必须与确认相同）。槽位与确认不同、观测的输入表不是血缘输入表，
+都不是写作者能改的：报错让先重放确认，还对不上就「拿回确认文件改」。没有观测时，前两种情形的判定与以前相同。读到确认时，标准错误打印一行（`confirmations: <路径> (N file(s), M entry(ies),
 from --confirmations|default)`），`--json` 报告顶层多一个 `confirmations` 对象（`path`、`files`、`entries`）；
-标准输出的文字汇总格式不变。一个确认文件都没找到时，所有输出与没有这项功能时逐字节相同。确认文件读不了或不合
+标准输出的文字汇总格式不变。一个确认文件都没找到时，不打印这一行，不带观测的文档的所有输出与没有这项功能时逐字节相同。确认文件读不了或不合
 Schema 时退出码 2。`semantic status`、`semantic fixed`、`semantic render` 和 `catalog digest` 用同样的规则读同一份
 确认，所以同一份文档不论由哪个命令判定，结论都一样。
 
@@ -369,14 +375,14 @@ Schema 时退出码 2。`semantic status`、`semantic fixed`、`semantic render`
 | --- | --- | --- | --- |
 | 1 | `coverage` | 缺目标表的列、多出或重复的列、顺序与表内不一致 | — |
 | 2 | `source_columns` | 来源列既不在该列的血缘里，也不在任何输入表里（该列的血缘是它各 producer 的来源列加查码关联键 `lookup_keys`：从内联字典这类常量行集读值时，决定读哪一行的物理键） | 只在输入表元数据里，不在该列的血缘里 |
-| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`）。码值要单独出现，不能是更长的词或数字的一部分；只有在注释（列注释、来源列注释、SQL 头注释）里，以数字结尾的码值后面可以直接跟字母（`1普通2VIP回访` 里的 `2`）。空值（`""` 或只有空白）不按文字找：只有该列某个 producer 会写出 `''`（`literal_outputs`：COALESCE / NVL 的回填、常量、CASE / IF 的分支）才通过，`''` 只出现在条件里不算。每个 producer 都是 `constant_only` 的列只会有这些常量：它的每个码值（含 `unconfirmed` 的）都必须是其中之一，只写 NULL 的列没有码值。没有 `literal_outputs` 的材料包没有这样的列。有确认时，owner 为这张表这一列确认过的码值不需要注释或 SQL 依据；反过来，每个确认过的码值都必须出现在该列、不标 `unconfirmed`、含义与确认一致（NFKC、合并空白后比较），报错让写作者照确认写，不会引导标 `unconfirmed`。常量列与空值两条仍然优先：这种列不会写出的确认值判失败，报错说确认与 SQL 矛盾、交回 owner | — |
-| 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键。有行粒度确认时：确认的 `grain_columns` 与文档的集合不同、确认的 `unique` 与文档不同，或确认了二者之一而 `grain_source` 写成 `inferred` | 声称的粒度列与证明的键不同 |
+| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`）。码值要单独出现，不能是更长的词或数字的一部分；只有在注释（列注释、来源列注释、SQL 头注释）里，以数字结尾的码值后面可以直接跟字母（`1普通2VIP回访` 里的 `2`）。空值（`""` 或只有空白）不按文字找：只有该列某个 producer 会写出 `''`（`literal_outputs`：COALESCE / NVL 的回填、常量、CASE / IF 的分支）才通过，`''` 只出现在条件里不算。每个 producer 都是 `constant_only` 的列只会有这些常量：它的每个码值（含 `unconfirmed` 的）都必须是其中之一，只写 NULL 的列没有码值。没有 `literal_outputs` 的材料包没有这样的列。有确认时，owner 为这张表这一列确认过的码值不需要注释或 SQL 依据；反过来，每个确认过的码值都必须出现在该列、不标 `unconfirmed`、含义与确认一致（NFKC、合并空白后比较），报错让写作者照确认写，不会引导标 `unconfirmed`。常量列与空值两条仍然优先：这种列不会写出的确认值判失败，报错说确认与 SQL 矛盾、交回 owner。观测到的值从不算码值：只在数据里见到、写成码值又不标 `unconfirmed` 的照旧失败（报错加「观测到它，但含义没有依据」）。有观测时：标识类列带取值，或 `observed_values` 槽位与确认不同 | 该列有确认的观测时（`observed_on` 只在该列直接投影传递那一个来源列时才比，CASE 或计算出来的列不比）：观测到、码值表里没有的值每列一条（没有码值表时一句「有观测取值、没有码值表」）；观测问到而没出现（`absent`）的码值不报——几个分区说明不了码值已停用，页面上写「没有出现 …」；`observed_values` 槽位没有确认可核对 |
+| 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键。有行粒度确认时：确认的 `grain_columns` 与文档的集合不同、确认的 `unique` 与文档不同，或确认了二者之一而 `grain_source` 写成 `inferred`。有观测时：`grain_source: observed` 没有 `row.observed`、`unique` 与观测不同、粒度列不包含计数列（观测唯一时）或不等于计数列（不唯一时）；确认文件里没有本表的行观测却写了 `observed` 或 `row.observed`；`row.observed` 与确认不同；有确认的行观测而来源写 `inferred`（重放会写成 `observed`）。观测从不满足 `proven` | 声称的粒度列与证明的键不同；`declared` 与确认的观测不一致（「声明与观测不一致」：`unique` 是与否相反，或粒度列不是计数的列；在计数的列上写 `unique: unknown` 不算不一致）；来源是 `observed` 而 `text`、`note` 都没写「观测」；写了 `observed` 而没有确认可核对 |
 | 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则。原文本身或它的某个 AND 合取项（去掉注释）以某种形式与过滤相等，才算引用；原文是整句（SELECT、INSERT … SELECT 等）时，它里面每个 WHERE / HAVING / ON（含嵌套子查询的）的合取项也算；只是包含过滤文字的更长原文（CASE 分支、MERGE 条件）不算。带 `right_of` 且 `right_side_kind` 为 `rank_first` 或 `values` 的过滤不要求引用；只带 `right_of` 的仍要用规则引用，提示里写明不要写进 `summary.scope`。修法是照抄这一个条件，不必抄整段 WHERE | 材料包里没有 SQL，无法核对原文 |
-| 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
+| 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识；`observed_inputs` 的表不是血缘输入表，或 `observed_inputs` 与确认不同（按输入表与列集合） | 下游任务认识，但不知道它写哪些表；`observed_inputs` 没有确认可核对 |
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过八个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
 | 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤（全量快照靠表名判断，所以要配置了 `table_name_convention` 才可能触发；失败文字写明依据是表名约定） | `refresh.time` 写 `snapshot`，而写入按业务日期筛选（只算形状为 `window` 的日期过滤） |
-| 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名、材料包里只有这一右侧用的别名，或它的关联规则编号 pN；同一右侧不论关联几次只算一项） | 只靠别的右侧也在用的别名点到它（别名只在一个 SELECT 里唯一，各 UNION 分支、子查询常重复用 `b`、`c`）：这句话可能说的是另一处关联，每个右侧一条警告，改用表名或 pN 点名；行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。附带条件并写出反面情形的说法也不算：这句话里说法之前有条件词（若、如果、假如、倘若、假设、只要、只有、一旦、除非、当 / 在…时，以及「X 成立时 / 满足时 / 唯一时 / 不重复时」，「不成立时 / 不唯一时」不算条件词），并且说法之后写了会放大（会 / 可能 + 放大、膨胀、重复，或关联出多行 / 多条）；或者下一句以「若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足」或「不成立时 / 不满足时 / 不唯一时 / 重复时」开头并写了会放大（「重复时」只在句首才算，先写主语再写「… 重复时」的下一句不算）；或者说法之前有条件词、下一句以否则、不然、反之开头并写了会放大。反面情形里点名了这句话到说法为止没提过的关联时仍然警告；只有后置保留语（「注释推出，SQL 未证明」）不算写了反面情形。不在粒度路径上（位于聚合之下）的关联两项都不查 |
+| 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名、材料包里只有这一右侧用的别名，或它的关联规则编号 pN；同一右侧不论关联几次只算一项） | 只靠别的右侧也在用的别名点到它（别名只在一个 SELECT 里唯一，各 UNION 分支、子查询常重复用 `b`、`c`）：这句话可能说的是另一处关联，每个右侧一条警告，改用表名或 pN 点名；行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。附带条件并写出反面情形的说法也不算：这句话里说法之前有条件词（若、如果、假如、倘若、假设、只要、只有、一旦、除非、当 / 在…时，以及「X 成立时 / 满足时 / 唯一时 / 不重复时」，「不成立时 / 不唯一时」不算条件词），并且说法之后写了会放大（会 / 可能 + 放大、膨胀、重复，或关联出多行 / 多条）；或者下一句以「若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足」或「不成立时 / 不满足时 / 不唯一时 / 重复时」开头并写了会放大（「重复时」只在句首才算，先写主语再写「… 重复时」的下一句不算）；或者说法之前有条件词、下一句以否则、不然、反之开头并写了会放大。反面情形里点名了这句话到说法为止没提过的关联时仍然警告；只有后置保留语（「注释推出，SQL 未证明」）不算写了反面情形。不在粒度路径上（位于聚合之下）的关联两项都不查。给了确认时，右侧的观测只放宽「写成不影响行数」这一条警告，点名照旧必需：把这样的关联写成不放大的句子不警告，当且仅当该关联右侧是单一底表 T（`right_tables` 为 `[T]`：物理表，或只读一张表的子查询）、确认文件里有 `input:T` 的观测且它按该关联在 T 上的关联列之内的列计数无重复、句子写了「观测」并写出观测分区（取值之一、范围的一端，不分区时写「全表」）、「不放大」所在分句里没有都、所有等全称词、每个写「不放大」的分句都限在观测分区内（该分区、这些分区、分区取值或范围的一端、全表；「别的分区同样不放大」不算）、句子不声称证明（已证明、保证、一定、必然；不保证、不一定不算声称），且句子说的每条关联都有自己的这种观测——它点到的全部关联，去掉右侧与它用别的 pN 点名的关联相同的那些（pN 只在同一右侧的几次关联里选；句子用表名或别名点到的别的右表照样算）。句子用观测写法「观测（查询 …」说一条未证明的关联、确认文件里却没有它（单表右侧、按关联列）的观测时警告，每处一条。观测到重复的观测不放宽任何判定，没点名的失败信息补「观测到 N 个重复键（分区 …）」。没给确认时判定与以前相同 |
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效，紧挨着的否定字或前面几个字里的「未能 / 无法 / 不曾 / 没能」等否定词组会取消它）来自归并多个来源值的分支或 ELSE（多个任务写同一列时按所有能列出来源值的分支合并，列不出的不清空别人的），而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
 | 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对；`0未推送，1已推送` 式紧贴的写法要至少两对、码宽一致、标签互不相同，标签不以天 / 元 / 年 / 月 / 日 / 个 / 次 / % 开头，`近30天活跃标志` 不算，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有成词的限定词（`增值税`、`税`、`手续费`、`测试`，加上 `--domain-profile` 的 `qualifier_terms`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到；头注释描述的是同任务另一张表（`header_facts.about`）时不检查 |
@@ -707,7 +713,10 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 | `question:<id>` | 回答文字 | `status: answered`，写入 `answer`、`answered_by`、`answered_on` |
 | `column:<c>.meaning` | 含义文字 | 替换 `meaning`；该列 `sources` 加 `confirmed` |
 | `column:<c>.code_values` | `{value, meaning}` 列表，或单个这样的对象 | 列表整体替换码值，单个对象合并进去；每个被确认的码值加 `confirmed` 并置 `unconfirmed: false` |
-| `summary.row` | 行字段组成的对象，或行描述文字 | 合并进 `summary.row`；其 `sources` 加 `confirmed`。对象设了 `grain_columns` 或 `unique` 而没设 `grain_source` 时，`inferred` 的粒度改成 `declared`（`declared`、`proven` 不动） |
+| `summary.row` | 行字段组成的对象，或行描述文字 | 合并进 `summary.row`；其 `sources` 加 `confirmed`。对象设了 `grain_columns` 或 `unique` 而没设 `grain_source` 时，`inferred` 或 `observed` 的粒度改成 `declared`（`declared`、`proven` 不动）。对象设了 `observed` 或 `grain_source: observed` 时 unmatched |
+| `summary.row.observed` | 一条观测，带 `grain_columns`（查询实际计数的列）、`unique`（`yes` / `no`）、`within`（`each_partition` / `all_observed`），可选 `keys`、`duplicate_keys` | 写入 `summary.row.observed`，`sources` 不加 `confirmed`。`inferred` 或 `observed` 的粒度改成 `observed` 并取观测的 `unique`，粒度列写成计数列——观测说唯一且文档的粒度列包含计数列时保留文档的；`declared`、`proven` 只挂上观测 |
+| `column:<c>.observed_values` | 一条观测，带 `complete`，可选 `values`（至多 50 个 `{value, count}`）、`absent`、`distinct`、`nulls`、`observed_on` | 写入该列的 `observed_values`，码值不动。标识类列带 `values` 或 `absent`、`observed_on` 不是该列的 `source_columns` 之一时 unmatched |
+| `input:<db.table>` | 一条观测，带 `columns`、`unique`、`within`，可选 `keys`、`duplicate_keys` | 按输入表（忽略 catalog 前缀）和列集合各占 `observed_inputs[]` 一项，后来的覆盖前面的；`confirmed[]` 的记录带列，同一张表两组列是两条记录 |
 
 每条已套用的确认记入 `confirmed[]`（同一目标、同一人、同一天只记一次）。同样的确认套用两次，第二次不改变任何东西：
 文档一个字节都不变，`confirmed[]` 不新增，摘要行里变化的表是 0 张。所以运行中每次写作或修订之后都可以重放确认；
@@ -742,10 +751,38 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 `valid review_stale`），交给一轮修订，修订在 `semantic fixed` 写回执之前重放确认。已经套用过的条目不改变什么，所以重放
 整个目录时只按新的条目判断。审读没有认可的表，审读文件不动（修订还没做完）；给了 `--out` 时不动任何审读。
 
+### 观测事实
+
+三种观测目标（`summary.row.observed`、`column:<c>.observed_values`、`input:<db.table>`）记的是平台查询看到的结果，
+不是人的话。观测**不是定义**：它只说明查询在执行那天读到的分区，文档不得把它写成 `proven`，也不写不带这个限定的「唯一」。
+它记在读它的目标表名下，带的是这张目标表自己的读取条件，从不扩到别的目标表。每条观测共用一组依据（Schema 里的 `observation`）：
+
+```json
+{
+  "query": "probe_1",
+  "on": "2026-11-20",
+  "rows": 120,
+  "partition": {"column": "dt", "values": ["20261119"]},
+  "requested": "20261120",
+  "filter": "src = 'a'",
+  "engine": "spark"
+}
+```
+
+`query`、`on`、`rows`、`partition` 必填；`partition` 写 `values`，或 `from` / `to` 加 `count`，全表写 `{"column": null}`；
+查询回退到最近可用分区时，`requested` 写原定的分区。边界同时落在 Schema 与重放上：`rows` 至少 1（空表没有重复，什么也证明不了）；
+只有计数（`rows`、`keys`、`duplicate_keys`、`distinct`、`nulls`）与至多 50 个取值及其计数，单值至多 64 字、不含控制字符；
+从不带明细行；标识类列（`identifier`、`foreign_identifier`）只给计数；`unique: yes` 却数到重复键、或取值有联系方式的形状
+（邮箱、电话、证件号），都是 unmatched。数据里看到的值不是码值：含义不知道时，写作者照样可以写成 `unconfirmed: true` 并提问。
+
+行粒度的优先级：`proven`（血缘）＞ `declared`（注释或负责人）＞ `observed` ＞ `inferred`。观测槽位与 `confirmed[]` 一样只由
+`semantic confirm` 写。`table-semantics/1` 与 `semantic-confirmations/1` 是扩展、不升版本：没有观测的文档和确认文件照旧可读，
+带观测的需要认识它们的工具版本。
+
 ## `semantic facts`
 
 ```bash
-scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...]
+scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...] [--documents <dir>]
 ```
 
 按给出的顺序，把 owner 为每张表确认过的事实逐行打印出来：这就是写作、审读提示词里「已确认事实」要填的文字。
@@ -766,10 +803,25 @@ scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [-
 - 列 gender_cd 的码值「U」：未知（demo-reviewer 于 2026-09-26 确认）
 ```
 
+观测（见 `semantic confirm` 下的「观测事实」）排在后面，每条一行：先行的，再各列的，再各输入表的，每行末尾写明谁在哪天
+记录。每行以「观测：」开头，写明在哪、哪条查询：「在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）」；
+区间写「dt 20261116–20261122 共 7 个分区」，回退写「原定 …，回退到最近可用分区」，有查询条件写「条件 …」，有
+`observed_on` 写「取自 …」。行与输入表写「按 (列) 计数无重复（N 个键）」或「计数有重复（N 个键里 M 个重复）」，
+从不写「唯一」，行的那一条以「只说明这些分区，不是定义」收尾；列写出现的取值及行数、「已列全」或「未列全」、被问到而
+没出现的「没有出现 …」、去重数与空值数（标识类列只有计数），并写「观测不给含义，不是码值表」。给了 `--documents <dir>`
+（表语义文档目录）时，查询计数的列不是文档的粒度列，行的那一条还写「计数列 (…) 不是文档的行粒度列 (…)」。没有观测时
+输出逐字节不变。
+
+```text
+- 观测：本表在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (customer_id) 计数无重复（120 个键）；只说明这些分区，不是定义（demo-reviewer 于 2026-11-21 记录）
+- 观测：列 gender_cd 在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行，取自 demo_ods.ods_core_customer_df.gender）出现 F（60 行）、M（50 行）、X（10 行），已列全；没有出现 U；去重 3 个、空值 0 个；观测不给含义，不是码值表（demo-reviewer 于 2026-11-21 记录）
+- 观测：输入表 demo_ods.ods_core_customer_df 在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (cust_no) 计数无重复（120 个键）；按这几列关联它时在该分区内不放大，别的分区没观测（demo-reviewer 于 2026-11-21 记录）
+```
+
 | 退出码 | 条件 |
 | --- | --- |
 | 0 | 已打印（含没有确认事实的表） |
-| 2 | `--confirmations` 不存在，确认文件读不了或不合 Schema，或没有 `--table` |
+| 2 | `--confirmations` 或 `--documents` 不存在，确认文件读不了或不合 Schema，或没有 `--table` |
 
 ## `semantic render`
 
@@ -819,6 +871,16 @@ scope-lineage semantic render <documents> --out <dir> \
 | ✗n | 报告里第 n 个未通过项落在这个条目上（按报告顺序编号）；指向整张表的未通过项（缺列、未引用的过滤、过期摘要）只列在「校验」一节 |
 | `值（含义待确认）` | 标了 `unconfirmed: true`（或含义以「待确认」开头）的码值 |
 | （中置信）（低置信） | 条目的 `confidence` 不是 `high` |
+
+观测（见 `semantic confirm` 下的「观测事实」）一律写成观测，带分区、查询与执行日期，从不写成不带限定的「唯一」：
+来源为 `observed` 的粒度写「来源为观测，在分区 dt=20261119 内（查询 probe_1，2026-11-20 执行，120 行）按 (customer_id)
+计数无重复（120 个键），只说明这些分区，不是定义」，不写「全表唯一」（`declared` / `proven` 的粒度照旧，观测跟在后面）；
+列的观测取值写在口径末尾（「观测：…；观测不给含义，不是码值表」，查询读的就是本列时标出码值表外的值与没出现的码值）；
+每条输入表观测在「数据从哪来」下写一行「上游观测：」。别的读者同样写：`catalog digest` 带 `grain.observed`、列的
+`observed_values` 与表的 `observed_inputs`，Markdown 的 Grain 行写 `observed in <分区> on <日期> (...): no duplicate by (...) --
+not a definition`；取数包的 `row` 多带 `grain_source` 与 `observed`（文本在原来写「唯一：yes」的地方写观测），列带
+`observed_values`，表语义部分带 `observed_inputs`；目录索引（`catalog render --docs`）在原来写「唯一」的格子里写
+「无重复（观测：分区 …，… 执行）」；服务页面用同样的说法。没有观测时这些输出逐字节不变。
 
 ### 索引
 

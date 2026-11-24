@@ -121,9 +121,16 @@ def test_a_list_replaces_the_confirmed_values_and_an_object_merges(tmp_path: Pat
     assert state.row_fields() == {"unique": "no", "text": "一行一个客户"}
 
 
-def test_a_directory_without_confirmations_reads_as_none(tmp_path: Path) -> None:
-    (tmp_path / "confirmations").mkdir()
-    assert read_confirmations(tmp_path / "confirmations") is None
+def test_a_directory_without_confirmations_reads_as_an_empty_state(tmp_path: Path) -> None:
+    # A run's confirmations/ that nobody answered into is a path with nothing in it, not
+    # "no path": an observation a document claims there has nothing behind it.
+    directory = tmp_path / "confirmations"
+    directory.mkdir()
+    write_json(directory / "notes.json", {"doc_format": "something-else/1"})
+    confirmations = read_confirmations(directory)
+    assert confirmations is not None
+    assert (confirmations.files, confirmations.entries, confirmations.tables) == ([], [], {})
+    assert confirmations.for_table(DEMO_TABLE) is None
 
 
 def test_a_malformed_confirmations_file_is_an_error(tmp_path: Path) -> None:

@@ -166,6 +166,13 @@ def _add_facts_parser(actions) -> None:
         "--table", required=True, action="append", metavar="TABLE",
         help="A table (db.table, a catalog prefix is ignored); repeatable, printed in this order",
     )
+    facts.add_argument(
+        "--documents", metavar="DIR",
+        help=(
+            "A directory of table-semantics/1 documents: an observed row's line then says "
+            "when the columns the query counted are not the document's grain columns"
+        ),
+    )
 
 
 def add_confirmations_option(parser, default: str) -> None:
@@ -182,11 +189,13 @@ def add_confirmations_option(parser, default: str) -> None:
 
 def load_confirmations(args: argparse.Namespace, default: Path) -> Confirmations | None | int:
     """``--confirmations``, else ``default`` when it is a directory: the confirmations
-    read, None when there are none, or 2 (reported) when they cannot be read.
+    read (an empty state when the directory holds no confirmations file), None when there
+    is no path, or 2 (reported) when they cannot be read.
 
-    Confirmations that were read are announced on stderr with where they came from, as a
-    domain profile is: they change a verdict, so they must never do it unnoticed. With
-    none, nothing is printed and every output is what it was without them.
+    Confirmations files that were read are announced on stderr with where they came from,
+    as a domain profile is: they change a verdict, so they must never do it unnoticed. With
+    no file, nothing is printed and every output of a document without observations is what
+    it was without them; an observation such a document claims has nothing behind it.
     """
     path, source = getattr(args, "confirmations", None), "--confirmations"
     if not path:
@@ -199,7 +208,7 @@ def load_confirmations(args: argparse.Namespace, default: Path) -> Confirmations
         for message in error.messages:
             print(message, file=sys.stderr)
         return 2
-    if confirmations is not None:
+    if confirmations.files:
         print(
             f"confirmations: {confirmations.path} ({len(confirmations.files)} file(s), "
             f"{len(confirmations.entries)} entry(ies), from {source})",
@@ -742,7 +751,7 @@ def _run_confirm(args: argparse.Namespace) -> int:
         for message in error.messages:
             print(message, file=sys.stderr)
         return 2
-    confirmations = read.entries if read is not None else []
+    confirmations = read.entries
     documents, files = _semantic_documents(directory)
     if args.only:
         wanted = {bare_table(name) for name in args.only}
@@ -843,7 +852,17 @@ def _run_facts(args: argparse.Namespace) -> int:
         for message in error.messages:
             print(message, file=sys.stderr)
         return 2
-    print(render_facts(confirmations, args.table), end="")
+    grains = None
+    if args.documents:
+        if not Path(args.documents).is_dir():
+            print(f"--documents does not exist: {args.documents}", file=sys.stderr)
+            return 2
+        documents, _ = _semantic_documents(Path(args.documents))
+        grains = {table: list(document["summary"]["row"]["grain_columns"])
+                  for table, document in documents.items()
+                  if isinstance((document.get("summary") or {}).get("row"), dict)
+                  and isinstance(document["summary"]["row"].get("grain_columns"), list)}
+    print(render_facts(confirmations, args.table, grains=grains), end="")
     return 0
 
 

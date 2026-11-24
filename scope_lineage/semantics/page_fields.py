@@ -8,13 +8,15 @@
 - 描述与技术列 -- one line, not a table: descriptive columns, then 技术列.
 
 A column's 口径 spells out each branch (``线上：…；线下：…``), then the general wording,
-then when it is empty; its own ``watch`` follows with ⚠.
+then when it is empty; its own ``watch`` follows with ⚠. Values a platform query observed
+come last, as an observation with its partition and date, never as codes.
 """
 
 from __future__ import annotations
 
 from ..render.catalog_concept_page import table_head, table_row
 from ..render.catalog_view import is_unconfirmed
+from .observed import observed_values_text
 from .page_words import (
     TICK,
     PageMarks,
@@ -87,12 +89,14 @@ def _meaning(column: dict) -> str:
 
 
 def derivation_text(column: dict) -> str:
-    """``线上：…；线下：…；<general wording>；为空：…``, or ``—``."""
+    """``线上：…；线下：…；<general wording>；为空：…；观测：…``, or ``—``."""
     parts = [f"{text(b['branch'])}：{clause(b['text'])}" for b in column.get("branches") or []]
     if str(column.get("derivation") or "").strip():
         parts.append(clause(column["derivation"]))
     if column.get("null_meaning"):
         parts.append(f"为空：{clause(column['null_meaning'])}")
+    if column.get("observed_values"):
+        parts.append(text(observed_values_text(column)))
     return "；".join(parts) or "—"
 
 

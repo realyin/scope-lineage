@@ -121,7 +121,7 @@ def run_status(args: argparse.Namespace) -> int:
     entries = [table_status(files, confirmations)
                for files in _table_files(directories, args.only)]
     named = {name: str(path) for name, path in directories.items()}
-    if confirmations is not None:
+    if confirmations is not None and confirmations.files:
         # Only when read: without confirmations the report is what it always was.
         named["confirmations"] = confirmations.path
     report = status_report(entries, named)

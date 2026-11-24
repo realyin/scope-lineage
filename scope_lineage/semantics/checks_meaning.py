@@ -5,7 +5,9 @@ tell a reader the wrong thing. These two read what the lineage already knows abo
 rows and the values:
 
 - 10 ``fan_out`` -- a JOIN whose right side the profile did not prove unique on the join
-  keys can repeat a row per match; the reader has to be told, by name;
+  keys can repeat a row per match; the reader has to be told, by name; a platform query's
+  observation of that right side (``input:`` in the confirmations files) lets a sentence
+  say it does not multiply rows *in the observed partition*, and nothing more;
 - 11 ``derived_codes`` -- a CASE / IF with literal outputs defines the column's values,
   so each must be listed, and one that sounds like a single state (成功, 正常 ...) while
   gathering several source values needs a warning.
@@ -18,6 +20,8 @@ from __future__ import annotations
 import re
 
 from .checks import _plain, result
+from .names import bare_table
+from .observed import partition_text
 from .packet_notes import GRAIN_PATH
 
 # 10 ------------------------------------------------------------------ fan out
@@ -52,9 +56,19 @@ _FAILS_FIRST = re.compile(
     r"\s*(?:(?:若|如果|一旦)[^，,。；;]*?(?:不成立|不唯一|不满足)|(?:不成立|不满足|不唯一|重复)时)"
 )
 _OTHERWISE_FIRST = re.compile(r"\s*(?:否则|不然|反之)")
+# A sentence saying it reports an observation, and the form the writer is given for one
+# (「观测（查询 …，分区 …，… 执行）：…」, D16 5).
+_OBSERVED = re.compile(r"观测")
+_OBSERVED_FORM = re.compile(r"观测\s*[（(]\s*查询")
+# Words that make an observation a proof; never in a sentence relaxed by one (D16 3.3). One
+# right after a negation (不保证, 不一定, 无法保证 ...) says what is not known, not a proof.
+_PROOF = re.compile(r"已证明|证明了|保证|一定|必然")
+_PROOF_NEGATED = re.compile(r"(?:不|未|没有?|无法|不能|难以|并不|并未)\s*$")
+# What in a no-fan-out clause names the observed partitions besides one of their values.
+_THESE_PARTITIONS = re.compile(r"该分区|这些分区|此分区|本分区|这个分区|全表")
 
 
-def check_fan_out(document: dict, packet: dict) -> list[dict]:
+def check_fan_out(document: dict, packet: dict, confirmed=None) -> list[dict]:
     """Every right side not proven unique on its join keys is named in the note or a risk.
 
     Joins onto one right side (the same table joined under several aliases) are one item:
@@ -71,6 +85,13 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
     sure by its table, an alias no other right side carries, or its rule number (pN). A
     sentence naming it only by an alias another right side shares may be about that one,
     and warns.
+
+    ``confirmed`` (:class:`~.confirmed.TableConfirmed`; None when no confirmations path was
+    given, and then nothing below applies) carries what platform queries observed of the
+    input tables. The naming stays required. An observation only lets a sentence call a
+    join harmless in the observed partition (:func:`_observed_claim`); a sentence written
+    in the observation form about a join no observation backs warns (:func:`_unbacked`);
+    an observation that found duplicates is quoted in the failure to name the join.
     """
     summary = document["summary"]
     said = _sentences("summary.row.note", summary["row"].get("note"))
@@ -87,14 +108,16 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
     held = {key: grain for key, rules in groups.items()
             if (grain := [r for r in rules if r["fan_out"].get("path") in (None, GRAIN_PATH)])}
     owners = _alias_owners(packet)
-    results = [_named(rules, said, owners) for rules in held.values()]
+    results = [_named(rules, said, owners, confirmed) for rules in held.values()]
     left = [r for rules in held.values() for r in rules if "LEFT" in str(r.get("join_type")).upper()]
     every_name = [
         name for rule in packet["lineage"]["rules"] if rule["kind"] == "join"
         for name in join_names(rule)
     ]
+    unproven = [rule for rules in groups.values() for rule in rules]
     return results + _harmless_left(
-        left, everywhere, _safe_names(packet, groups), every_name, owners)
+        left, everywhere, _safe_names(packet, groups), every_name, owners, confirmed,
+    ) + _unbacked(unproven, everywhere, owners, confirmed)
 
 
 def _right_side(rule: dict) -> tuple:
@@ -147,7 +170,7 @@ def _label(rules: list[dict]) -> str:
     return "、".join(rules[0].get("right_tables") or [rules[0].get("right") or "?"])
 
 
-def _named(rules: list[dict], said: list, owners: dict) -> dict:
+def _named(rules: list[dict], said: list, owners: dict, confirmed=None) -> dict:
     at = "summary.row.note"
     if any(_mentions(text, _sure_names(rules, owners)) for _, text in said):
         return result("fan_out", "pass", at)
@@ -166,7 +189,38 @@ def _named(rules: list[dict], said: list, owners: dict) -> dict:
         f"关联 {_label(rules)}（{joins}，{where}）的右侧没有被证明按关联键唯一"
         f"（{first['fan_out'].get('reason')}），一条记录可能匹配多条、让行数放大；在 "
         "summary.row.note 或一条 kind 为 risk 的 summary.watch 里点名它"
-        f"（{'、'.join(names)} 任一），写明会不会放大行数、为什么"))
+        f"（{'、'.join(names)} 任一），写明会不会放大行数、为什么{_duplicates(rules, confirmed)}"))
+
+
+def _duplicates(rules: list[dict], confirmed) -> str:
+    """「；观测到 N 个重复键（分区 P）」 for each observation that found the right side repeat."""
+    seen = [obs for rule in rules for obs in observations(rule, confirmed, unique="no")]
+    return "".join(dict.fromkeys(
+        f"；观测到 {obs['duplicate_keys']} 个重复键（{partition_text(obs['partition'])}）"
+        for obs in seen))
+
+
+def observations(rule: dict, confirmed, unique: str | None = "yes") -> list[dict]:
+    """The confirmed observations of a join's right side on its keys (D16 3.3).
+
+    Only a right side reading a single table T (``right_tables == [T]``: a physical table
+    or a subquery over one table) has one: an ``input:T`` observation whose columns are
+    among the join's columns on T -- unique on fewer columns is unique on more. ``unique``
+    keeps those that found it so (``yes`` / ``no``); None keeps both.
+    """
+    tables = rule.get("right_tables") or []
+    if confirmed is None or len(tables) != 1:
+        return []
+    table = bare_table(tables[0])
+    keys = {
+        reference.rsplit(".", 1)[1].lower() for reference in rule.get("columns") or []
+        if "." in reference and bare_table(reference.rsplit(".", 1)[0]) == table
+    }
+    return [
+        fact.value for (name, columns), fact in confirmed.observed_inputs.items()
+        if name == table and columns and set(columns) <= keys
+        and (unique is None or fact.value.get("unique") == unique)
+    ]
 
 
 def _alias_only(rules: list[dict], aliases: list[str], owners: dict, where: str) -> dict:
@@ -186,7 +240,7 @@ def _alias_only(rules: list[dict], aliases: list[str], owners: dict, where: str)
 
 def _harmless_left(
     left: list[dict], everywhere: list, safe_names: list[str], every_name: list[str],
-    owners: dict,
+    owners: dict, confirmed=None,
 ) -> list[dict]:
     """One warning per place that calls an unproven LEFT join harmless to the row count.
 
@@ -195,6 +249,7 @@ def _harmless_left(
     clause that says 不放大. A claim made under a condition whose failing case is said
     (:func:`_conditional`) is no claim. A sentence naming some joins for sure (table,
     unshared alias, pN) is about those; only one naming none that way is read by alias.
+    Nor is a claim reporting an observation the confirmations back (:func:`_observed_claim`).
     """
     if not left:
         return []
@@ -210,6 +265,8 @@ def _harmless_left(
         ]
         if where in warned or not claims:
             continue
+        if named and _observed_claim(text, claims, _about(text, named), confirmed):
+            continue
         about_safe = _mentions(text, safe_names) and not any(
             _UNIVERSAL.search(_clause(text, claim)) for claim in claims
         )
@@ -220,6 +277,85 @@ def _harmless_left(
                 f"把左关联写成了不影响行数，但 {label} 的右侧没有被证明按关联键唯一："
                 "LEFT JOIN 只保证左侧记录不丢，右侧一对多时照样放大行数；改写这句话，"
                 "写明右侧什么情况下会有多条")))
+    return results
+
+
+def _about(text: str, named: list[dict]) -> list[dict]:
+    """The joins a sentence speaks of: all it names, less the joins onto a right side it
+    names by another join's rule number (pN). 「T 按 (k) 无重复，p62 不放大」 is about p62, though
+    the table's name also names every other join onto T; a pN picks among the joins of its
+    own right side only, so another right table the sentence names (by table or alias)
+    is spoken of too."""
+    by_id = [rule for rule in named if _mentions(text, [rule["id"]])]
+    picked = {_right_side(rule) for rule in by_id}
+    return by_id + [rule for rule in named if rule not in by_id and _right_side(rule) not in picked]
+
+
+def _observed_claim(text: str, claims: list[re.Match], about: list[dict], confirmed) -> bool:
+    """Whether a sentence's no-effect claims report observations the confirmations back.
+
+    The sentence says 观测 and claims no proof (已证明, 保证, 一定, 必然, unless negated);
+    no claim's clause speaks of every join (都, 所有 ...); every claim's clause keeps to
+    the observed partitions (该分区 / 这些分区, a value or an end of the range, 全表) --
+    「别的分区同样不放大」 carries the observation where it was not made; and each join it is
+    about has its own observation found unique, whose partition the sentence names (a
+    value, an end of the range, or 全表).
+    """
+    if confirmed is None or not _OBSERVED.search(text) or _claims_proof(text):
+        return False
+    if any(_UNIVERSAL.search(_clause(text, claim)) for claim in claims):
+        return False
+    found = [obs for rule in about for obs in observations(rule, confirmed)]
+    if not all(
+        _THESE_PARTITIONS.search(clause)
+        or any(_names_partition(clause, obs["partition"]) for obs in found)
+        for clause in (_clause(text, claim) for claim in claims)
+    ):
+        return False
+    return all(
+        any(_names_partition(text, obs["partition"]) for obs in observations(rule, confirmed))
+        for rule in about
+    )
+
+
+def _claims_proof(text: str) -> bool:
+    return any(not _PROOF_NEGATED.search(text[: m.start()]) for m in _PROOF.finditer(text))
+
+
+def _names_partition(text: str, partition: dict) -> bool:
+    if partition.get("column") is None:
+        return "全表" in text
+    marks = [str(value) for value in partition.get("values") or []]
+    marks += [str(partition[end]) for end in ("from", "to") if partition.get(end)]
+    return any(mark and mark in text for mark in marks)
+
+
+def _unbacked(rules: list[dict], everywhere: list, owners: dict, confirmed) -> list[dict]:
+    """One warning per place whose sentence, in the observation form 「观测（查询 …」, speaks
+    of an unproven join the confirmations hold no observation of (a single-table right side,
+    the join's keys). Without a confirmations path there is nothing to hold it to."""
+    if confirmed is None:
+        return []
+    results, warned = [], set()
+    for where, text in everywhere:
+        if where in warned or not _OBSERVED_FORM.search(text):
+            continue
+        named = [rule for rule in rules if _mentions(text, _sure_names([rule], owners))] or [
+            rule for rule in rules if _mentions(text, join_names(rule))]
+        missing = [rule for rule in _about(text, named)
+                   if not observations(rule, confirmed, unique=None)]
+        if not missing:
+            continue
+        warned.add(where)
+        joins = "、".join(f"{_label([rule])}（{rule['id']}）" for rule in missing)
+        inputs = "、".join(dict.fromkeys(
+            f"input:{bare_table(rule['right_tables'][0])}" if len(rule.get("right_tables") or []) == 1
+            else f"右侧读 {len(rule.get('right_tables') or [])} 张表，单表观测不适用"
+            for rule in missing))
+        results.append(result("fan_out", "warn", where, (
+            f"这句用了观测的写法（观测（查询 …）），但确认文件里没有 {joins} 右侧按关联键的观测"
+            f"（{inputs}）：观测只照 semantic facts 里「观测：」开头的行写；没有观测就照旧写右侧"
+            "未被证明按关联键唯一、会不会放大行数")))
     return results
 
 

@@ -1,6 +1,7 @@
 """``semantic confirm``: a person's answers written back into table-semantics documents.
 
-One confirmation names a table, a target and the answer. Four targets exist:
+One confirmation names a table, a target and the answer. Four targets carry a person's
+word:
 
 - ``question:<id>`` -- the question becomes ``answered`` with the answer, who gave it and
   when;
@@ -9,12 +10,31 @@ One confirmation names a table, a target and the answer. Four targets exist:
   ``{value, meaning}`` is merged into them;
 - ``summary.row`` -- an object is merged into the row statement (a string replaces its
   text). An object that sets ``grain_columns`` or ``unique`` but not ``grain_source`` turns
-  an ``inferred`` grain into ``declared``: the owner's word is no inference. A
-  ``declared`` or ``proven`` grain is left as it is, and a ``grain_source`` the object
-  sets is written as given.
+  an ``inferred`` or ``observed`` grain into ``declared``: the owner's word is no
+  inference and outranks a query. A ``declared`` or ``proven`` grain is left as it is, and
+  a ``grain_source`` the object sets is written as given -- except ``observed``: an object
+  that sets it, or sets ``observed``, is unmatched (an observation has its own target).
+
+Three more targets carry an observation, what a platform query found (the shapes and the
+rules every value meets are :mod:`.observed`'s). An observation is no definition: it gains
+no ``confirmed`` in any sources, and it never outranks a person or the lineage --
+``proven`` > ``declared`` > ``observed`` > ``inferred``:
+
+- ``summary.row.observed`` -- written to ``summary.row.observed``. Only an ``inferred`` or
+  ``observed`` grain becomes ``observed`` with the observation's ``unique``; its grain
+  columns are the columns the query counted, unless the observation says unique and the
+  document's grain columns contain them (unique by fewer columns is unique by more), when
+  the document's are kept. A ``declared`` or ``proven`` grain only gains the observation;
+- ``column:<c>.observed_values`` -- written to the column's ``observed_values``, beside its
+  code values and never into them. An identifier column takes counts only (values or
+  ``absent`` -> unmatched), and ``observed_on`` must be one of its ``source_columns``;
+- ``input:<db.table>`` -- one item of the top-level ``observed_inputs``, per input table
+  (``bare_table``) and set of columns (case and order aside); a later one replaces it.
 
 Whatever a confirmation changed gains ``confirmed`` in its sources, and the document logs
-it under ``confirmed`` (once: the same target, person and date is not logged again).
+it under ``confirmed`` (once: the same target, person and date is not logged again). An
+``input:`` record names the bare table and carries the observed ``columns``, so one input
+table observed on two sets of columns is two records.
 Applying the same confirmations again changes nothing, so a run replays them after every
 write; onto a rewritten document they put the confirmed slots back. A confirmation that
 matches nothing -- or whose answer would make the document illegal -- is returned in
@@ -42,10 +62,21 @@ import copy
 import re
 from dataclasses import dataclass, field
 
-from .names import bare_table, folded_text
+from .names import bare_column, bare_table, folded_text
+from .observed import (
+    IDENTIFIER_CATEGORIES,
+    INPUT,
+    OBSERVED_ROW,
+    OBSERVED_VALUES,
+    USE_OBSERVED_TARGET,
+    input_key,
+    input_table,
+    observation_problem,
+)
 from .schema import DOC_FORMAT, schema_errors
 
-_COLUMN_TARGET = re.compile(r"column:(?P<column>[^.\s]+)\.(?P<slot>meaning|code_values)")
+_COLUMN_TARGET = re.compile(
+    r"column:(?P<column>[^.\s]+)\.(?P<slot>meaning|code_values|observed_values)")
 CONFIRMED = "confirmed"
 ASKED = "asked"
 _SKIP = object()
@@ -147,6 +178,12 @@ def _apply_one(document: dict, entry: dict) -> str | None:
         return _answer(document, target.split(":", 1)[1], entry)
     if target == "summary.row":
         return _confirm_row(document["summary"]["row"], value)
+    if target == OBSERVED_ROW:
+        return observation_problem(OBSERVED_ROW, value) or _observe_row(
+            document["summary"]["row"], value)
+    if target.startswith(INPUT):
+        return observation_problem(INPUT, value) or _observe_input(
+            document, input_table(target), value)
     match = _COLUMN_TARGET.fullmatch(target)
     if match is None:
         return f"unknown target {target!r}"
@@ -155,6 +192,8 @@ def _apply_one(document: dict, entry: dict) -> str | None:
         return f"unknown column {match['column']!r} in this table"
     if match["slot"] == "meaning":
         return _confirm_meaning(column, value)
+    if match["slot"] == "observed_values":
+        return observation_problem(OBSERVED_VALUES, value) or _observe_values(column, value)
     return _confirm_code_values(column, value)
 
 
@@ -212,9 +251,11 @@ def _confirm_row(row: dict, value) -> str | None:
     if isinstance(value, str) and value.strip():
         row["text"] = value
     elif isinstance(value, dict) and value:
+        if "observed" in value or value.get("grain_source") == "observed":
+            return USE_OBSERVED_TARGET
         row.update(value)
         if (("grain_columns" in value or "unique" in value) and "grain_source" not in value
-                and row.get("grain_source") == "inferred"):
+                and row.get("grain_source") in ("inferred", "observed")):
             row["grain_source"] = "declared"
     else:
         return "value must be the row text or an object of row fields"
@@ -222,8 +263,46 @@ def _confirm_row(row: dict, value) -> str | None:
     return None
 
 
+def _observe_row(row: dict, value: dict) -> None:
+    row["observed"] = copy.deepcopy(value)
+    if row.get("grain_source") not in ("inferred", "observed"):
+        return  # a person's word or the lineage outranks a query
+    counted = value["grain_columns"]
+    if not (value["unique"] == "yes" and set(row.get("grain_columns") or []) >= set(counted)):
+        row["grain_columns"] = list(counted)
+    row.update(grain_source="observed", unique=value["unique"])
+
+
+def _observe_values(column: dict, value: dict) -> str | None:
+    if column.get("category") in IDENTIFIER_CATEGORIES and (value.get("values") or value.get("absent")):
+        return (f"{column['column']} is an identifier column: an observation of it gives counts "
+                "only, no values")
+    observed_on = value.get("observed_on")
+    sources = {bare_column(source) for source in column.get("source_columns") or []}
+    if observed_on is not None and bare_column(observed_on) not in sources:
+        return f"observed_on {observed_on} is not a source column of {column['column']}"
+    column["observed_values"] = copy.deepcopy(value)
+    return None
+
+
+def _observe_input(document: dict, table: str, value: dict) -> None:
+    item = {"table": table, **copy.deepcopy(value)}
+    items = document.setdefault("observed_inputs", [])
+    key = input_key(table, value["columns"])
+    for index, current in enumerate(items):
+        if input_key(current["table"], current["columns"]) == key:
+            items[index] = item
+            return
+    items.append(item)
+
+
 def _log(document: dict, entry: dict) -> None:
     record = {"target": entry.get("target"), "by": entry.get("by"), "date": entry.get("date")}
+    target = str(entry.get("target"))
+    if target.startswith(INPUT):
+        # One input table may be observed on two sets of columns: each is its own record.
+        table, columns = input_key(input_table(target), entry["value"]["columns"])
+        record.update(target=f"{INPUT}{table}", columns=list(columns))
     log = document.setdefault("confirmed", [])
     if record not in log:
         log.append(record)

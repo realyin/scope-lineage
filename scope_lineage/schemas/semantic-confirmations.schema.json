@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "semantic-confirmations/1",
-  "description": "A person's answers to table-semantics documents, applied by `semantic confirm`. Each entry names one table and one target; the value's shape depends on the target and is checked when it is applied. A question entry may carry `asked`, the question's text as the person saw it: it is then applied only while the question still reads so (NFKC and whitespace folded, letter case kept), skipped when the question already holds that very answer, and refused when the question holds another answer unless `replace` is true. Without `asked` an entry is applied as it always was, and `replace` is ignored.",
+  "description": "A person's answers to table-semantics documents, applied by `semantic confirm`. Each entry names one table and one target; the value's shape depends on the target and is checked when it is applied. A question entry may carry `asked`, the question's text as the person saw it: it is then applied only while the question still reads so (NFKC and whitespace folded, letter case kept), skipped when the question already holds that very answer, and refused when the question holds another answer unless `replace` is true. Without `asked` an entry is applied as it always was, and `replace` is ignored. Three targets carry an observation -- what a platform query found, not a definition: `summary.row.observed`, `column:<c>.observed_values` and `input:<db.table>` (an input table the entry's table reads, a catalog prefix ignored); their value is the matching `observed_grain`, `observed_values` or `observed_input` shape of table-semantics/1 (without `table`), at least 1 row, counts and at most 50 values, never detail rows.",
   "type": "object",
   "required": ["doc_format", "confirmations"],
   "additionalProperties": false,
@@ -17,7 +17,7 @@
           "table": {"type": "string", "minLength": 1},
           "target": {
             "type": "string",
-            "pattern": "^(question:q[0-9]+|column:[^.\\s]+\\.(meaning|code_values)|summary\\.row)$"
+            "pattern": "^(question:q[0-9]+|column:[^.\\s]+\\.(meaning|code_values|observed_values)|summary\\.row(\\.observed)?|input:[^.\\s]+(\\.[^.\\s]+){1,2})$"
           },
           "value": {},
           "by": {"type": "string", "minLength": 1},

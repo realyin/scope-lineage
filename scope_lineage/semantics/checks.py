@@ -13,6 +13,12 @@ from __future__ import annotations
 
 import re
 
+from .checks_observed import (
+    check_observed_grain,
+    check_observed_values,
+    comparable_values,
+    seen_value,
+)
 from .names import bare_column, folded_text
 
 CHECKS = (
@@ -147,6 +153,12 @@ def check_code_values(document: dict, packet: dict, confirmed=None) -> list[dict
     The SQL still wins over a confirmation: a confirmed value a constant column never
     writes, or a confirmed ``''`` no producer writes, fails as a confirmation to take back
     to the owner -- the document cannot settle it.
+
+    An observed value is never a code: one seen only in the data and written as a code
+    without ``unconfirmed`` fails as before, its message saying it was observed. The
+    observations themselves are held by :func:`~.checks_observed.check_observed_values`
+    (``confirmed`` None: no confirmations path; an empty state: a path with nothing for
+    this table).
     """
     sql = "\n".join(task["sql"] or "" for task in packet["tasks"])
     headers = [line for task in packet["tasks"] for line in task["header_comments"]]
@@ -157,6 +169,7 @@ def check_code_values(document: dict, packet: dict, confirmed=None) -> list[dict
         confirmed_glossary = confirmed_values(packet, name)
         owner = confirmed.code_meanings(name) if confirmed else {}
         literals, constant = column_literals(packet, name)
+        observation = comparable_values(packet, column, confirmed)
         written = set()
         for vi, code in enumerate(column.get("code_values") or []):
             at = f"columns[{ci}].code_values[{vi}]"
@@ -184,8 +197,9 @@ def check_code_values(document: dict, packet: dict, confirmed=None) -> list[dict
             ):
                 results.append(result("code_values", "pass", at))
             else:
+                seen = "观测到它，但含义没有依据；" if seen_value(observation, value) else ""
                 results.append(result("code_values", "fail", at, (
-                    f"码值 {code['value']!r} 在注释和 SQL 里都找不到；有依据就写明来源，"
+                    f"码值 {code['value']!r} 在注释和 SQL 里都找不到；{seen}有依据就写明来源，"
                     "没有就标 unconfirmed: true 并在 questions 里提问")))
         at = f"columns[{ci}].code_values"
         for value, meaning in owner.items():
@@ -197,6 +211,7 @@ def check_code_values(document: dict, packet: dict, confirmed=None) -> list[dict
                 results.append(result("code_values", "fail", at, (
                     f"码值 {value!r} 已由 owner 确认（确认文件）为「{meaning}」，列 {name} 的 "
                     "code_values 里没有；照确认补上这个码值并写确认的含义，不要标 unconfirmed")))
+        results += check_observed_values(ci, column, packet, confirmed)
     return results
 
 
@@ -329,6 +344,9 @@ def check_grain(document: dict, packet: dict, confirmed=None) -> list[dict]:
     A confirmed ``grain_columns`` must be the document's set, a confirmed ``unique`` its
     value, and either one makes ``grain_source: inferred`` a failure: the owner's word is
     ``declared`` (or ``proven`` when the lineage proves the key, judged as before).
+
+    An observed grain and the row's observation are held by
+    :func:`~.checks_observed.check_observed_grain`; an observation never makes ``proven``.
     """
     row = document["summary"]["row"]
     names = {column["name"] for column in packet["target"]["columns"]}
@@ -338,7 +356,10 @@ def check_grain(document: dict, packet: dict, confirmed=None) -> list[dict]:
                     f"粒度列 {name} 不是目标表的列")
         for index, name in enumerate(row["grain_columns"])
     ]
-    results += _confirmed_row(row, confirmed.row_fields() if confirmed else {})
+    owner = confirmed.row_fields() if confirmed else {}
+    results += _confirmed_row(row, owner)
+    results += check_observed_grain(
+        row, confirmed, isinstance(owner.get("grain_columns"), list) or "unique" in owner)
     if row["grain_source"] != "proven":
         return results
     proven = [key for key in packet["lineage"]["keys"] if key["proven"]]
