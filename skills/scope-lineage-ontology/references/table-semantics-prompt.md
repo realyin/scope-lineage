@@ -1,4 +1,4 @@
-# 表语义提示词（table-semantics-prompt@14）
+# 表语义提示词（table-semantics-prompt@15）
 
 用法：Agent 为每张目标表把这份提示词连同它的材料包 `<packets>/<db.table>/packet.md` 交给模型，
 模型输出一份 `table-semantics/1` JSON（格式见 `docs/zh-CN/table-semantics.md`，Schema 见
@@ -67,9 +67,15 @@
   `comment_source: "patch"`）：负责人回写的表注释或列注释。据它写的条目，`sources` 写 `confirmed`
   （可以与 `sql` 等并列）；它与 SQL 矛盾时同样按 SQL 实际行为写，并记一条 `conflict` 的 `watch`。
 
-如果调用方附带了「已确认事实」清单（例如某些标识的含义），直接采用，并在对应条目的 `sources` 里写
-`confirmed`；与本表无关的事实忽略。本表某列名字像某条事实里的列、实际装的却是别的（例如名字像客户标识，
+如果调用方附带了「已确认事实」清单，直接采用；与本表无关的事实忽略。本表某列名字像某条事实里的列、实际装的却是别的（例如名字像客户标识，
 SQL 显示取的是员工 id）时，按实际写，加一条 `conflict` 的 `watch` 和一个问题，不套用那条事实。
+
+- 行粒度（粒度列、是否唯一）、列含义、码值含义三种槽位照原值写，对应条目的 `sources` 写 `confirmed`。`sources` 里的
+  `confirmed` 只给这三种槽位：工具会按确认把它们再写一遍。
+- 已回答的问题：由回答得出的句子写进相关条目的文字，句末标「（已确认）」；这个条目的 `sources` 不因它加 `confirmed`。
+  回答只用于它说的那个对象，不推广到别的列或别的表；不再就它提问。
+- 不从确认推出材料里没有的事实：「按 (a, b) 唯一」不等于「同一 a 有多个 b」。确认与 SQL 有张力时两说并列
+  （「已确认 X；SQL 显示 Y」），不删有 SQL 依据的句子。
 
 ## 修正点（只在材料包重建后的整份重写时有）
 
@@ -239,7 +245,7 @@ SQL 显示取的是员工 id）时，按实际写，加一条 `conflict` 的 `wa
    依据）、`cycle`、
    `outputs`、`upstream_tasks`、`downstream_tasks`。多个任务写同一张表时改用 `tasks` 列表。
 6. **其余键**：`doc_format` 写 `table-semantics/1`；`table` 写 `库.表`；`packet_digest` 从材料包照抄；
-   `generator` 写 `{"prompt": "table-semantics-prompt@14"}`。调用方给了本体目录里这张表对应的概念与
+   `generator` 写 `{"prompt": "table-semantics-prompt@15"}`。调用方给了本体目录里这张表对应的概念与
    表现类型时，写 `concept`（`{"concept": "concept:<id>", "representation_kind": "<kind>"}`）。
 
 ## 容易写错的地方（来自验收）

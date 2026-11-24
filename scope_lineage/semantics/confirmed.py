@@ -220,18 +220,22 @@ def render_facts(confirmations: Confirmations | None, tables: list[str]) -> str:
     ``{FACTS}`` takes.
 
     Per table a header line, then one fact per line -- the row fields, the column
-    meanings, the code values, the answered questions -- each ending with who confirmed
+    meanings, the code values, the answered questions that carry ``asked`` (one without
+    it cannot say which question it answers, and is left out) -- each ending with who confirmed
     it and when (``unique`` and ``grain_source`` in words, the field's value after them); ``无`` when the table has none. Line breaks inside a confirmed text are
-    folded to spaces, so one line is always one fact.
+    folded to spaces, so one line is always one fact. When none of the tables has a fact
+    the whole text is ``无``: the prompt reads as it did before there were confirmations.
     """
     lines: list[str] = []
+    found = False
     for table in tables:
         name = bare_table(table)
         state = confirmations.for_table(name) if confirmations else None
         lines.append(f"表 {name} 已确认的事实：")
         facts = _fact_lines(state) if state else []
+        found = found or bool(facts)
         lines += facts or ["无"]
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" if found else "无\n"
 
 
 def _fact_lines(state: TableConfirmed) -> list[str]:
@@ -248,10 +252,14 @@ def _fact_lines(state: TableConfirmed) -> list[str]:
         for value, fact in codes.items():
             lines.append(f"- 列 {column} 的码值「{_one_line(value)}」：{_one_line(fact.value)}"
                          f"{_by(fact)}")
+    # An answer without the question's text is left out: after a rewrite its id may name
+    # another question, and a writer told "qN: answer" would pin it on the wrong one.
     for question_id in sorted(state.answers, key=_question_order):
         fact = state.answers[question_id]
-        asked = f"（问：{_one_line(fact.asked)}）" if fact.asked else " "
-        lines.append(f"- 问题 {question_id}{asked}的回答：{_one_line(fact.value)}{_by(fact)}")
+        if not fact.asked:
+            continue
+        lines.append(f"- 问题 {question_id}（问：{_one_line(fact.asked)}）的回答："
+                     f"{_one_line(fact.value)}{_by(fact)}")
     return lines
 
 

@@ -681,7 +681,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
 ## `semantic confirm`
 
 ```bash
-scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out <dir> | --reviews <dir>]
+scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out <dir> | --reviews <dir>] [--require-asked] [--only <db.table> ...]
 ```
 
 `--confirmations` 是一个文件或放这类文件的目录，读法与 `semantic validate` 相同（按文件名顺序、条目按原顺序）。确认文件是 `semantic-confirmations/1` 文档（Schema：`scope_lineage/schemas/semantic-confirmations.schema.json`）。
@@ -715,7 +715,8 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 `semantic validate` 的第 3、4 项随后就会通过。表、问题或列不存在、值的形状不对、
 或套用后文档会违反 Schema 的确认，**不套用、也不丢弃**：摘要行计入 `unmatched`，并逐条列出原因。不给 `--out`
 时就地改写有变化的文档；给了 `--out` 时所有文档写到那里，原文件不动。确认文件本身格式不对时退出码 2，
-`--reviews` 与 `--out` 同时给也是 2。
+`--reviews` 与 `--out` 同时给也是 2。`--only` 只取这些表的文档和它们的确认——写完一张表之后的重放：别的文档一个字节
+都不动，也不报别的表的确认；点名的表没有文档时退出 1，什么都不写。
 
 `question:<id>` 的确认还可以带 `asked`（回答人看到的问题原文；浏览页面导出的文件总是带）和 `replace`。带了
 `asked`，回答只落到当时问的那个问题上——改写可能把同一个编号给了另一个问题：
@@ -728,13 +729,18 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 | 未回答 | 套用 |
 
 `asked` 写在其他目标上算 unmatched。不带 `asked` 的确认与以前一样套用（已回答的问题被覆盖），`replace` 不起作用；
-没有 skipped 时摘要行与以前一字不差。
+没有 skipped 时摘要行与以前一字不差。给了 `--require-asked` 时，这种条目一律算 unmatched
+（`no asked: a replay cannot tell which question this answers …`）：重写会给问题重新编号，每次写作之后的重放会把
+回答落到别的问题上。运行中的重放都带这个参数；其他目标不受影响。
 
-owner 的回答不是要修订者再看一遍的修改。就地确认时，工具读这一轮的审读（`--reviews`，不给时用 `<documents>`
+对问题的回答不是要修订者再看一遍的修改。就地确认时，工具读这一轮的审读（`--reviews`，不给时用 `<documents>`
 旁边的 `reviews/`，存在才读）：有变化的表，如果它的审读已经认可确认前的文档（`semantic status` 原本会判为 `fixed`
-或 `rendered`），就把修订回执移到确认后的文档上——`fixed_doc_digest` 改成新摘要，并打印一行
+或 `rendered`），而且改变它的条目都是 `question:` 目标，就把修订回执移到确认后的文档上——`fixed_doc_digest` 改成新摘要，并打印一行
 `<db.table>  fixed_doc_digest <摘要>  <审读路径>`。这张表随后是 `fixed render_stale`：`--next render` 会列出它，
-`--next fix` 不会。审读没有认可的表，审读文件不动（修订还没做完）；给了 `--out` 时不动任何审读。
+`--next fix` 不会。改了行、列含义或码值的条目可能让周围的正文说法不一，这种表的回执不移：打印一行
+`<db.table>  fix record not carried: <目标> changed; …`，表是 `reviewed fix_unconfirmed`（审读没有高、中级问题时是
+`valid review_stale`），交给一轮修订，修订在 `semantic fixed` 写回执之前重放确认。已经套用过的条目不改变什么，所以重放
+整个目录时只按新的条目判断。审读没有认可的表，审读文件不动（修订还没做完）；给了 `--out` 时不动任何审读。
 
 ## `semantic facts`
 
@@ -745,9 +751,10 @@ scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [-
 按给出的顺序，把 owner 为每张表确认过的事实逐行打印出来：这就是写作、审读提示词里「已确认事实」要填的文字。
 `--confirmations` 的读法与 `semantic confirm` 相同；每张表的状态就是 `semantic confirm` 会留下的状态（后面的条目
 优先，码值列表替换确认过的集合，单个对象合并进去）。每张表先打一行表头，再每条事实一行——行字段（粒度列、粒度
-来源、是否唯一、一行是什么、说明）、列含义、码值、已回答的问题（条目带 `asked` 时附上问题原文）——每行末尾写明谁
+来源、是否唯一、一行是什么、说明）、列含义、码值、带 `asked` 的已回答问题（附上问题原文；不带的说不清重写之后答的是哪个问题，不打印）——每行末尾写明谁
 在哪天确认；`unique` 与 `grain_source` 写成中文并在括号里附字段值（`是（unique: yes）`、
-`声明（grain_source: declared）`）；确认文字里的换行换成空格。没有确认的表打印 `无`。示例确认文件的输出：
+`声明（grain_source: declared）`）；确认文字里的换行换成空格。没有确认的表打印 `无`；要的表都没有确认时，整份输出
+只有 `无`，与提示词在有确认之前填的一样。示例确认文件的输出（它对 `q1` 的回答没带 `asked`，所以不打印）：
 
 ```text
 表 demo_dwd.dwd_party_customer_info_df 已确认的事实：
@@ -757,7 +764,6 @@ scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [-
 - 列 gender_cd 的码值「F」：女（demo-reviewer 于 2026-09-26 确认）
 - 列 gender_cd 的码值「M」：男（demo-reviewer 于 2026-09-26 确认）
 - 列 gender_cd 的码值「U」：未知（demo-reviewer 于 2026-09-26 确认）
-- 问题 q1 的回答：不会。注册系统只允许 F、M、U 三个值。（demo-reviewer 于 2026-09-26 确认）
 ```
 
 | 退出码 | 条件 |

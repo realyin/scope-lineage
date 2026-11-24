@@ -27,8 +27,9 @@
 用 `env.sh` 里的函数 `fill`（runbook 0.1）填，不要手工复制替换：
 
 ```bash
-fill write "$SCRATCH/prompts/T1-write-<表>-r1.md" TABLE=<库.表> MODE=新写 FACTS=无 CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
-fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=无 CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=@"$SCRATCH/<表>.failures.txt"; echo "exit=$?"
+sl semantic facts --confirmations "$RUN/confirmations" --table <库.表> > "$SCRATCH/prompts/<表>.facts.txt"; echo "exit=$?"
+fill write "$SCRATCH/prompts/T1-write-<表>-r1.md" TABLE=<库.表> MODE=新写 FACTS=@"$SCRATCH/prompts/<表>.facts.txt" CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
+fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=@"$SCRATCH/prompts/<表>.facts.txt" CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=@"$SCRATCH/<表>.failures.txt"; echo "exit=$?"
 ```
 
 - `fill` 自动把 `{ENV}`、`{RUN}`、`{TOOL}`、`{SKILL}`、`{SCHEMAS}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{SEMPAGES}` 换成 `env.sh` 里的绝对路径，
@@ -49,7 +50,9 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
    - `{ENV}`、`{RUN}`、`{TOOL}`、`{SKILL}`、`{SCHEMAS}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{ROUND_NAME}`：`fill` 自动填；
    - `{MODE}`：只能填模板标题下那行 `fill:` 注释里列出的值（例如 T4 是「首修 / 核对」），填别的 `fill` 会拒绝；
      只属于别的模式的段落可以删掉。
-   - `{FACTS}`：调用方附带的已确认事实（owner 确认过的业务事实，每条一行）；没有写「无」。
+   - `{FACTS}`（T1、T2、T3、T4、T9）：owner 对这张表的确认。一律写 `@<文件>`，文件由
+     `sl semantic facts --confirmations "$RUN/confirmations" --table <库.表>` 写出（一行表头、每条事实一行；
+     这张表没有确认时整份就是「无」），模板把它放进一个 `text` 代码块。
    - `{CORRECTIONS}`（T1）：重写时写 `@<修正点清单文件>`（runbook S4 用脚本生成）；第一次写和补失败写「无」。
    - `{CONCEPT}`（T1）：有本体目录时写「concept 写 <concept id> / <表现类型>」（用 `sl catalog query <onto>/ontology.json table <表> --json` 查），否则写「不写 concept」。
    - `{FAILURES}`（T1）：补失败模式贴 S5 打印的 FAIL / WARN 行原文；新写写「无」。

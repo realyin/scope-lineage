@@ -491,7 +491,8 @@ Schema 在 `scope_lineage/schemas/catalog-fragment.schema.json`。
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
   [--lineage out/lineage [--schema examples/metadata]] [--tables out/tables/tables.json] \
-  [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] --out out/digest
+  [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] \
+  [--confirmations out/confirmations] --out out/digest
 ```
 
 读目录下每份合法的 `table-semantics/1` 文档（确认文件等工具自己的文档跳过；不合 schema 的文档跳过并在
@@ -510,7 +511,9 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 
 `packet_stale`（按另一版材料包写成）、`invalid`（`semantic validate` 有检查失败）或没有材料包的文档照常进摘要，
 但与 `semantic render` 一样在 stderr 按标记各打一行点名：对照 `--packets`（不给时用文档目录旁边的 `packets/`，
-存在才读）判定；没有材料包时打印一行说明没有检查。产出和退出码不变。
+存在才读）判定；没有材料包时打印一行说明没有检查。`invalid` 按 owner 的确认判定，与 `semantic validate` 的第 3、4 项
+相同：`--confirmations` 是一个 `semantic-confirmations/1` 文件或放这类文件的目录（不给时用文档目录旁边的
+`confirmations/`，存在才读；读到时 stderr 打印一行）。产出和退出码不变。
 
 给 `--lineage`（一个 `lineage.json`，或在其下递归查找的目录，与 `catalog build --lineage` 相同）时，每个列出的列
 还会按写这张表的语句说明：它的值经过哪些被关联的输入读出、这些行按什么常量条件挑出——也就是写码值集

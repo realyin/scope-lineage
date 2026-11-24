@@ -158,6 +158,29 @@ def test_the_fix_log_section_of_another_review_is_not_read(tmp_path):
     assert "reviewed_doc_digest=1111111111111111" in stderr      # said, not silently B
 
 
+@pytest.mark.parametrize("second", [
+    "逐条处理：\nM1 未改：上一轮已改，这一轮只改正文\n中-2 未改：上一轮已改\n",   # says 未改 of what stands
+    "逐条处理：\n（审读的发现上一轮已改）\n",                                      # names none of them
+    "逐条处理：\nM1 已改：上一轮\n中-2 已改：上一轮\n",                            # repeats them
+])
+def test_a_second_revision_of_the_same_review_keeps_what_the_first_fixed(tmp_path, second):
+    """A revision after the owner confirmed slots (S12) appends a second section under the
+    same review: what the first revision fixed stays fixed, whatever the second one says."""
+    fixlog = FIXLOG + "来源：reviews/demo_dim.dim_party_group_dc.md reviewed_doc_digest=1111111111111111\n" + second
+    items, text, _ = _run(tmp_path, PRIOR, fixlog)
+    assert items["M1"]["dest"] == "A"
+    assert items["L3"]["dest"] == "dropped"
+    assert _section(text, "A").count("[M1（中）]") == 1
+
+
+def test_a_later_revision_of_the_same_review_can_still_fix_or_reject_more(tmp_path):
+    fixlog = (FIXLOG.replace("M1 已改：columns[end_dt].meaning", "M1 未改：漏了")
+              + "来源：reviews/demo_dim.dim_party_group_dc.md reviewed_doc_digest=1111111111111111\n"
+              "逐条处理：\nM1 已改：columns[end_dt].meaning\nL1 不成立：材料包里没有\n")
+    items, _, _ = _run(tmp_path, PRIOR, fixlog)
+    assert items["M1"]["dest"] == "A" and items["L1"]["dest"] == "dropped"
+
+
 def test_a_fix_reply_with_its_first_finding_on_the_heading_line_is_still_read(tmp_path):
     reply = ("来源：reviews/demo_dim.dim_party_group_dc.md reviewed_doc_digest=1111111111111111\n"
              "逐条处理：M1 已改：columns[end_dt].meaning\n- 中-2 已改：rules[r7]\n")

@@ -9,6 +9,7 @@ or about its review or page.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -867,6 +868,20 @@ def _confirm(run_dir: Path, *extra: str) -> int:
     return run("semantic", "confirm", run_dir / "docs", "--confirmations", CONFIRMATIONS, *extra)
 
 
+QUESTION = {"table": DEMO_TABLE, "target": "question:q1", "value": "不会。",
+            "by": "demo-reviewer", "date": "2026-09-26"}
+ROW = {"table": DEMO_TABLE, "target": "summary.row", "value": {"unique": "yes"},
+       "by": "demo-reviewer", "date": "2026-09-26"}
+
+
+def _confirm_entries(run_dir: Path, name: str, *entries: dict) -> int:
+    """Add one confirmations file to the run's ``confirmations/`` and replay them all."""
+    write_json(run_dir / "confirmations" / f"{name}.json",
+               {"doc_format": "semantic-confirmations/1", "confirmations": list(entries)})
+    return run("semantic", "confirm", run_dir / "docs", "--confirmations",
+               run_dir / "confirmations")
+
+
 def _rendered(run_dir: Path) -> None:
     page = run_dir / "pages" / f"{DEMO_TABLE}.md"
     page.parent.mkdir(exist_ok=True)
@@ -879,10 +894,10 @@ def _rendered(run_dir: Path) -> None:
 def test_confirming_a_rendered_table_keeps_it_fixed_and_asks_for_a_render(
     valid_run: Path, capsys
 ) -> None:
-    """The owner's answers are not a revision for a fixer: the review's acceptance carries."""
+    """Answers to its questions are not a revision for a fixer: the review's acceptance carries."""
     _keyed_review(valid_run)
     _rendered(valid_run)
-    assert _confirm(valid_run) == 0
+    assert _confirm_entries(valid_run, "a", QUESTION) == 0
     digest = document_digest(_doc(valid_run))
     entry = _entry(_status(valid_run))
     assert (entry["stage"], entry["flags"]) == ("fixed", ["render_stale"])
@@ -896,7 +911,77 @@ def test_confirming_after_a_fix_record_moves_the_record(valid_run: Path) -> None
     _keyed_review(valid_run, high=1)
     _revise(valid_run)
     assert _fixed(valid_run) == 0
-    assert _confirm(valid_run) == 0
+    assert _confirm_entries(valid_run, "a", QUESTION) == 0
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("fixed", [])
+    assert entry["review"]["fixed_doc_digest"] == document_digest(_doc(valid_run))
+
+
+@pytest.mark.parametrize("target, value", [
+    ("summary.row", {"unique": "yes"}),
+    ("column:verify_status.meaning", "实名认证状态"),
+    ("column:gender_cd.code_values", {"value": "U", "meaning": "未填写"}),
+])
+def test_a_confirmed_slot_sends_a_fixed_table_back_to_its_fixer(
+    valid_run: Path, capsys, target: str, value
+) -> None:
+    """A confirmed row, meaning or code value can leave the prose saying otherwise: the
+    review's acceptance is not carried, the table is handed to one revision."""
+    _keyed_review(valid_run, high=1)
+    _revise(valid_run)
+    assert _fixed(valid_run) == 0
+    before = _review_bytes(valid_run)
+    capsys.readouterr()
+    assert _confirm_entries(valid_run, "a", QUESTION, {**QUESTION, "target": target,
+                                                          "value": value}) == 0
+    assert _review_bytes(valid_run) == before
+    assert f"{DEMO_TABLE}  fix record not carried: {target} changed" in capsys.readouterr().out
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("reviewed", ["fix_unconfirmed"])
+    assert _batches(valid_run, "fix") == [DEMO_TABLE]
+
+
+def test_a_confirmed_slot_on_a_review_without_serious_findings_asks_for_a_review_again(
+    valid_run: Path,
+) -> None:
+    """The same rule on a review status would call fixed without a fix: ``review_stale``,
+    since a review with low findings only never hands a table to a fixer."""
+    _keyed_review(valid_run, low=1)
+    _rendered(valid_run)
+    assert _confirm_entries(valid_run, "a", ROW) == 0
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("valid", ["review_stale"])
+
+
+def test_the_revision_after_a_confirmed_slot_replays_then_records_its_fix(valid_run: Path) -> None:
+    """The round a confirmed slot dispatches: the fixer edits (and may drift off the
+    confirmed slot), the replay puts it back before ``fixed``, the record is the replayed
+    document's. A replay that changes nothing carries nothing; a later answer to a question
+    then carries the record as before."""
+    _keyed_review(valid_run, high=1)
+    _revise(valid_run)
+    assert _fixed(valid_run) == 0
+    assert _confirm_entries(valid_run, "a", ROW) == 0
+    confirmed = _doc(valid_run)
+    drifted = copy.deepcopy(confirmed)
+    drifted["generator"]["prompt"] += "+facts"
+    drifted["summary"]["row"]["unique"] = "unknown"
+    write_json(valid_run / "docs" / f"{DEMO_TABLE}.json", drifted)
+    review = _review_bytes(valid_run)
+    assert run("semantic", "confirm", valid_run / "docs", "--confirmations",
+               valid_run / "confirmations") == 0
+    assert _review_bytes(valid_run) == review       # not accepted yet: nothing to carry
+    assert _doc(valid_run)["summary"]["row"]["unique"] == "yes"
+    assert _fixed(valid_run) == 0
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("fixed", [])
+    fixed = _review_bytes(valid_run)
+    document = (valid_run / "docs" / f"{DEMO_TABLE}.json").read_bytes()
+    assert run("semantic", "confirm", valid_run / "docs", "--confirmations",
+               valid_run / "confirmations") == 0
+    assert (_review_bytes(valid_run), (valid_run / "docs" / f"{DEMO_TABLE}.json").read_bytes()) \
+        == (fixed, document)
+    assert _confirm_entries(valid_run, "b", QUESTION) == 0
     entry = _entry(_status(valid_run))
     assert (entry["stage"], entry["flags"]) == ("fixed", [])
     assert entry["review"]["fixed_doc_digest"] == document_digest(_doc(valid_run))
@@ -925,6 +1010,9 @@ def test_confirm_reads_the_reviews_from_a_moved_directory(valid_run: Path) -> No
     _keyed_review(valid_run)
     moved = valid_run.parent / "elsewhere"
     (valid_run / "reviews").rename(moved)
-    assert _confirm(valid_run, "--reviews", moved) == 0
+    write_json(valid_run.parent / "q.json",
+               {"doc_format": "semantic-confirmations/1", "confirmations": [QUESTION]})
+    assert run("semantic", "confirm", valid_run / "docs", "--confirmations",
+               valid_run.parent / "q.json", "--reviews", moved) == 0
     entry = _entry(_status(valid_run, "--reviews", moved))
     assert (entry["stage"], entry["flags"]) == ("fixed", [])

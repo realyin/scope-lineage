@@ -453,6 +453,94 @@ def test_replaying_onto_a_rewritten_document_restores_the_confirmed_slots(
     assert _run("semantic", "validate", docs, "--packets", run_dir / "packets")[0] == 0
 
 
+def test_confirm_only_replays_the_named_tables(tmp_path: Path) -> None:
+    """A writer's replay touches its own table: another table's document -- maybe being
+    written in parallel -- keeps its bytes, and its confirmations are not reported."""
+    docs = tmp_path / "docs"
+    write_json(docs / f"{DEMO_TABLE}.json", example())
+    other = example()
+    other["table"] = OTHER_TABLE
+    write_json(docs / f"{OTHER_TABLE}.json", other)
+    untouched = (docs / f"{OTHER_TABLE}.json").read_bytes()
+    file = _file(tmp_path / "c.json", _entry("column:verify_status.meaning", "实名认证状态"),
+                 _entry("column:verify_status.meaning", "另一张表", table=OTHER_TABLE),
+                 _entry("question:q9", "没有这个问题", table=OTHER_TABLE))
+    code, out, _ = _run("semantic", "confirm", docs, "--confirmations", file, "--only", DEMO_TABLE)
+    assert code == 0
+    assert out.splitlines()[0] == "Applied 1 confirmation(s) to 1 table(s) (unmatched=0)"
+    assert _column(read_json(docs / f"{DEMO_TABLE}.json"), "verify_status")["meaning"] == "实名认证状态"
+    assert (docs / f"{OTHER_TABLE}.json").read_bytes() == untouched
+
+
+def test_confirm_only_a_table_without_a_document_writes_nothing(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    write_json(docs / f"{DEMO_TABLE}.json", example())
+    before = (docs / f"{DEMO_TABLE}.json").read_bytes()
+    code, _, err = _run("semantic", "confirm", docs, "--confirmations", CONFIRMATIONS,
+                        "--only", DEMO_TABLE, OTHER_TABLE)
+    assert code == 1 and f"--only: no document for {OTHER_TABLE}" in err
+    assert (docs / f"{DEMO_TABLE}.json").read_bytes() == before
+
+
+# ------------------------------------------------------------------- --require-asked
+
+
+def _renumbered() -> dict:
+    """The example after a rewrite that gave q1 to another question."""
+    document = example()
+    document["summary"]["questions"][0]["text"] = "身份证号是否加密存储？"
+    return document
+
+
+def test_a_replay_that_requires_asked_leaves_an_asked_less_answer_unmatched(tmp_path: Path) -> None:
+    """A rewrite renumbers questions: an answer that does not say which question it
+    answered would land on whatever question now holds its id, on every replay."""
+    docs = tmp_path / "docs"
+    write_json(docs / f"{DEMO_TABLE}.json", _renumbered())
+    before = (docs / f"{DEMO_TABLE}.json").read_bytes()
+    file = _file(tmp_path / "c.json", _entry("question:q1", "不会。"))
+    code, out, _ = _run("semantic", "confirm", docs, "--confirmations", file, "--require-asked")
+    assert code == 0
+    assert out.splitlines()[0] == "Applied 0 confirmation(s) to 0 table(s) (unmatched=1)"
+    assert "question:q1: no asked" in out and "add asked" in out
+    assert (docs / f"{DEMO_TABLE}.json").read_bytes() == before
+
+
+def test_a_replay_that_requires_asked_still_holds_an_asked_answer_to_its_question(
+    tmp_path: Path,
+) -> None:
+    docs = tmp_path / "docs"
+    write_json(docs / f"{DEMO_TABLE}.json", _renumbered())
+    before = (docs / f"{DEMO_TABLE}.json").read_bytes()
+    asked = example()["summary"]["questions"][0]["text"]
+    file = _file(tmp_path / "c.json", _entry("question:q1", "不会。", asked=asked),
+                 _entry("column:verify_status.meaning", "实名认证状态"))
+    code, out, _ = _run("semantic", "confirm", docs, "--confirmations", file, "--require-asked")
+    assert code == 0 and "unmatched=1" in out and "question was rewritten" in out
+    document = read_json(docs / f"{DEMO_TABLE}.json")
+    assert document["summary"]["questions"] == _renumbered()["summary"]["questions"]
+    assert _column(document, "verify_status")["meaning"] == "实名认证状态"   # other targets as before
+    assert (docs / f"{DEMO_TABLE}.json").read_bytes() != before
+
+
+def test_without_require_asked_an_asked_less_answer_is_applied_as_before(tmp_path: Path) -> None:
+    result = apply_confirmations({DEMO_TABLE: _renumbered()}, [_entry("question:q1", "不会。")])
+    assert result.unmatched == []
+    assert result.documents[DEMO_TABLE]["summary"]["questions"][0]["answer"] == "不会。"
+    strict = apply_confirmations({DEMO_TABLE: _renumbered()}, [_entry("question:q1", "不会。")],
+                                 require_asked=True)
+    assert [item["target"] for item in strict.unmatched] == ["question:q1"]
+
+
+def test_facts_leave_out_an_answer_that_does_not_say_its_question(tmp_path: Path) -> None:
+    file = _file(tmp_path / "c.json", _entry("question:q1", "不会。"),
+                 _entry("question:q2", "按环境唯一", asked="编号在哪个范围内唯一？"))
+    out = _run("semantic", "facts", "--confirmations", file, "--table", DEMO_TABLE)[1]
+    assert "q1" not in out and "问题 q2（问：编号在哪个范围内唯一？）的回答：按环境唯一" in out
+    only = _file(tmp_path / "d.json", _entry("question:q1", "不会。"))
+    assert _run("semantic", "facts", "--confirmations", only, "--table", DEMO_TABLE)[1] == "无\n"
+
+
 # ------------------------------------------------------------------- facts
 
 
@@ -480,7 +568,6 @@ def test_facts_prints_one_confirmed_fact_per_line(tmp_path: Path) -> None:
         f"- 列 gender_cd 的码值「M」：男{by}",
         f"- 列 gender_cd 的码值「U」：未知{by}",
         f"- 列 gender_cd 的码值「X」：其他{by}",
-        f"- 问题 q1 的回答：不会。注册系统只允许 F、M、U 三个值。{by}",
         f"- 问题 q10（问：编号在哪个范围内唯一？）的回答：按 环境唯一{by}",
         f"表 {OTHER_TABLE} 已确认的事实：",
         "无",
@@ -493,8 +580,12 @@ def test_facts_needs_a_table_and_confirmations(tmp_path: Path) -> None:
     assert _run("semantic", "facts", "--table", DEMO_TABLE,
                 "--confirmations", tmp_path / "none")[0] == 2
     (tmp_path / "empty").mkdir()
-    assert _run("semantic", "facts", "--table", DEMO_TABLE, "--confirmations",
-                tmp_path / "empty") == (0, f"表 {DEMO_TABLE} 已确认的事实：\n无\n", "")
+    # Nothing confirmed for any table asked: the prompt's 无, as before there were facts.
+    assert _run("semantic", "facts", "--table", DEMO_TABLE, "--table", OTHER_TABLE,
+                "--confirmations", tmp_path / "empty") == (0, "无\n", "")
+    other = _file(tmp_path / "other.json", _entry("question:q1", "不会。", table=OTHER_TABLE))
+    assert _run("semantic", "facts", "--table", DEMO_TABLE, "--confirmations", other) == (
+        0, "无\n", "")
 
 
 @pytest.mark.parametrize("value, word", [

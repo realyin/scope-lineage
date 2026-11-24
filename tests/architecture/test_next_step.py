@@ -510,3 +510,27 @@ def test_a_profile_newer_than_the_packets_sends_the_run_back_to_s3(run):
     out = _drive(run).stdout
     assert _current(out) == "S3"
     assert "重建" in out
+
+
+# ------------------------------------------------------------------ confirmations
+
+
+def test_a_run_without_a_confirmations_directory_is_told_to_make_one(run):
+    """FACTS and the replay after every write read $RUN/confirmations: S0 makes it, a run
+    started before that is told the one command."""
+    _through_s3(run)
+    out = _drive(run).stdout
+    assert 'mkdir -p "$RUN/confirmations"' in out
+    (run / "confirmations").mkdir()
+    assert "confirmations" not in _drive(run).stdout
+
+
+@pytest.mark.parametrize("flags, stage", [(["fix_unconfirmed"], "reviewed"), (["review_stale"], "valid")])
+def test_a_table_whose_slots_were_just_confirmed_gets_one_revision_not_a_bare_fix_record(run, flags, stage):
+    _through_s3(run, (T1,))
+    _status(run, [{"table": T1, "stage": stage, "flags": flags, "high": 1}])
+    line = next(line for line in _drive(run).stdout.splitlines() if line.strip().startswith(T1))
+    assert "确认回写" in line and "T4 核对" in line and "FACTS" in line
+    assert "semantic fixed" not in line
+    if stage == "valid":    # a review without high or medium findings: status alone cannot route it
+        assert "--next fix 不列出" in line and "不审读" in line

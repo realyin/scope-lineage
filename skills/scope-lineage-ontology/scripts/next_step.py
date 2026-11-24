@@ -182,7 +182,9 @@ def _table_action(run: Path, row: dict, passes: int = 1) -> tuple[str, str]:
     if stage == "valid" and "review_packet_stale" in flags:
         return "S6", "旧审读移到 reviews_prev/ → S6 首审（T2）"
     if stage == "valid" and "review_stale" in flags:
-        return "S6", "刚做过确认回写：sl semantic fixed；否则旧审读移到 reviews_prev/ → S6 首审（T2）"
+        return "S6", ("刚做过确认回写、改了行粒度 / 列含义 / 码值（审读没有高、中级问题的表确认后是这个状态，"
+                      "--next fix 不列出它）：不审读，S7 修订一轮（T4 核对，带 FACTS）；"
+                      "否则旧审读移到 reviews_prev/ → S6 首审（T2）")
     if stage == "valid":
         if (run / "reviews" / f"{table}.prior.md").is_file():
             return "S6", "S6 重写后首审（T2，带旧审读）"
@@ -190,7 +192,7 @@ def _table_action(run: Path, row: dict, passes: int = 1) -> tuple[str, str]:
     if stage == "reviewed" and "review_unparsed" in flags:
         return "S6", "审读移到 reviews_prev/<table>.unparsed.md → S6 首审（T2）"
     if stage == "reviewed" and "fix_unconfirmed" in flags:
-        return "S7", "刚做过确认回写：sl semantic fixed；否则 S7 核对模式（T4 核对）"
+        return "S7", "S7 核对模式（T4 核对，带 FACTS）：修订被中断，或刚做过确认回写、改了行粒度 / 列含义 / 码值"
     if stage in ("reviewed", "fixed") and passes == 2 and _needs_second_review(run, table):
         return "S6", SECOND_REVIEW
     if stage == "reviewed":
@@ -298,6 +300,17 @@ def _env_fix(run: Path) -> list[str]:
     ]
 
 
+def _confirmations_fix(run: Path, current: str) -> list[str]:
+    """FACTS and the replay after every write read $RUN/confirmations; S0 makes it."""
+    if current == "S0" or (run / "confirmations").is_dir():
+        return []
+    return [
+        "先建确认目录：写作、审读、修订的 FACTS 和写后重放都读 $RUN/confirmations（S0 会建，旧运行没有）：",
+        '  mkdir -p "$RUN/confirmations"',
+        "",
+    ]
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("用法：next_step.py RUN", file=sys.stderr)
@@ -309,7 +322,7 @@ def main(argv: list[str]) -> int:
     current, reason, lines, skipped = _assess(run)
     position = ORDER["S4"] if current == REFRESH else ORDER.get(current, len(STEPS))
 
-    out = [f"运行目录：{run}", *_env_fix(run), "进度："]
+    out = [f"运行目录：{run}", *_env_fix(run), *_confirmations_fix(run, current), "进度："]
     for step, title in STEPS:
         if step in skipped:
             mark = "[-]"

@@ -19,6 +19,8 @@ Applying the same confirmations again changes nothing, so a run replays them aft
 write; onto a rewritten document they put the confirmed slots back. A confirmation that
 matches nothing -- or whose answer would make the document illegal -- is returned in
 ``unmatched`` with the reason, never dropped, and leaves the document as it was.
+``changed_by`` names, per table, the targets of the entries that changed its document, so
+a caller can tell an answered question from a confirmed slot.
 
 A ``question:<id>`` confirmation may carry ``asked``, the question's text as the person
 saw it, so an id a rewrite gave to another question cannot take the answer:
@@ -29,7 +31,9 @@ saw it, so an id a rewrite gave to another question cannot take the answer:
 - the question holds another answer -> unmatched, unless the entry says ``replace: true``;
 - otherwise it is applied as any confirmation.
 
-A confirmation without ``asked`` is applied as it always was, whatever ``replace`` says.
+A confirmation without ``asked`` is applied as it always was, whatever ``replace`` says --
+unless the caller requires ``asked`` (``semantic confirm --require-asked``, every replay of a
+run): then it is unmatched, since after a rewrite its id may name another question.
 """
 
 from __future__ import annotations
@@ -54,10 +58,20 @@ class ConfirmResult:
     unmatched: list = field(default_factory=list)
     skipped: list = field(default_factory=list)
     changed: set = field(default_factory=set)
+    # table -> the target of each applied entry that changed its document, in order
+    changed_by: dict = field(default_factory=dict)
 
 
-def apply_confirmations(documents: dict, confirmations: list) -> ConfirmResult:
-    """Apply ``confirmations`` in order to copies of ``documents`` (keyed ``db.table``)."""
+NO_ASKED = ("no asked: a replay cannot tell which question this answers once a rewrite has "
+            "renumbered the questions; add asked (the question's text as the person saw it)")
+
+
+def apply_confirmations(documents: dict, confirmations: list,
+                        require_asked: bool = False) -> ConfirmResult:
+    """Apply ``confirmations`` in order to copies of ``documents`` (keyed ``db.table``).
+
+    ``require_asked``: a ``question:`` entry without ``asked`` is unmatched (``NO_ASKED``)
+    instead of applied -- the replay after a write, where question ids may have moved."""
     result = ConfirmResult({bare_table(t): copy.deepcopy(d) for t, d in documents.items()})
     original = copy.deepcopy(result.documents)
     for entry in confirmations:
@@ -65,6 +79,10 @@ def apply_confirmations(documents: dict, confirmations: list) -> ConfirmResult:
         document = result.documents.get(table)
         if document is None:
             result.unmatched.append(_miss(entry, "unknown table: no table-semantics document for it"))
+            continue
+        if (require_asked and ASKED not in entry
+                and str(entry.get("target")).startswith("question:")):
+            result.unmatched.append(_miss(entry, NO_ASKED))
             continue
         if ASKED in entry:
             verdict = _check_asked(document, entry)
@@ -84,6 +102,8 @@ def apply_confirmations(documents: dict, confirmations: list) -> ConfirmResult:
             result.unmatched.append(_miss(entry, reason))
             continue
         _log(candidate, entry)
+        if candidate != document:
+            result.changed_by.setdefault(table, []).append(str(entry.get("target")))
         result.documents[table] = candidate
         result.applied.append(entry)
     # Changed is judged on the end state: a replay whose entries undo each other's steps
