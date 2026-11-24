@@ -333,11 +333,11 @@ def test_full_width_answer_written_back_end_to_end(server, paths, tmp_path, caps
     """Rule 3 with ：（），？ and a choice: export, confirm, and the next request deletes it."""
     answer = "否：分库后（历史数据）不唯一，要看分区？"
     assert _answer(server, CUSTOMER, "q2", answer, choice="no", by="审核人（甲）")[0] == 201
-    file = tmp_path / "confirmations.json"
-    file.write_bytes(_get(server, "/api/answers/export")[2])
+    exported = tmp_path / "confirmations.json"
+    exported.write_bytes(_get(server, "/api/answers/export")[2])
 
     assert core_main(["semantic", "confirm", str(paths["semantics"]), "--confirmations",
-                      str(file), "--reviews", str(tmp_path / "reviews")]) == 0
+                      str(exported), "--reviews", str(tmp_path / "reviews")]) == 0
     assert "(unmatched=0)" in capsys.readouterr().out
     from answer_fixtures import read_document, touch_later
     question = read_document(paths["semantics"], CUSTOMER)["summary"]["questions"][1]
