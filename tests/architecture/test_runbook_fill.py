@@ -299,3 +299,65 @@ def test_the_second_review_needs_the_first_pass_kept_aside(shell, run):
     done = _fill(shell, run, "补审", str(out), f"TABLE={T}", "FACTS=无")
     assert done.returncode == 0, done.stderr
     assert "## 两遍审读合并" in out.read_text(encoding="utf-8")
+
+
+# ---- the owner's confirmations: FACTS from a file, replayed after every write ---------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_facts_from_a_file_read_line_by_line_in_their_own_block(shell, run):
+    """``semantic facts`` writes a header line and one fact per line, or 「无」 alone; either
+    reads as one block under its bullet, not as bullets of the template's own list."""
+    _touch(run / f"reviews/{T}.md")
+    facts = _touch(run.parent / "facts.txt",
+                   f"表 {T} 已确认的事实：\n- 按粒度列唯一：是（unique: yes）\n- 列 c 的码值「1」：开\n")
+    out = run.parent / "t4.md"
+    done = _fill(shell, run, "fix", str(out), f"TABLE={T}", "MODE=核对", f"FACTS=@{facts}")
+    assert done.returncode == 0, done.stderr
+    text = out.read_text(encoding="utf-8")
+    assert (f"：\n\n```text\n表 {T} 已确认的事实：\n- 按粒度列唯一：是（unique: yes）\n- 列 c 的码值「1」：开\n```\n"
+            in text)
+    _touch(facts, "无\n")
+    assert _fill(shell, run, "fix", str(out), f"TABLE={T}", "MODE=核对", f"FACTS=@{facts}").returncode == 0
+    assert "：\n\n```text\n无\n```\n" in out.read_text(encoding="utf-8")
+
+
+def test_every_prompt_with_facts_is_filled_from_the_confirmations():
+    """No runbook command hands a writer or reviewer 「无」 by hand: a run with confirmations
+    would lose them on every rewrite. Each FACTS file is written by ``semantic facts`` in
+    the same block."""
+    wanted = {name for name, template in _templates().items() if "FACTS" in template["wanted"]}
+    assert wanted == {"T1", "T2", "T3", "T4", "T9"}
+    facts = [(where, command) for where, command in _commands() if " FACTS=" in command]
+    assert len(facts) >= 7, facts
+    bad = [f"{where}: {command}" for where, command in facts
+           if 'FACTS=@"$SCRATCH/prompts/' not in command and "FACTS=@\"$SCRATCH/prompts/<表>.facts.txt\"" not in command]
+    assert not bad, "\n".join(bad)
+    for page in [REFS / "runbook-templates.md", *sorted((REFS / "steps").glob("*.md"))]:
+        text = page.read_text(encoding="utf-8")
+        for block in re.findall(r"```bash\n(.*?)```", text, re.S):
+            if " FACTS=@" in block:
+                assert "sl semantic facts --confirmations \"$RUN/confirmations\"" in block, page.name
+
+
+def test_a_written_document_is_replayed_before_it_is_validated_or_recorded():
+    """S4's check and S5's validation replay the confirmations first; T4 replays before
+    ``semantic fixed``, so the fix record is the replayed document's."""
+    replay = ('sl semantic confirm "$RUN/docs" --confirmations "$RUN/confirmations" --reviews "$RUN/reviews" '
+              '--require-asked --only')
+    for name in ("S4.md", "S5.md"):
+        text = (REFS / "steps" / name).read_text(encoding="utf-8")
+        blocks = [block for block in re.findall(r"```bash\n(.*?)```", text, re.S) if replay in block]
+        assert blocks, name
+        assert all(block.index(replay) < block.index("sl semantic validate") for block in blocks), name
+    t4 = (REFS / "templates" / "T4.md").read_text(encoding="utf-8")
+    assert replay in t4 and t4.index(replay) < t4.index('sl semantic fixed "$RUN"')
+
+
+def test_every_replay_of_the_run_requires_asked():
+    """A rewrite renumbers questions: no replay may pin an answer on a question by id alone."""
+    pages = [*sorted((REFS / "steps").glob("*.md")), *sorted((REFS / "templates").glob("T*.md"))]
+    replays = [(page.name, line) for page in pages for line in page.read_text(encoding="utf-8").splitlines()
+               if "sl semantic confirm " in line]
+    assert {name for name, _ in replays} >= {"S4.md", "S5.md", "S12.md", "T4.md"}, replays
+    assert all("--require-asked" in line for _, line in replays), replays

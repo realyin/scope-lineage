@@ -34,8 +34,8 @@ When the table had a re-review (runbook S8), the old review is the re-review and
 first review was kept aside. Pass it with ``--round1``: its high and medium findings that
 the fix log marks fixed go to A 段, matched by that review's own ``reviewed_doc_digest``.
 
-The fix log is the fixer's reply kept as it came (T4), one section per review, each
-opened by ``来源：reviews/<db.table>.md reviewed_doc_digest=<digest>``; under it every
+The fix log is the fixer's reply kept as it came (T4), one section per revision (a review
+revised twice has two), each opened by ``来源：reviews/<db.table>.md reviewed_doc_digest=<digest>``; under it every
 finding sits on its own line, number first (``H1 已改：…``, ``M2 不成立：…``).
 
   make_corrections.py PRIOR_MD NEW_PACKET_DIR [--round1 FILE] [--fixlog FILE]
@@ -350,8 +350,13 @@ def table_rows(text: str) -> tuple[list[dict], list[str]]:
 
 
 def fix_log(path: str | None, digest: str, warnings: list[str]) -> dict | None:
-    """``编号 -> 已改 / 不成立 / 未改`` from the last fix-log section of the review whose
-    ``reviewed_doc_digest`` is ``digest``; None when there is no such section."""
+    """``编号 -> 已改 / 不成立 / 未改`` from the fix-log sections of the review whose
+    ``reviewed_doc_digest`` is ``digest``; None when there is no such section.
+
+    One review can have several sections: a revision after the owner confirmed slots
+    (runbook S12) revises the same review again. They are read in order; a later 已改 or
+    不成立 decides, a later 未改 -- or no line at all -- leaves what an earlier one decided:
+    a revision of the same review does not undo the fix before it."""
     if not path:
         return None
     sections, current = [], None
@@ -367,10 +372,11 @@ def fix_log(path: str | None, digest: str, warnings: list[str]) -> dict | None:
         warnings.append(f"警告：fixlog 里没有 reviewed_doc_digest={digest} 的段，这份审读的高、中级都按 B 段处理")
         return None
     verdicts = {}
-    for line in matching[-1]["lines"]:
-        found = FIX_LINE.match(line)
-        if found:
-            verdicts[found.group(1)] = found.group(2)
+    for section in matching:
+        for line in section["lines"]:
+            found = FIX_LINE.match(line)
+            if found and (found.group(2) != "未改" or found.group(1) not in verdicts):
+                verdicts[found.group(1)] = found.group(2)
     return verdicts
 
 

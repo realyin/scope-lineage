@@ -1550,7 +1550,8 @@ The schema is `scope_lineage/schemas/catalog-fragment.schema.json`.
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
   [--lineage out/lineage [--schema examples/metadata]] [--tables out/tables/tables.json] \
-  [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] --out out/digest
+  [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] \
+  [--confirmations out/confirmations] --out out/digest
 ```
 
 Reads every legal `table-semantics/1` document in the directory (the toolchain's own
@@ -1582,7 +1583,11 @@ A document that is `packet_stale` (written against another packet), `invalid` (f
 check of `semantic validate`) or has no packet is still digested, but its table is named on
 stderr, one line per flag, as `semantic render` does: the documents are judged against
 `--packets` (default: `packets/` beside the documents directory, when it exists); without
-packets a line says that nothing was checked. The output and the exit code do not change.
+packets a line says that nothing was checked. `invalid` holds the documents to the owner's
+confirmations as checks 3 and 4 of `semantic validate` do: `--confirmations` is a
+`semantic-confirmations/1` file or a directory of them (default: `confirmations/` beside the
+documents directory, when it exists; a line on stderr says when they are read). The output
+and the exit code do not change.
 
 With `--lineage` (one `lineage.json`, or a directory searched for them, as `catalog build
 --lineage` reads it) each listed column also says, from the statements that write its

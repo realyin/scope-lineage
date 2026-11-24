@@ -844,7 +844,7 @@ out of the round and tell the user rather than dispatch it forever.
 ## `semantic confirm`
 
 ```bash
-scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out <dir> | --reviews <dir>]
+scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out <dir> | --reviews <dir>] [--require-asked] [--only <db.table> ...]
 ```
 
 `--confirmations` is one file or a directory of them, read as `semantic validate` reads it
@@ -885,7 +885,10 @@ exist, whose value has the wrong shape, or whose value would make the document f
 schema is **not applied and not dropped**: the summary line counts it as `unmatched` and
 names it with the reason. Without `--out` the changed documents are rewritten in place;
 with `--out` every document is written there and the originals are left alone. A malformed
-confirmations file exits 2, and so does `--reviews` with `--out`.
+confirmations file exits 2, and so does `--reviews` with `--out`. `--only` takes the
+documents of those tables and only their confirmations -- the replay after one table was
+written, which leaves every other document's bytes alone and reports nothing about other
+tables; a table it names with no document exits 1 and writes nothing.
 
 A `question:<id>` entry may also carry `asked`, the question's text as the person saw it
 (the browse page's export always does), and `replace`. With `asked`, the answer is held to
@@ -900,17 +903,27 @@ the question that was asked, since a rewrite may give an id to another question:
 
 `asked` on any other target is unmatched. An entry without `asked` is applied as before
 (an answered question is overwritten) and `replace` is ignored; when nothing is skipped
-the summary line is unchanged.
+the summary line is unchanged. With `--require-asked` such an entry is unmatched instead
+(`no asked: a replay cannot tell which question this answers …`), whatever its question:
+a rewrite renumbers questions, so a replay after every write could pin the answer on
+another question. A run's replays pass it; other targets are unaffected.
 
-The owner's answers are not a revision a fixer has to look at. When documents are confirmed
-in place, the run's reviews are read -- `--reviews`, or `reviews/` beside `<documents>` when
-it exists -- and a changed table whose review accepted the document as it was (`semantic
-status` would have called it `fixed` or `rendered`) gets its fix record moved to the
-confirmed document: `fixed_doc_digest` becomes the new digest, and a line
+Answers to a table's questions are not a revision a fixer has to look at. When documents
+are confirmed in place, the run's reviews are read -- `--reviews`, or `reviews/` beside
+`<documents>` when it exists -- and a changed table whose review accepted the document as it
+was (`semantic status` would have called it `fixed` or `rendered`), and whose every changing
+entry was a `question:` target, gets its fix record moved to the confirmed document:
+`fixed_doc_digest` becomes the new digest, and a line
 `<db.table>  fixed_doc_digest <digest>  <review>` is printed. The table then stands at
-`fixed render_stale`, so `--next render` picks it up and `--next fix` does not. A table its
-review did not accept keeps its review untouched (its fix is still to be made); with `--out`
-no review is touched.
+`fixed render_stale`, so `--next render` picks it up and `--next fix` does not. An entry
+that changed the row, a column's meaning or its code values can leave the prose around them
+saying otherwise, so such a table's record is not carried: a line
+`<db.table>  fix record not carried: <targets> changed; …` is printed and the table stands
+at `reviewed fix_unconfirmed` (`valid review_stale` when its review had no high or medium
+finding), handed to one revision that replays the confirmations before `semantic fixed`
+records it. Entries already in place change nothing, so a replayed directory decides on what
+is new. A table its review did not accept keeps its review untouched (its fix is still to be
+made); with `--out` no review is touched.
 
 ## `semantic facts`
 
@@ -924,11 +937,14 @@ a writing or review prompt takes as its confirmed facts. `--confirmations` is re
 (a later entry wins, a list of code values replaces the confirmed set, one object is merged
 into it). For each table: a header line, then one fact per line -- the row fields (grain
 columns, grain source, uniqueness, row text, note), the column meanings, the code values,
-the answered questions (with the question's text when the entry carries `asked`) -- each
+the answered questions that carry `asked`, with the question's text (an answer without it
+cannot say which question it answers after a rewrite, and is left out) -- each
 ending with who confirmed it and when; `unique` and `grain_source` are said in words with the
 field's value after them (`是（unique: yes）`, `声明（grain_source: declared）`); line breaks
 inside a confirmed text become spaces.
-A table with none prints `无`. For the example confirmations:
+A table with none prints `无`; when no table asked for has any, the whole output is `无`, the
+text a prompt took before there were confirmations. For the example confirmations (its
+answer to `q1` carries no `asked`, so it is not printed):
 
 ```text
 表 demo_dwd.dwd_party_customer_info_df 已确认的事实：
@@ -938,7 +954,6 @@ A table with none prints `无`. For the example confirmations:
 - 列 gender_cd 的码值「F」：女（demo-reviewer 于 2026-09-26 确认）
 - 列 gender_cd 的码值「M」：男（demo-reviewer 于 2026-09-26 确认）
 - 列 gender_cd 的码值「U」：未知（demo-reviewer 于 2026-09-26 确认）
-- 问题 q1 的回答：不会。注册系统只允许 F、M、U 三个值。（demo-reviewer 于 2026-09-26 确认）
 ```
 
 | Exit code | Condition |

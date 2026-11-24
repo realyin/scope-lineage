@@ -22,8 +22,11 @@
 | `semantic render` | 有文档不合 schema（`skipped` 不为 0） | 1 | S5 |
 | `semantic render` / `catalog digest` | `warning: packet_stale …` / `warning: invalid …` / `warning: no_packet …`（点名表） | 0 | 回 S8，不要用这批输出 |
 | `semantic render` / `catalog digest` | `--packets does not exist: …` | 2 | 路径写错 |
-| `semantic confirm` | `unmatched` 不为 0 | 0 | S12 |
+| `semantic confirm` | `unmatched` 不为 0 | 0 | S12；写作、修订后的重放见 S4 的产出与自检 |
+| `semantic confirm` | `fix record not carried: … changed` | 0 | S12：这张表派一轮 T4（S7 核对模式） |
 | `semantic confirm` | 确认文件格式不对；`--reviews` 与 `--out` 同给 | 2 | S12 |
+| `semantic confirm` | `--only: no document for …` | 1 | 表名写错，或文档不在 `docs/`（S4） |
+| `semantic facts` / `semantic confirm` | `--confirmations does not exist: …` | 2 | 旧运行目录没有 `confirmations/`：`mkdir -p "$RUN/confirmations"` 后重跑 |
 | `catalog validate` | `N error(s)`（N ≥ 1） | 1 | S10a / S10c |
 | `catalog digest` | `skipped` 不为 0，或 `--only` 的表没有文档 | 1 | S10b |
 | `catalog merge` | `--out … is not empty` | 2 | 先 `rm -rf` 输出目录 |

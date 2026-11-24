@@ -113,7 +113,7 @@ def add_semantic_parser(subcommands) -> None:
             "the same confirmations changes nothing"
         ),
     )
-    confirm.add_argument("directory", help="Directory of table-semantics/1 JSON documents")
+    add_directory(confirm, "directory", "Directory of table-semantics/1 JSON documents")
     confirm.add_argument(
         "--confirmations", required=True,
         help=(
@@ -129,8 +129,21 @@ def add_semantic_parser(subcommands) -> None:
         help=(
             "The run's reviews (default: reviews/ beside the directory, when it exists): a "
             "table whose review accepted the document keeps that acceptance -- its fix "
-            "record (fixed_doc_digest) moves to the confirmed document. Not with --out"
+            "record (fixed_doc_digest) moves to the confirmed document when only answers to "
+            "its questions changed it. Not with --out"
         ),
+    )
+    confirm.add_argument(
+        "--require-asked", action="store_true",
+        help=(
+            "A question: entry without asked is unmatched, not applied: after a rewrite its "
+            "id may name another question (every replay of a run passes this)"
+        ),
+    )
+    add_only(
+        confirm,
+        "Only the documents of these tables, and only their confirmations (db.table, a "
+        "catalog prefix is ignored): the replay after one table was written",
     )
     _add_facts_parser(actions)
     _add_render_parser(actions)
@@ -714,6 +727,7 @@ def _read_packet(packets: Path, table) -> dict | None:
 
 
 def _run_confirm(args: argparse.Namespace) -> int:
+    take_back_directory(args)
     directory = Path(args.directory)
     if not directory.is_dir():
         print(f"directory does not exist: {directory}", file=sys.stderr)
@@ -730,8 +744,17 @@ def _run_confirm(args: argparse.Namespace) -> int:
         return 2
     confirmations = read.entries if read is not None else []
     documents, files = _semantic_documents(directory)
+    if args.only:
+        wanted = {bare_table(name) for name in args.only}
+        missing = sorted(wanted - set(documents))
+        if missing:
+            print(f"--only: no document for {', '.join(missing)}", file=sys.stderr)
+            return 1
+        documents = {table: documents[table] for table in wanted}
+        confirmations = [entry for entry in confirmations
+                         if bare_table(entry.get("table")) in wanted]
     before = {table: document_digest(document) for table, document in documents.items()}
-    result = apply_confirmations(documents, confirmations)
+    result = apply_confirmations(documents, confirmations, require_asked=args.require_asked)
     out = Path(args.out) if args.out else directory
     for table in sorted(result.documents if args.out else result.changed):
         target = out / files[table]
@@ -756,14 +779,19 @@ def _run_confirm(args: argparse.Namespace) -> int:
 
 
 def _carry_fix_records(reviews: Path, result, before: dict[str, str]) -> None:
-    """Move each accepted table's fix record to its confirmed document.
+    """Move each accepted table's fix record to its confirmed document, when only answers
+    changed it.
 
-    The owner's answers are not a revision a fixer has to look at: a table whose review
-    accepted the document as it was before the confirmations (``review_verdict`` says
-    ``fixed``) stays accepted, its ``fixed_doc_digest`` now the confirmed document's. A
-    table the review did not accept keeps its review untouched -- its fix still has to be
-    made. Without the record ``semantic status`` would hand the confirmed table back to a
-    fixer (``reviewed fix_unconfirmed``) or to a reviewer (``review_stale``).
+    Answers to a table's questions are not a revision a fixer has to look at: a table whose
+    review accepted the document as it was before the confirmations (``review_verdict``
+    says ``fixed``) stays accepted when every entry that changed it was a ``question:``
+    target -- its ``fixed_doc_digest`` is now the confirmed document's. A confirmed row,
+    column meaning or code values can leave the prose around them saying otherwise, so such
+    a table's record is not carried: ``semantic status`` hands it to one revision
+    (``reviewed fix_unconfirmed``; ``valid review_stale`` when the review had no high or
+    medium finding), which replays the confirmations before ``semantic fixed`` records it.
+    A table the review did not accept keeps its review untouched -- its fix still has to be
+    made.
     """
     from .cli_semantic_status import _reviews
 
@@ -778,6 +806,12 @@ def _carry_fix_records(reviews: Path, result, before: dict[str, str]) -> None:
             review, before[table], document.get("packet_digest")
         )[0] == "fixed"
         if not accepted:
+            continue
+        slots = [target for target in result.changed_by.get(table, [])
+                 if not target.startswith("question:")]
+        if slots:
+            print(f"  {table}  fix record not carried: {', '.join(dict.fromkeys(slots))} "
+                  "changed; revise the prose against them")
             continue
         digest = document_digest(document)
         path.write_bytes(with_fix_record(text, digest).encode("utf-8"))

@@ -1,6 +1,30 @@
 # Changelog
 
 ## Unreleased
+- **Changed: the runbook passes the owner's confirmations to every writer and reviewer, replays them after
+  every write, and a confirmed slot sends a table to one revision.** The skill's T1 (write, rewrite, repair),
+  T2 / T9 (review), T3 (re-review) and T4 (fix) prompts take `FACTS=@<file>` written by `semantic facts
+  --confirmations "$RUN/confirmations"` (shown in a text block; a run without confirmations still gets
+  `无`), and S4 / S5 replay `semantic confirm --only <table>` before validating a written document, as T4
+  does before `semantic fixed`, so the fix record is the replayed document's. `semantic confirm` gains
+  `--only TABLE ...` (only those documents and their confirmations; a named table without a document exits 1).
+  **Changed:** `semantic confirm` carries a table's fix record to the confirmed document only when every entry
+  that changed it was a `question:` target; an entry that changed `summary.row`, a column's `meaning` or its
+  `code_values` leaves the record behind, prints `fix record not carried: …`, and the table stands at
+  `reviewed fix_unconfirmed` (`valid review_stale` when its review had no high or medium finding), so S12 now
+  dispatches one T4 round for it. `semantic facts` prints `无` alone when none of the tables asked for has a
+  confirmed fact. `next_step.py` routes those tables to T4 and asks a run without `confirmations/` to make it;
+  `catalog digest --confirmations` is documented. New `semantic confirm --require-asked`: a `question:` entry
+  without `asked` is unmatched (a rewrite renumbers questions, so its id may name another question); without
+  the flag nothing changes. Every runbook replay passes it and S12 asks for `asked` on every answer.
+  **Changed:** `semantic facts` leaves out answers without `asked`. `make_corrections.py` reads every fix-log
+  section of a review in order (a later `已改` / `不成立` decides, a later `未改` or silence keeps the
+  earlier verdict) instead of only the last, so a second revision of the same review no longer drops what
+  the first one fixed. The writer prompt is `table-semantics-prompt@15`: `confirmed` in `sources` is only for
+  the three replayed slots (row grain, column meaning, code values); a sentence taken from an answered question
+  ends with 「（已确认）」 and applies only to what it speaks about. T1 / T4 spell out what a confirmed grain
+  changes in the row prose, T4's check mode may edit only the prose around the confirmed slots, and S7 sends a
+  table back for one more round when a confirmed grain left `summary.row.text` and `note` unchanged.
 - **Changed: validation reads the owner's confirmations, which changes `semantic validate` verdicts when
   confirmations exist.** `semantic validate`, `semantic status`, `semantic fixed`, `semantic render` and
   `catalog digest` take `--confirmations PATH` (a `semantic-confirmations/1` file, or a directory of them

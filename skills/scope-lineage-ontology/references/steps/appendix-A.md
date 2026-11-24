@@ -12,11 +12,11 @@
 | `valid` | 没有 `.prior.md` | S6 首审 | T2 |
 | `valid` | 有 `reviews/<表>.prior.md` | S6 重写后首审 | T2（带旧审读） |
 | `valid review_packet_stale` | — | 旧审读移到 `reviews_prev/` → S6 首审 | T2 |
-| `valid review_stale` | 刚做过确认回写 | `sl semantic fixed "$RUN" --only <表>` | 编排者 |
+| `valid review_stale` | 刚做过确认回写，改了行粒度、列含义或码值（审读没有高、中级问题的表确认后就是这个状态） | S7 修订一轮（核对模式，带 FACTS）。`status --next fix` 不列出它、`--next review` 会列出它：按账本和这一行派 T4，不要派审读 | T4（核对） |
 | `valid review_stale` | 其他 | 旧审读移到 `reviews_prev/` → S6 首审，记进问题清单 | T2 |
 | `reviewed` 或 `fixed` | `REVIEW_PASSES=2`，审读里没有「两遍审读合并」小节，还没修订、没复审 | S6 补审（先把第一遍拷到 `reviews_prev/<表>.pass1.md`） | T9 |
 | `reviewed` | — | S7 修订（存修订记录） | T4（首修） |
-| `reviewed fix_unconfirmed` | 刚做过确认回写 | `sl semantic fixed "$RUN" --only <表>` | 编排者 |
+| `reviewed fix_unconfirmed` | 刚做过确认回写，改了行粒度、列含义或码值 | S7 修订一轮（核对模式，带 FACTS） | T4（核对） |
 | `reviewed fix_unconfirmed` | 修订被中断，或其他 | S7 核对模式 | T4（核对） |
 | `reviewed review_unparsed` | — | 审读移到 `reviews_prev/<表>.unparsed.md` → S6 首审 | T2 |
 | `fixed` | 首审 H ≥ 1，还没复审 | S8 复审（先备份首轮审读） | T3 |
@@ -34,4 +34,5 @@
 - 被中断的调用不计轮次；完成的写作 2 轮、修订 2 次仍有 FAIL 就 blocked。
 - 「材料包变了」一律整份重写（重写准备 + 修正点清单），不允许只改 `packet_digest`。
 - 每次 T4 回报后都把回复存进 `reviews/<表>.fixlog.txt`（S7）：下次重写的修正点清单靠它。
+- 写作、审读、修订的提示词都带 `FACTS=@<semantic facts 写的文件>`；写作、修订之后、校验之前都重放确认（S4、S5、T4 收尾）。
 

@@ -47,6 +47,8 @@ python3 <SKILL>/scripts/init_run.py \
   （进度脚本发现旧 `env.sh` 时会把这两行连同绝对路径打印出来）。
 - 0.11.2 及更早的手册写出的 `env.sh`（函数直接写在文件里）：同样改 `SKILL` 那一行、加 `LINEAGE_SKILL`，再在文件最后加一行
   `. "$SKILL/scripts/runlib.sh"`。
+- 没有 `$RUN/confirmations/` 的运行目录：`mkdir -p "$RUN/confirmations"`。写作、审读、修订的 `FACTS` 和写后重放都读它
+  （没有确认时是空目录，`FACTS` 是「无」，重放什么都不改；进度脚本发现缺这个目录时会提醒）。
 
 每开一个新的 shell（Claude Code 里**每一次** Bash 调用都是新的 shell，变量和函数不会保留），第一条命令都是：
 
