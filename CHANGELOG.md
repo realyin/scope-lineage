@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- **Added: platform queries for open questions -- the new `question-probes/1` format and `semantic probes
+  check`.** A probes file lists, per open question of a table, its sub-questions (`class`: `data`, `human`,
+  `corpus`), and for each one the data can answer one Spark SELECT with its `shape`, `partitions` (`want`,
+  `fallback`), `engine`, `how_to_read` and the observation target its result may become (`lands`:
+  `summary.row.observed`, `column:<c>.observed_values`, `input:<db.table>`, or none). `scope-lineage semantic
+  probes check PROBES --packets DIR [--docs DIR] [--sensitive FILE] [--json]` never runs a query: it reads each
+  query's syntax tree (sqlglot) and holds it to C1 parses, C2 one read-only SELECT, C3 tables and columns from
+  the packet, C4 partition filters or a flagged `full_scan`, C5 no sensitive column's values in the output
+  (traced through derived tables and CTEs; the documents' identifier columns and their source columns, plus the
+  run's own list -- `--sensitive`, or `sensitive-columns.txt` in the run directory; without a list one warning
+  says only identifier columns are blocked), C6 more than one row only under `LIMIT` 50 (51 for a `value_set`),
+  C7 the question still reads as `asked` (with `--docs`), C8 each class has what it needs, and C9 a query with
+  `lands` outputs exactly the fixed columns -- `rows, keys, duplicate_keys` or `value, cnt` -- with expressions
+  of the documented forms, so a wrong expression renamed to a fixed name fails. A data item without `engine`
+  warns. Exit 0 / 1 / 2 as `semantic validate`; `--json` prints `question-probes-check/1`. New format only:
+  nothing existing changes.
 - **Added: observed facts -- what a platform query found -- as three confirmation targets that `semantic
   confirm` replays into slots of their own.** `summary.row.observed` writes `summary.row.observed` and turns an
   `inferred` grain into the new `grain_source: observed` (grain columns: the columns the query counted, unless

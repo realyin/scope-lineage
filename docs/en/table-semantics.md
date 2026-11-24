@@ -18,7 +18,8 @@ deterministic work and never calls a model:
   rewrite;
 - `scope-lineage semantic confirm` writes a person's answers back into the documents, and
   can be replayed after every write; `scope-lineage semantic facts` prints those answers as
-  plain lines for a writer;
+  plain lines for a writer; `scope-lineage semantic probes check` checks, without running them,
+  the platform queries written for the open questions;
 - `scope-lineage semantic render` renders the documents as one page per table and an
   index, linked both ways with the ontology catalog's concept pages;
 - `scope-lineage semantic status` reads a run directory back, reports each table's stage
@@ -1037,6 +1038,151 @@ observation the output is byte for byte what it was.
 | --- | --- |
 | 0 | printed (a table with no confirmed fact included) |
 | 2 | `--confirmations` or `--documents` does not exist, a confirmations file cannot be read or fits no schema, or `--table` is missing |
+
+## `semantic probes check`
+
+```bash
+scope-lineage semantic probes check <question-probes.json> --packets <packet dir> \
+  [--docs <documents>] [--sensitive <file>] [--json]
+```
+
+Many open questions are settled by the data: is a key unique in a partition, which values
+does a column hold. A `question-probes/1` file lists, per open question of a table, its
+sub-questions, and for each one the data can answer, one SELECT for a person to run on
+the platform. **The tool never runs a query and never connects to a platform**: `probes
+check` reads each query's syntax tree (sqlglot, Spark dialect) and holds it to the packet
+and, with `--docs`, to the documents. Running the query and bringing its result back as an
+observation (see Observed facts under `semantic confirm`) are the person's.
+
+### The `question-probes/1` file
+
+```json
+{
+  "doc_format": "question-probes/1",
+  "placeholders": {"${bizdate}": "20260101"},
+  "items": [
+    {
+      "id": "p1",
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "question": "q1",
+      "asked": "性别码值除了 F、M、U 以外，还会不会出现其他值？",
+      "part": 1,
+      "ask": "Which values does gender_cd hold in one partition?",
+      "class": "data",
+      "shape": "value_set",
+      "sql": "SELECT gender_cd AS value, COUNT(*) AS cnt FROM demo_dwd.dwd_party_customer_info_df WHERE dt = '${bizdate}' GROUP BY gender_cd ORDER BY cnt DESC LIMIT 51",
+      "partitions": [{"table": "demo_dwd.dwd_party_customer_info_df", "column": "dt", "want": "${bizdate}", "fallback": "latest_available"}],
+      "engine": "spark",
+      "lands": "column:gender_cd.observed_values",
+      "how_to_read": "51 rows back: the list is not complete"
+    },
+    {
+      "id": "p2",
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "question": "q1",
+      "asked": "性别码值除了 F、M、U 以外，还会不会出现其他值？",
+      "part": 2,
+      "ask": "What does a value outside F, M, U mean?",
+      "class": "human",
+      "note": "only the table's owner knows"
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | unique in the file; an observation's `query` names it |
+| `table`, `question`, `asked` | the table, the question's id in its document, and the question's text when the item was written |
+| `part`, `ask` | the sub-question's number (from 1) and its text |
+| `class` | `data` (a query answers it), `human` (a person does), `corpus` (the task SQL or the documents already say) |
+| `shape` | `uniqueness` and `value_set` have fixed output columns; any other word (such as `conditional_count`) is evidence for an answer only |
+| `sql` | one SELECT, placeholders as `${name}`, each with an example value in `placeholders` |
+| `partitions` | one item per partitioned table read: `table`, `column`, the value wanted (`want`) and the `fallback` when it is not there yet (`latest_available` or `none`) |
+| `full_scan` | why the query reads a partitioned table without a partition filter |
+| `engine` | the engine to run the query on (a platform may route a query elsewhere) |
+| `lands` | the observation target the result may become: `summary.row.observed`, `column:<c>.observed_values` or `input:<db.table>`; absent or null when it lands nowhere |
+| `how_to_read`, `note` | how to read the result (data items); who or what answers it (human and corpus items) |
+
+### Checks
+
+| Check | Fails when |
+| --- | --- |
+| C1 | the query does not parse, or uses a placeholder with no example value |
+| C2 | it is not exactly one read-only SELECT (or a set operation of SELECTs): DML, DDL or a command anywhere fails |
+| C3 | it reads a table that is neither the item's table nor one of its inputs in the packet (a catalog prefix ignored), or a column that does not resolve against them |
+| C4 | a partitioned table is not filtered on a partition column in the SELECT that reads it (WHERE or the join's ON) and `full_scan` does not say why; a filtered one is not named in `partitions`; a `partitions` item names a table not read or a column that is not a partition column. `full_scan` with every table filtered warns |
+| C5 | a top-level output column shows the values of a sensitive column (below), traced through derived tables and CTEs; `SELECT *` in the output |
+| C6 | the query returns more than one row (grouped, `DISTINCT`, or detail rows) without a `LIMIT` of at most 50 -- 51 for a `value_set`, whose 51st row says the list is not complete |
+| C7 | with `--docs`: the table has no document, the document has no such question, or the question no longer reads as `asked` (NFKC and whitespace folded, as `semantic confirm` compares); an answered question warns |
+| C8 | two items share an id; a data item has no `sql`, `shape` or `how_to_read`; a human or corpus item has no `note`, or has `sql` or `lands` |
+| C9 | an item with `lands`: the output columns or their expressions are not the fixed ones of its shape (below) |
+
+A data item without `engine` warns. Inside `COUNT` / `COUNT_IF`, a comparison or a
+window's `PARTITION BY` / `ORDER BY`, a column shows no value, so counting an identifier
+passes C5.
+
+### Fixed output columns (C9)
+
+A result lands in a slot only through fixed output columns, and the name alone proves
+nothing: each expression is classified by its form, so `COUNT(DISTINCT k) AS rows` fails.
+
+- `uniqueness` (`summary.row.observed` counts the item's table, `input:<db.table>` that
+  input of the packet): exactly `rows, keys, duplicate_keys`, one row, all three over that
+  table and `keys` / `duplicate_keys` by the same key columns.
+  - `rows`: `COUNT(*)` (or `COUNT(1)`) over the table's rows, or `SUM(n)` over a subquery
+    grouped by the keys with `n = COUNT(*)`;
+  - `keys`: `COUNT(DISTINCT k, ...)` over the table's rows, or `COUNT(*)` over the
+    subquery grouped by the keys;
+  - `duplicate_keys` (keys with more than one row): over the grouped subquery,
+    `SUM(CASE WHEN n > 1 THEN 1 ELSE 0 END)`, `SUM(IF(n > 1, 1, 0))`,
+    `COUNT(CASE WHEN n > 1 THEN 1 END)`, `COUNT_IF(n > 1)` or
+    `COUNT(*) FILTER (WHERE n > 1)` (`n >= 2` reads the same); or `COUNT(*)` over a
+    subquery grouped by the keys `HAVING COUNT(*) > 1`. `COUNT(*) - COUNT(DISTINCT k)`
+    counts surplus rows, not keys, and fails.
+  - A column of a one-row derived table (`SELECT a.rows, b.duplicate_keys FROM (...) a
+    CROSS JOIN (...) b`) and a scalar subquery are read through to what computes them. A
+    derived table that only filters or projects the rows counts as the table's rows.
+    Whether the parts read the same partitions is not compared.
+- `value_set` (`column:<c>.observed_values`): exactly `value, cnt`; `value` is the one
+  `GROUP BY` column -- the target column `c`, or a column of an input that is one of `c`'s
+  `source_columns` in its document (without `--docs` this warns); `cnt` is `COUNT(*)`; no
+  `HAVING`; `LIMIT 51`.
+
+The target must fit the shape and the packet: a `uniqueness` target for a `value_set`, a
+column the table does not have, or an input that is not in the packet fails.
+
+### The sensitive-column list
+
+The tool carries no list of sensitive names: the run brings its own, one per line, a
+column name (any table) or `db.table.column` (a catalog prefix ignored), `#` starting a
+comment. `--sensitive <file>` names it; without the flag `sensitive-columns.txt` in the
+run directory (beside `--packets`) is read when it exists. A list read is announced on
+stderr. The identifier columns of the documents (`identifier`, `foreign_identifier`) and
+their source columns are always blocked; with no list, only they are, and one warning
+says so (with no `--docs` either, nothing is blocked).
+
+```text
+# sensitive-columns.txt
+contact_no
+demo_ods.ods_core_customer_df.verified_no
+```
+
+### Report
+
+The text report lists every finding as `FAIL|WARN <id> (<table> <question> part <n>)
+<check>: <message>` and ends with `RESULT: PASS|FAIL (<n> failure(s), <n> warning(s))`.
+`--json` prints `question-probes-check/1`: `summary` (items by class, failures, warnings,
+flagged full scans, the checks run -- C7 only with `--docs`), `warnings` (the file-level
+one about the sensitive list), `schema_errors` (`{at, message}`; a file off the schema is
+not checked further) and `items` (each item's `id`, `table`, `question`, `part`, `class`
+and its `findings`, `{check, level, message}`).
+
+| Exit code | Condition |
+| --- | --- |
+| 0 | no check failed (warnings allowed) |
+| 1 | a check failed, or the file does not fit `question-probes/1` |
+| 2 | the probes file cannot be read, `--packets` or `--docs` does not exist, or the sensitive-column list cannot be read or has a line that is not a column name |
 
 ## `semantic render`
 

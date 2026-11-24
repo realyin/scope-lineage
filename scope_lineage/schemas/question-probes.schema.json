@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "question-probes/1",
+  "description": "The sub-questions of tables' open questions, one item each, and for every sub-question the data can answer one SELECT a person runs on the platform. The tool never runs it. `semantic probes check` holds the file to its checks; whether an item's class, query and target fit together is the checks' to say, not this schema's.",
+  "type": "object",
+  "required": ["doc_format", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "doc_format": {"const": "question-probes/1"},
+    "placeholders": {
+      "description": "Each placeholder the queries use (`${name}`) with an example value: the check puts it in before parsing, the person running a query puts the real one.",
+      "type": "object",
+      "propertyNames": {"pattern": "^\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}$"},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "items": {"type": "array", "items": {"$ref": "#/definitions/item"}}
+  },
+  "definitions": {
+    "text": {"type": "string", "minLength": 1},
+    "item": {
+      "type": "object",
+      "required": ["id", "table", "question", "asked", "part", "ask", "class"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The item's id, unique in the file; an observation's `query` names it.",
+          "type": "string", "pattern": "^[A-Za-z0-9_]+$"
+        },
+        "table": {"description": "The table the question is about (db.table).", "$ref": "#/definitions/text"},
+        "question": {"description": "The question's id in the table's document.", "type": "string", "pattern": "^q[0-9]+$"},
+        "asked": {"description": "The question's text as the document asked it when the item was written.", "$ref": "#/definitions/text"},
+        "part": {"description": "The sub-question's number within the question, from 1.", "type": "integer", "minimum": 1},
+        "ask": {"description": "The sub-question.", "$ref": "#/definitions/text"},
+        "class": {
+          "description": "Who can answer: `data` (a query), `human` (a person), `corpus` (the task SQL or the documents already say).",
+          "enum": ["data", "human", "corpus"]
+        },
+        "shape": {
+          "description": "What the query finds: `uniqueness` and `value_set` have fixed output columns and may land in an observation slot; any other word (such as `conditional_count`) is evidence for an answer only.",
+          "type": "string", "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "sql": {"description": "One SELECT, Spark SQL, placeholders as `${name}`.", "$ref": "#/definitions/text"},
+        "partitions": {
+          "description": "The partitions the query reads: one item per partitioned table, the value wanted and what to do when that partition is not there yet.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["table", "column", "want", "fallback"],
+            "additionalProperties": false,
+            "properties": {
+              "table": {"$ref": "#/definitions/text"},
+              "column": {"$ref": "#/definitions/text"},
+              "want": {"$ref": "#/definitions/text"},
+              "fallback": {"enum": ["latest_available", "none"]}
+            }
+          }
+        },
+        "full_scan": {
+          "description": "Why the query reads a partitioned table without a partition filter; null or absent when it does not.",
+          "type": ["string", "null"], "minLength": 1
+        },
+        "engine": {"description": "The engine to run the query on (such as `spark`).", "$ref": "#/definitions/text"},
+        "lands": {
+          "description": "The observation target the result may become, or null: `summary.row.observed`, `column:<c>.observed_values` or `input:<db.table>`.",
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^(summary\\.row\\.observed|column:[^.\\s]+\\.observed_values|input:[^\\s]+)$"}
+          ]
+        },
+        "how_to_read": {"description": "How to read the result to answer the sub-question.", "$ref": "#/definitions/text"},
+        "note": {"description": "For a `human` or `corpus` item: who or what answers it, and how.", "$ref": "#/definitions/text"}
+      }
+    }
+  }
+}
