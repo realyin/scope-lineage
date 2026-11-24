@@ -184,7 +184,8 @@ def test_health(server) -> None:
     health = json.loads(body)
 
     assert status == 200
-    assert health["status"] == "ok" and health["read_only"] is True
+    # the one file this server writes (no --answers): its pending file
+    assert health["status"] == "ok" and health["writes"] == ["pending.jsonl"]
 
 
 def test_health_names_each_input_without_its_directory(server, inputs) -> None:

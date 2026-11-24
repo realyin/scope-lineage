@@ -207,3 +207,27 @@ def test_the_server_answers_over_stdio(inputs, capsys, mode) -> None:
         "search_catalog", "catalog_context", "query_catalog", "check_sql",
     }
     assert _text(result) + "\n" == out
+
+
+def test_mcp_overlays_an_answers_file_read_only(inputs, tmp_path) -> None:
+    """``mcp --answers``: the tools read the page's answers; no tool writes them, and the
+    file is never written, not even to delete a record the documents have caught up with."""
+    from scope_lineage_service import answers as records_file
+
+    question = json.loads((inputs["semantics"] / f"{CUSTOMER}.json").read_text(
+        encoding="utf-8"))["summary"]["questions"][0]
+    file = tmp_path / "answers.json"
+    records_file.write_records(file, [{
+        "table": CUSTOMER, "question": question["id"], "asked": question["text"], "base": None,
+        "kind": "answer", "answer": "不会。", "source": {"kind": "person"}, "by": "审核人甲",
+        "date": "2026-11-23"}])
+    before = file.read_bytes()
+    state = CatalogState(str(inputs["ontology"]), semantics=str(inputs["semantics"]),
+                         answers=str(file), answers_writer=False)
+    result = _call(build_server(state), "catalog_context", {"tables": [CUSTOMER]})
+
+    assert "回答（页面填写，尚未写回）：不会。" in _text(result)
+    assert set(_tools(build_server(state))) == {
+        "search_catalog", "catalog_context", "query_catalog", "check_sql",
+    }
+    assert file.read_bytes() == before
