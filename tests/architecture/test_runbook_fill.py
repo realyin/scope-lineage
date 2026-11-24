@@ -340,6 +340,39 @@ def test_every_prompt_with_facts_is_filled_from_the_confirmations():
                 assert "sl semantic facts --confirmations \"$RUN/confirmations\"" in block, page.name
 
 
+def test_every_facts_call_reads_the_documents():
+    """``semantic facts --documents`` lets an observed row's line say when the columns a
+    query counted are not the document's grain columns (D16): every call of the runbook
+    passes the run's documents."""
+    pages = [REFS / "runbook-templates.md", *sorted((REFS / "steps").glob("*.md"))]
+    calls = [(page.name, line) for page in pages for line in page.read_text(encoding="utf-8").splitlines()
+             if "semantic facts --confirmations" in line]
+    assert len(calls) >= 7, calls
+    bad = [f"{name}: {line}" for name, line in calls if '--documents "$RUN/docs"' not in line]
+    assert not bad, "\n".join(bad)
+
+
+def test_the_writer_is_given_the_observation_forms_validation_accepts():
+    """The writer prompt's 「观测事实」 section gives the sentence check 10 relaxes for (the form
+    「观测（查询 …」, the partition, a pN that does not multiply rows in that partition, the
+    other partitions unobserved) and never lets an observation be written as unique or
+    proven; the catalog prompts write an observed grain as ``inferred`` with a note."""
+    from scope_lineage.semantics.checks_meaning import _OBSERVED_FORM
+
+    prompt = (REFS / "table-semantics-prompt.md").read_text(encoding="utf-8")
+    section = prompt.split("## 观测事实", 1)[1].split("\n## ", 1)[0]
+    form = re.search(r"「(观测（查询[^」]*在该分区内不放大[^」]*)」", section)
+    assert form and _OBSERVED_FORM.search(form.group(1)), section
+    assert "别的分区未观测" in form.group(1)
+    for rule in ("不是定义", "`proven`", "裸「唯一」", "\"unconfirmed\": true", "工具写"):
+        assert rule in section, rule
+    version = re.search(r"table-semantics-prompt@(\d+)", prompt.splitlines()[0]).group(1)
+    assert f'{{"prompt": "table-semantics-prompt@{version}"}}' in prompt
+    for name in ("catalog-fragment-prompt.md", "templates/T5.md", "templates/T6.md"):
+        text = (REFS / name).read_text(encoding="utf-8")
+        assert "observed in" in text and "`inferred`" in text and "不写 `declared`" in text, name
+
+
 def test_a_written_document_is_replayed_before_it_is_validated_or_recorded():
     """S4's check and S5's validation replay the confirmations first; T4 replays before
     ``semantic fixed``, so the fix record is the replayed document's."""

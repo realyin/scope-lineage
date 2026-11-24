@@ -153,6 +153,7 @@
   - 重编码（`Y/N` → `1/0`、一个码映射成另一套码、经映射表两步得到目标码）：列存的是**目标**码值集的码，`code_sets`
     （或属性的 `code_set`）写目标码值集，不写 `holds`；映射规则写进 `derivation`。
 - 表现的 `kind`、`grain`、`time` 以分配为起点，可以按表语义修正，修正要在 `notes` 里说明。
+- 表语义的粒度来源是 `observed`（digest 的 Grain 行写 `observed in <分区> on <日期> (query <查询>, …): no duplicate by (…) -- not a definition`）的表，粒度是平台查询在那几个分区里数出来的，不是定义：表现的 `grain.source` 写 `inferred`，不写 `declared`，也不写 `proven`（目录格式没有「观测」这种来源）；在这个表现自己的 `notes`（字符串）里写「观测（查询 <查询>，分区 <分区>，<日期> 执行）：按 (<列>) 无重复」（数到重复的写「有重复」），只说这些分区。digest 的 `Grain observed:` 一行（`declared` / `proven` 的粒度另有观测）不改来源，同样在表现的 `notes` 写这一句。
 - 表语义里的 `watch`（冲突、弃用）与未回答的问题，挑与目录有关的写进 `notes`。
 - 不写人名、邮箱；不把 SQL 原文整段抄进 `derivation`。
 
