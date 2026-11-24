@@ -93,15 +93,18 @@ class TableFiles:
         return self.document is not _MISSING or self.unreadable is not None
 
 
-def table_status(files: TableFiles) -> dict:
-    """The status entry of one table; ``doc_misfiled`` warns whatever the stage."""
-    entry = _staged(files)
+def table_status(files: TableFiles, confirmations=None) -> dict:
+    """The status entry of one table; ``doc_misfiled`` warns whatever the stage.
+
+    ``confirmations`` (the run's, :mod:`scope_lineage.semantics.confirmed`) are what the
+    document is validated against, as ``semantic validate`` holds it."""
+    entry = _staged(files, confirmations)
     if files.misfiled:
         entry["flags"].append("doc_misfiled")
     return entry
 
 
-def _staged(files: TableFiles) -> dict:
+def _staged(files: TableFiles, confirmations=None) -> dict:
     packet, document = files.packet, files.document
     readable = files.document is not _MISSING and files.unreadable is None
     entry: dict = {
@@ -120,7 +123,7 @@ def _staged(files: TableFiles) -> dict:
     if not files.has_document:
         return {**entry, "stage": "packet"}
     report = check_file(document if readable else None, packet, files.file,
-                        unreadable=files.unreadable)
+                        unreadable=files.unreadable, confirmations=confirmations)
     failures = [item for item in report["failures"]
                 if item["status"] == "fail" and item["check"] != "digest"]
     entry.update(schema_errors=len(report["schema_errors"]), failures=len(failures))
@@ -135,16 +138,17 @@ def _staged(files: TableFiles) -> dict:
     return _reviewed(entry, files)
 
 
-def document_flags(document: dict, packet: dict | None) -> list[str]:
+def document_flags(document: dict, packet: dict | None, confirmations=None) -> list[str]:
     """What keeps a schema-valid document from being published, by ``status``'s rules.
 
     ``no_packet`` without a packet; else ``packet_stale`` (the document's
     ``packet_digest`` is not the packet's) and ``invalid`` (a failed cross check other than
-    the digest one), in that order. An empty list: the document is fit.
+    the digest one, checked against ``confirmations`` as ``status`` checks it), in that
+    order. An empty list: the document is fit.
     """
     if packet is None:
         return ["no_packet"]
-    report = check_file(document, packet, "")
+    report = check_file(document, packet, "", confirmations=confirmations)
     flags = []
     if document.get("packet_digest") != packet.get("packet_digest"):
         flags.append("packet_stale")

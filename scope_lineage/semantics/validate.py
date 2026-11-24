@@ -53,7 +53,8 @@ _STATUSES = ("pass", "warn", "fail")
 
 
 def validate_document(
-    document: dict, packet: dict | None, *, qualifier_terms: tuple[str, ...] = QUALIFIER_TERMS
+    document: dict, packet: dict | None, *, qualifier_terms: tuple[str, ...] = QUALIFIER_TERMS,
+    confirmations=None,
 ) -> dict:
     """The cross-check report of one schema-valid document against its packet (or None).
 
@@ -62,14 +63,16 @@ def validate_document(
     key in ``checks``. Without a packet no check runs but the digest one, so none is listed.
     ``qualifier_terms`` are the qualifiers check 12 looks for: the generic ones, plus any a
     caller's domain profile adds.
+
+    ``confirmations`` (:class:`~scope_lineage.semantics.confirmed.Confirmations`, read
+    from a run's confirmations files) gives checks 3 and 4 what the owner confirmed for
+    the document's own table; None, or no entry for that table, checks what it always did.
     """
     if packet is None:
         results = [missing_packet(document)]
     else:
-        checks = [
-            partial(check, terms=qualifier_terms) if check is check_documented_meaning else check
-            for check in _CHECK_FUNCTIONS
-        ]
+        confirmed = confirmations.for_table(document.get("table")) if confirmations else None
+        checks = [_bound(check, qualifier_terms, confirmed) for check in _CHECK_FUNCTIONS]
         results = [item for check in checks for item in check(document, packet)]
     counts = Counter(item["status"] for item in results)
     checks: dict[str, dict[str, int]] = {}
@@ -92,28 +95,45 @@ def validate_document(
     }
 
 
+def _bound(check, qualifier_terms: tuple[str, ...], confirmed):
+    if check is check_documented_meaning:
+        return partial(check, terms=qualifier_terms)
+    if confirmed and check in (check_code_values, check_grain):
+        return partial(check, confirmed=confirmed)
+    return check
+
+
 def check_file(
     document, packet: dict | None, file: str, *, unreadable: str | None = None,
-    qualifier_terms: tuple[str, ...] = QUALIFIER_TERMS,
+    qualifier_terms: tuple[str, ...] = QUALIFIER_TERMS, confirmations=None,
 ) -> dict:
-    """One file's entry in the report: its schema errors, or its cross-check report."""
+    """One file's entry in the report: its schema errors, or its cross-check report.
+
+    Every caller -- ``semantic validate``, ``semantic status`` / ``fixed``, the unfit
+    warning of ``semantic render`` and ``catalog digest`` -- hands over the same
+    ``confirmations``, so one document gets one verdict."""
     errors = [{"at": "", "message": unreadable}] if unreadable else schema_errors(document, DOC_FORMAT)
     table = document.get("table") if isinstance(document, dict) else None
     if errors:
         return {"table": table, "file": file, "schema_errors": errors,
                 "counts": dict.fromkeys(_STATUSES, 0), "pass_rate": None, "checks": {},
                 "not_reported": [], "failures": []}
-    report = validate_document(document, packet, qualifier_terms=qualifier_terms)
+    report = validate_document(document, packet, qualifier_terms=qualifier_terms,
+                               confirmations=confirmations)
     return {"table": table, "file": file, "schema_errors": [],
             **{key: value for key, value in report.items() if key != "table"}}
 
 
-def validation_report(entries: list[dict]) -> dict:
-    """The ``--json`` document: every file's entry and one summary line's numbers."""
+def validation_report(entries: list[dict], confirmations=None) -> dict:
+    """The ``--json`` document: every file's entry and one summary line's numbers.
+
+    With ``confirmations`` read, the report gains ``confirmations`` -- the path, the files
+    and the number of entries the checks held the documents to; without, it has no such
+    key, as before."""
     checked = [entry for entry in entries if not entry["schema_errors"]]
     total = sum(sum(entry["counts"].values()) for entry in checked)
     failed = sum(entry["counts"]["fail"] for entry in checked)
-    return {
+    report = {
         "doc_format": REPORT_FORMAT,
         "tables": entries,
         "summary": {
@@ -127,6 +147,15 @@ def validation_report(entries: list[dict]) -> dict:
             "pass_rate": round((total - failed) / total, 4) if total else None,
         },
     }
+    if confirmations is not None:
+        report["confirmations"] = confirmations_summary(confirmations)
+    return report
+
+
+def confirmations_summary(confirmations) -> dict:
+    """``{path, files, entries}``: which confirmations a report was checked against."""
+    return {"path": confirmations.path, "files": list(confirmations.files),
+            "entries": len(confirmations.entries)}
 
 
 def report_flags(report: dict) -> dict[str, list[str]]:

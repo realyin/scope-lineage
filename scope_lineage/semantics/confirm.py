@@ -8,12 +8,17 @@ One confirmation names a table, a target and the answer. Four targets exist:
 - ``column:<c>.code_values`` -- a list replaces the column's code values, a single
   ``{value, meaning}`` is merged into them;
 - ``summary.row`` -- an object is merged into the row statement (a string replaces its
-  text).
+  text). An object that sets ``grain_columns`` or ``unique`` but not ``grain_source`` turns
+  an ``inferred`` grain into ``declared``: the owner's word is no inference. A
+  ``declared`` or ``proven`` grain is left as it is, and a ``grain_source`` the object
+  sets is written as given.
 
 Whatever a confirmation changed gains ``confirmed`` in its sources, and the document logs
-it under ``confirmed``. A confirmation that matches nothing -- or whose answer would make
-the document illegal -- is returned in ``unmatched`` with the reason, never dropped, and
-leaves the document as it was.
+it under ``confirmed`` (once: the same target, person and date is not logged again).
+Applying the same confirmations again changes nothing, so a run replays them after every
+write; onto a rewritten document they put the confirmed slots back. A confirmation that
+matches nothing -- or whose answer would make the document illegal -- is returned in
+``unmatched`` with the reason, never dropped, and leaves the document as it was.
 
 A ``question:<id>`` confirmation may carry ``asked``, the question's text as the person
 saw it, so an id a rewrite gave to another question cannot take the answer:
@@ -54,6 +59,7 @@ class ConfirmResult:
 def apply_confirmations(documents: dict, confirmations: list) -> ConfirmResult:
     """Apply ``confirmations`` in order to copies of ``documents`` (keyed ``db.table``)."""
     result = ConfirmResult({bare_table(t): copy.deepcopy(d) for t, d in documents.items()})
+    original = copy.deepcopy(result.documents)
     for entry in confirmations:
         table = bare_table(entry.get("table"))
         document = result.documents.get(table)
@@ -78,10 +84,12 @@ def apply_confirmations(documents: dict, confirmations: list) -> ConfirmResult:
             result.unmatched.append(_miss(entry, reason))
             continue
         _log(candidate, entry)
-        if candidate != document:
-            result.changed.add(table)
         result.documents[table] = candidate
         result.applied.append(entry)
+    # Changed is judged on the end state: a replay whose entries undo each other's steps
+    # (a list, then a merge into it) leaves the document as it was and rewrites nothing.
+    result.changed = {table for table, document in result.documents.items()
+                      if document != original[table]}
     return result
 
 
@@ -185,6 +193,9 @@ def _confirm_row(row: dict, value) -> str | None:
         row["text"] = value
     elif isinstance(value, dict) and value:
         row.update(value)
+        if (("grain_columns" in value or "unique" in value) and "grain_source" not in value
+                and row.get("grain_source") == "inferred"):
+            row["grain_source"] = "declared"
     else:
         return "value must be the row text or an object of row fields"
     _mark(row)

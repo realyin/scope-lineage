@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from .names import bare_column
+from .names import bare_column, folded_text
 
 CHECKS = (
     "coverage",
@@ -120,9 +120,11 @@ def check_source_columns(document: dict, packet: dict) -> list[dict]:
 # 3 ------------------------------------------------------------------ code values
 
 
-def check_code_values(document: dict, packet: dict) -> list[dict]:
+def check_code_values(document: dict, packet: dict, confirmed=None) -> list[dict]:
     """A code value not marked ``unconfirmed`` is written in a comment or in the SQL, or
-    the glossary confirms it on the column or on a column it reads.
+    the glossary confirms it on the column or on a column it reads, or the owner confirmed
+    it for this table and column (``confirmed``, the table's state read from the run's
+    confirmations files: :mod:`scope_lineage.semantics.confirmed`).
 
     In a comment a code ending in a digit may run straight into letters (「1普通2VIP回访」);
     in the SQL it may not, where a hex string or a regex class would match any digit.
@@ -139,6 +141,12 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
 
     A packet built before ``literal_outputs`` has no constant column and no producer
     writing ``''``.
+
+    What the owner confirmed is held both ways: each confirmed value must be in the
+    column, not ``unconfirmed``, with the confirmed meaning (compared as ``folded_text``).
+    The SQL still wins over a confirmation: a confirmed value a constant column never
+    writes, or a confirmed ``''`` no producer writes, fails as a confirmation to take back
+    to the owner -- the document cannot settle it.
     """
     sql = "\n".join(task["sql"] or "" for task in packet["tasks"])
     headers = [line for task in packet["tasks"] for line in task["header_comments"]]
@@ -146,12 +154,22 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
     for ci, column in enumerate(document["columns"]):
         name = column["column"]
         comments = "\n".join([_column_comments(packet, name), *headers])
-        confirmed = confirmed_values(packet, name)
+        confirmed_glossary = confirmed_values(packet, name)
+        owner = confirmed.code_meanings(name) if confirmed else {}
         literals, constant = column_literals(packet, name)
+        written = set()
         for vi, code in enumerate(column.get("code_values") or []):
             at = f"columns[{ci}].code_values[{vi}]"
             value = str(code["value"])
-            if constant:
+            written.add(value)
+            contradiction = (
+                value in owner and _contradicts_sql(value, literals, constant)
+            )
+            if contradiction:
+                results.append(_contradicted(at, name, value, literals, constant))
+            elif value in owner:
+                results.append(_owner_code(at, code, owner[value]))
+            elif constant:
                 results.append(_constant_code(at, name, value, literals))
             elif code.get("unconfirmed"):
                 continue
@@ -160,7 +178,7 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
                     "code_values", "fail", at, (
                         f"空串不是列 {name} 会产出的值：材料包 4.1 的步骤里没有回填或产出 ''；"
                         "删掉这个码值，或改成 SQL 真正写出的值")))
-            elif value.strip() in confirmed or (
+            elif value.strip() in confirmed_glossary or (
                 re.search(_code_pattern(value, in_comment=True), comments)
                 or re.search(_code_pattern(value, in_comment=False), sql)
             ):
@@ -169,7 +187,50 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
                 results.append(result("code_values", "fail", at, (
                     f"码值 {code['value']!r} 在注释和 SQL 里都找不到；有依据就写明来源，"
                     "没有就标 unconfirmed: true 并在 questions 里提问")))
+        at = f"columns[{ci}].code_values"
+        for value, meaning in owner.items():
+            if value in written:
+                continue
+            if _contradicts_sql(value, literals, constant):
+                results.append(_contradicted(at, name, value, literals, constant))
+            else:
+                results.append(result("code_values", "fail", at, (
+                    f"码值 {value!r} 已由 owner 确认（确认文件）为「{meaning}」，列 {name} 的 "
+                    "code_values 里没有；照确认补上这个码值并写确认的含义，不要标 unconfirmed")))
     return results
+
+
+def _contradicts_sql(value: str, literals: set[str], constant: bool) -> bool:
+    """Whether the SQL says the column never holds ``value``: a constant column that does
+    not write it, or an empty value no producer writes."""
+    if constant:
+        return value.strip() not in {literal.strip() for literal in literals}
+    return not value.strip() and "" not in literals
+
+
+def _contradicted(at: str, name: str, value: str, literals: set[str], constant: bool) -> dict:
+    if constant:
+        written = "、".join(repr(literal) for literal in sorted(literals)) or "NULL"
+        why = f"列 {name} 恒为常量 {written}，SQL 不会写出它"
+    else:
+        why = f"材料包 4.1 的步骤里没有回填或产出 ''，列 {name} 不会写出空串"
+    return result("code_values", "fail", at, (
+        f"码值 {value!r} 已由 owner 确认（确认文件），但{why}：确认与 SQL 矛盾，"
+        "交回 owner 重新确认；文档里照 SQL 写，不要自行改确认"))
+
+
+def _owner_code(at: str, code: dict, meaning: str) -> dict:
+    """A code value the owner confirmed: written as confirmed, or a failure that says so."""
+    value = code["value"]
+    if code.get("unconfirmed"):
+        return result("code_values", "fail", at, (
+            f"码值 {value!r} 已由 owner 确认（确认文件）为「{meaning}」；照确认写含义，"
+            "去掉 unconfirmed，不要标 unconfirmed: true，也不要就它提问"))
+    if folded_text(code.get("meaning")) != folded_text(meaning):
+        return result("code_values", "fail", at, (
+            f"码值 {value!r} 已由 owner 确认（确认文件）为「{meaning}」，这里写成"
+            f"「{code.get('meaning')}」；照确认写含义，不要改成别的，也不要标 unconfirmed"))
+    return result("code_values", "pass", at)
 
 
 def column_literals(packet: dict, name: str) -> tuple[set[str], bool]:
@@ -260,8 +321,15 @@ def confirmed_values(packet: dict, name: str) -> dict[str, str]:
 # 4 ------------------------------------------------------------------ grain
 
 
-def check_grain(document: dict, packet: dict) -> list[dict]:
-    """Claimed grain columns exist; a ``proven`` grain has a proven key behind it."""
+def check_grain(document: dict, packet: dict, confirmed=None) -> list[dict]:
+    """Claimed grain columns exist; a ``proven`` grain has a proven key behind it; a row
+    the owner confirmed (``confirmed``, the table's state from the run's confirmations
+    files) is written as confirmed.
+
+    A confirmed ``grain_columns`` must be the document's set, a confirmed ``unique`` its
+    value, and either one makes ``grain_source: inferred`` a failure: the owner's word is
+    ``declared`` (or ``proven`` when the lineage proves the key, judged as before).
+    """
     row = document["summary"]["row"]
     names = {column["name"] for column in packet["target"]["columns"]}
     results = [
@@ -270,6 +338,7 @@ def check_grain(document: dict, packet: dict) -> list[dict]:
                     f"粒度列 {name} 不是目标表的列")
         for index, name in enumerate(row["grain_columns"])
     ]
+    results += _confirmed_row(row, confirmed.row_fields() if confirmed else {})
     if row["grain_source"] != "proven":
         return results
     proven = [key for key in packet["lineage"]["keys"] if key["proven"]]
@@ -284,3 +353,33 @@ def check_grain(document: dict, packet: dict) -> list[dict]:
         return [*results, result("grain", "warn", at, (
             f"声称的粒度列 {'、'.join(row['grain_columns'])} 与血缘证明的键 {keys} 不一致"))]
     return [*results, result("grain", "pass", at)]
+
+
+def _confirmed_row(row: dict, owner: dict) -> list[dict]:
+    """The row fields the owner confirmed, held against the document's row."""
+    results = []
+    told = "已由 owner 确认（确认文件）"
+    if isinstance(owner.get("grain_columns"), list):
+        wanted, at = owner["grain_columns"], "summary.row.grain_columns"
+        if set(row["grain_columns"]) == set(wanted):
+            results.append(result("grain", "pass", at))
+        else:
+            results.append(result("grain", "fail", at, (
+                f"行粒度列{told}为 {'、'.join(wanted) or '（无）'}，这里写成 "
+                f"{'、'.join(row['grain_columns']) or '（无）'}；照确认写")))
+    if "unique" in owner:
+        at = "summary.row.unique"
+        if row["unique"] == owner["unique"]:
+            results.append(result("grain", "pass", at))
+        else:
+            results.append(result("grain", "fail", at, (
+                f"按粒度列是否唯一{told}为 {owner['unique']}，这里写成 {row['unique']}；照确认写")))
+    if isinstance(owner.get("grain_columns"), list) or "unique" in owner:
+        at = "summary.row.grain_source"
+        if row["grain_source"] == "inferred":
+            results.append(result("grain", "fail", at, (
+                f"行粒度{told}，grain_source 不能写 inferred；写 declared"
+                "（血缘证明了同一个键时可写 proven）")))
+        else:
+            results.append(result("grain", "pass", at))
+    return results
