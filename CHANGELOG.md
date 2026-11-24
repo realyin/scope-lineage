@@ -18,6 +18,26 @@
   `question:<id>` answers with `semantic confirm`'s own code to copies of the documents it names only,
   keeping every other document the same object, and returns what it could not apply (other targets are
   refused, not applied).
+- **New: answer table-semantics questions on the browse page (`scope-lineage-service http --answers
+  FILE`).** The questions board takes an answer (optionally 是 / 否) or one of five notes (部分回答, 暂时确认不了,
+  该问某某 with a name, 问题有误, 不适用) on each table-semantics question, with who answered (a name kept in
+  the browser) and the server's date; a record can be changed or withdrawn. They are kept in a
+  `question-answers/1` file -- one record per question, holding the question as asked and what the document
+  held then -- never in the semantics directory. Each record is judged against the documents on disk
+  whenever either changes: a question gone or rewritten, or a document that changed under an answer, leaves
+  it not matched (listed at the bottom of the board with what the document holds now, neither overlaid nor
+  exported); an answer the document now holds exactly, or a note on a question now answered, is deleted.
+  Answers in effect are overlaid on the documents, so the context pack, the board, `/api/semantics`, the
+  ask panel's tools and MCP (`mcp --answers FILE`, read-only) read them, marked as not written back; notes
+  never leave the answers file. New endpoints `POST /api/answers` (409 when the page saw something else
+  than what is there), `POST /api/answers/withdraw` and `GET /api/answers/export`, and the command
+  `scope-lineage-service answers export ANSWERS --semantics DIR --out FILE`, write the answers in effect as
+  a `semantic-confirmations/1` file for `semantic confirm`. Texts are normalised and refused with a line
+  break, a control character or past 1000 characters (60 for a name). A server other machines can reach (a
+  non-loopback `--host` or any `--allow-host`) refuses answers unless started with
+  `--answers-allow-remote`, which warns at start. `/health` now lists the files the server writes
+  (`writes`) instead of `read_only: true`; without `--answers` every other output is unchanged. The service
+  now needs `scope-lineage` 0.17.
 - **Fixed: the ask panel puts the newest question first (`scope-lineage-service`).** Each new question
   was added below the earlier ones, so its answer sat at the bottom of the page. The newest question is
   now directly under the form, and once a question has an answer its steps fold into one line that opens

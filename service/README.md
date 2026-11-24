@@ -14,7 +14,8 @@ OpenAI-compatible endpoints.
 
 ## Install
 
-From a checkout of this repository (the core function module first ships in 0.16.0; installing the core from the same
+From a checkout of this repository (the service needs the core's 0.17.0 additions -- the page's answers
+overlaid on the documents and marked in the context pack and the board; installing the core from the same
 checkout keeps the two in step):
 
 ```bash
@@ -26,24 +27,28 @@ pip install -e . -e service
 - No endpoint or tool runs SQL. `check-sql` parses the SQL and compares it with the catalog; nothing
   connects to a database.
 - The servers read only the files named when they start; no request names a path.
-- The one file written is the pending file given with `--pending`, appended to the way
-  `catalog pending add` appends (existing lines are never rewritten). Without `--pending` the pending
-  endpoints and tools are not offered.
+- The files written are the pending file given with `--pending`, appended to the way
+  `catalog pending add` appends (existing lines are never rewritten), and, with `http --answers FILE`, the
+  answers file the browse page keeps its answers in (below). Without `--pending` the pending endpoints and
+  tools are not offered; without `--answers` the answer endpoints are not. The table-semantics directory is
+  never written.
 - The opt-in ask panel (`--ask`, below) keeps all of this: the model it calls gets only the catalog tools,
   never SQL execution or a file path.
 
 ## HTTP
 
 ```bash
-scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE] \
+scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE] [--answers FILE [--answers-allow-remote]] \
   [--host 127.0.0.1] [--port 8765] [--max-body 1048576] [--allow-host NAME]... [--quiet] \
   [--ask [--ask-model M] [--ask-effort E] [--ask-models FILE] [--ask-max-...] | --ask-dev-fake-model]
 ```
 
 `GET /api` lists the endpoints with their parameters (machine-readable); `GET /health` says whether
-the files load now. It names the ontology file, the table-semantics directory and the pending file by
-their last path component only (`ontology.path`, `semantics.path`, `pending.path`), never the
-directories they live in, so a server bound off loopback does not reveal the operator's layout.
+the files load now and lists the files the server writes (`writes`: the pending file's name, and the
+answers file's when this server writes one; it replaced `read_only: true`). It names the ontology file,
+the table-semantics directory, the pending file and the answers file by their last path component only
+(`ontology.path`, `semantics.path`, `pending.path`, `answers.path`), never the directories they live in,
+so a server bound off loopback does not reveal the operator's layout.
 The same holds for error text: an input that breaks after start (removed, invalid, unreadable) is
 reported in `/health`'s `problem` and in every error body with those paths cut to their names; the
 command line keeps full paths.
@@ -63,7 +68,10 @@ command line keeps full paths.
 | GET | `/api/list` | `kind` (required: `concepts`, `tables`, `metrics`), `domain`, `concept`, `text`, `offset`, `limit` | none |
 | GET | `/api/neighbourhood` | `concept` (required), `limit` | none |
 | GET | `/api/semantics` | `table` (required) | none |
-| GET | `/api/questions` | `table`, `concept`, `status` (`open`, `answered`, `all`), `source` (`semantics`, `pending`), `text`, `offset`, `limit` | none |
+| GET | `/api/questions` | `table`, `concept`, `status` (`open`, `answered`, `all`; with `--answers` also `set_aside`), `source` (`semantics`, `pending`), `text`, `offset`, `limit` | none |
+| POST | `/api/answers` | body (`application/json`): `table`, `question`, `kind`, `answer` or `reason`, `choice`, `to`, `by`, `asked`, `seen` (with `--answers`; see below) | none |
+| POST | `/api/answers/withdraw` | body (`application/json`): `table`, `question`, `seen` (with `--answers`) | none |
+| GET | `/api/answers/export` | none (with `--answers`) | `scope-lineage-service answers export` |
 
 Every answer endpoint takes `format=text` for what the command prints without `--json`. The JSON body is
 byte for byte what the command prints with `--json`. The command's exit code is in the
@@ -152,6 +160,8 @@ can be linked.
   table, concept, status, source and text, each marked when the catalog does not carry it (a question on a
   table the catalog lacks; a pending item no catalog object is named by).
 
+  With `--answers` the table-semantics cards take answers and notes (next section).
+
 The browse endpoints (`/api/browse`, `/api/list`, `/api/neighbourhood`, `/api/semantics`, `/api/units`,
 `/api/questions`) are thin: each calls a browse answer of `scope_lineage.cli_catalog_answers` (`browse_index`,
 `browse_list`, `neighbourhood`, `table_semantics`, `table_units`, `questions`). These answers have no command
@@ -177,7 +187,8 @@ sends the whole catalog. An empty page or board is 200; a concept with no match,
 semantics document, is 404 with the answer as body.
 
 Read-only: the browse views only send GET requests and write nothing; no SQL is run. (The ask panel,
-below, posts questions and, when the reader submits one, a 待确认 definition to the pending file.) Its files
+below, posts questions and, when the reader submits one, a 待确认 definition to the pending file; with
+`--answers`, the questions board posts answers to the answers file.) Its files
 (`index.html`, `app.css`, `app.js`, `dom.js`, `views.js`, `graph.js`, and the ask panel's `ask.js` and
 `askview.js`) are packaged with this module and served from a fixed
 table of paths -- no request path is joined to a directory, anything else is 404, and they take no
@@ -187,6 +198,125 @@ the network, so the page works offline against the local server. Catalog text is
 this server's own scripts, styles and requests (`default-src 'self'`, no inline script, no framing), with
 `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. The Host and Origin checks apply to the
 page as to every endpoint.
+
+## Answering questions on the page (`--answers`)
+
+```bash
+scope-lineage-service http out/ontology.json --semantics "$RUN/docs" --answers "$RUN/question-answers.json"
+```
+
+With `--answers FILE` a person answers the table-semantics questions on the board (待确认问题) instead of
+writing a confirmations file by hand. The answers go to `FILE`, never into the semantics directory; keep
+`FILE` outside it (beside `$RUN/confirmations/`, say). The file is created on the first answer.
+
+**What a person can leave on a question** -- one record per question; a new one replaces the old:
+
+| `kind` | Page label | The question afterwards | Overlaid | Exported |
+| --- | --- | --- | --- | --- |
+| `answer` | 回答 (optionally 是 / 否) | answered, marked 「未写回」 | yes | yes |
+| `partial` | 部分回答 (optionally 是 / 否) | open, with the part answered | no | no |
+| `deferred` | 暂时确认不了 | open, with the note | no | no |
+| `redirect` | 该问某某 (a name) | open, with the note | no | no |
+| `invalid` | 问题有误 | set aside (已搁置) | no | no |
+| `not_applicable` | 不适用 | set aside (已搁置) | no | no |
+
+A note cannot be left on a question its document already answers (400): change the answer instead. Notes
+live in the answers file only: the document format has no place for them, so they do not travel with the run
+directory. The page asks for a name (回答人, kept in the browser) before sending; the date is the server's
+today.
+
+**The record file** (`question-answers/1`):
+
+```json
+{"doc_format": "question-answers/1", "answers": [
+  {"table": "demo_dwd.dwd_party_customer_info_df", "question": "q1",
+   "asked": "性别码值除了 F、M、U 以外，还会不会出现其他值？", "base": null,
+   "kind": "answer", "answer": "不会。注册系统只允许三个值。", "choice": "no",
+   "source": {"kind": "person"}, "by": "demo-reviewer", "date": "2026-11-23"}
+]}
+```
+
+`asked` is the question as the person saw it; `base` what the document on disk held for it then (`null`
+when open, else `{answer, answered_by, answered_on}`: the answer being changed). A note has `reason`
+instead of `answer`; a `redirect` has `to`. The file is checked whenever it is read: one that cannot be read
+or breaks a rule is ignored as a whole -- every answer comes from the documents alone -- and `/health`, `GET
+/api` (`answers.status`, `unreadable` with the reason) and the board say so; nothing is written to it until
+it is repaired or removed.
+
+**Which records count** -- each record is held against the document on disk whenever either changes, and
+the first of these that holds decides:
+
+1. the table or the question is gone: **not matched**;
+2. the question's text is not what was asked (compared after NFKC and folding whitespace, nothing fuzzier):
+   **not matched**, the question was rewritten;
+3. the document now holds this very answer (the same text, the same person, the same date): **written back**
+   -- the record is deleted. A note on a question the document now answers is deleted the same way;
+4. the document still holds `base` (an answer), or the question is open (a note): **in effect**;
+5. anything else: **not matched**, the document changed under it (someone else answered, even in the same
+   words; the answer went back to open; a third answer).
+
+Only answers in effect are overlaid: the context pack, the board, `/api/semantics`, the ask panel's tools
+and MCP read the question as answered, marked as not written back (`written: false`; text
+`回答（页面填写，尚未写回）：…`); notes are marked `page`, and the two that set a question aside give it the
+status `set_aside`. `/api/semantics` adds, beside the document, `unwritten` (the ids of the questions
+answered on the page) and `page` (`{question id: note}`); the document gains no key it would not have after
+`semantic confirm`. Records not matched are neither overlaid nor exported: the board lists them at the
+bottom (「没对上的回答」) with the reason and what the document holds now, to delete or to answer again.
+
+**Writing back** -- `GET /api/answers/export` (the board's 「导出确认文件」 button) or
+
+```bash
+scope-lineage-service answers export "$RUN/question-answers.json" --semantics "$RUN/docs" --out answers-confirmations.json
+```
+
+writes the answers in effect as a `semantic-confirmations/1` file (a 是 / 否 becomes `是：…` / `否：…` in the
+sentence; notes and records not matched are left out). The command prints each record not matched with its
+reason, and each table's `document_digest`, on stderr, and exits 1 when a record did not match (the others
+are still written); the board shows the same digests beside the button. Neither writes the answers file.
+Then write it back as the runbook's step S12 does:
+
+```bash
+scope-lineage semantic confirm "$RUN/docs" --confirmations answers-confirmations.json --reviews "$RUN/reviews"
+```
+
+The next time the server reads the documents those answers are written back (rule 3) and their records are
+deleted. Between the export and `confirm` the file is an ordinary confirmations file: check the digests if the
+documents may have been rewritten meanwhile.
+
+**Endpoints** (404 `not_configured` without `--answers`):
+
+- `POST /api/answers` -- `{table, question, kind, answer | reason, choice?, to?, by, asked, seen}`. `asked`
+  is the question's text as the page showed it and `seen` what the page showed of its state: `{disk:
+  {answer, answered_by, answered_on} | null, record: <the page record shown> | null}` (the board's items
+  carry `record`, `record_state` and `disk` when they have a record). 201 `{record}`. 409 when the question,
+  its answer on disk or its record is not what the page saw (two people changing one record: the later is
+  refused); 400 for a refused text, `choice` on another kind, a `redirect` without `to`, the same as what is
+  there now, a note on a question answered on disk; 404 for an unknown table or question; 503 when the
+  answers file cannot be read or written.
+- `POST /api/answers/withdraw` -- `{table, question, seen: <the record shown>}`: deletes the record (an
+  answer then reads as its document says again). 200 `{withdrawn}`, 404 without a record, 409 when it changed.
+- `GET /api/answers/export` -- the confirmations file (JSON only; `Content-Disposition: attachment`).
+- `/api/questions` adds `answers`: `{status, writable, effective, exported, digests, unmatched: [{table,
+  question, record, reason, message, now}], refused?, reason?, problem?}`.
+
+**Texts and the injection path** -- an answer, a reason, a name and `to` are NFKC-normalised (full-width
+letters and punctuation become their ASCII forms) and stripped, and refused when blank, longer than 1000
+characters (an answer or a reason) or 60 (a name), or carrying a line break or a control or format
+character: they reach the text context pack, which is built line by line, and from there the ask panel's model
+-- which holds a write tool -- and MCP clients. Answers from the page are always marked as not written back.
+
+**Who may answer** -- the server has no authentication. On a loopback address only programs on this machine
+reach it. On a non-loopback `--host`, or with any `--allow-host` (a loopback server behind a proxy or a
+tunnel is reachable from elsewhere), the two writing endpoints are refused (403) and the cards are read-only,
+unless the server is started with `--answers-allow-remote`, which prints a warning: any program that can
+reach the port can answer under any name, and the answers' text enters the model's context and the MCP
+output. The export writes nothing and is not affected.
+
+**One writer** -- only the `http` server started with `--answers FILE` writes the file: its answers, and
+the deletion of records written back (under the lock every request takes; the file is read again first and
+only records still exactly as judged are deleted; a failed delete fails no request and is reported in
+`/health`'s `answers.problem`). `mcp --answers FILE`, and any other server given the same file, overlay it
+read-only and never write or delete. Two writers on one file are not protected against.
 
 ## Ask panel (opt-in)
 
@@ -362,8 +492,11 @@ none called), so the picker can be reviewed with the real file and no key.
 ## MCP
 
 ```bash
-scope-lineage-service mcp ONTOLOGY [--semantics DIR] [--pending FILE]
+scope-lineage-service mcp ONTOLOGY [--semantics DIR] [--pending FILE] [--answers FILE]
 ```
+
+With `--answers FILE` (the file an `http` server writes) the tools read the page's answers in effect,
+marked as not written back; the MCP server never writes or prunes the file and has no tool to answer.
 
 | Tool | Arguments | Same as |
 | --- | --- | --- |
@@ -398,7 +531,9 @@ Before each answer the ontology file and every `*.json` under the semantics dire
 `stat` (size, modification time, inode; the directory is walked with `os.scandir`, a few milliseconds for
 thousands of documents) and read again only when something differs, so a new
 `catalog build` or a new semantics document is answered from on the next request without a restart. The
-pending file is read on every list. The servers never answer from a copy they know to be stale.
+pending file is read on every list. The answers file has a signature of its own: when only it changes the
+records are judged again without reading the ontology or the documents, and the server's own writes do not
+make it read the file again. The servers never answer from a copy they know to be stale.
 
 ## Tests
 
@@ -406,10 +541,12 @@ The tests use the repository's demo ontology and table-semantics document, need 
 HTTP server on an ephemeral port of `127.0.0.1` and the MCP server in memory and as a stdio subprocess:
 
 The browse page's pure JavaScript functions (the graph layout and its labels, the column filter, the table
-sorts offered, the document title, and the ask panel's placeholder reading, brief parsing and event view
-model) are checked by running the page's own modules with `node` when it is on `PATH`
-(`test_service_page_js.py`, `test_ask_page_js.py`, skipped otherwise; no
-JavaScript package is installed).
+sorts offered, the document title, the answer cards' state, `seen` and request bodies, and the ask panel's
+placeholder reading, brief parsing and event view model) are checked by running the page's own modules with
+`node` when it is on `PATH` (`test_service_page_js.py`, `test_service_answers_page_js.py`,
+`test_ask_page_js.py`, skipped otherwise; no JavaScript package is installed). The page's answers have their
+own tests: the record file, every rule of the judgement and the deletes (`test_service_answers.py`) and the
+endpoints, the outputs and the export through `semantic confirm` (`test_service_answers_http.py`).
 
 The ask panel's tests never call a model or need the SDK: the loop runs against a scripted model behind
 its one seam (`test_ask_loop.py`), the endpoints against the development fake (`test_ask_http.py`), and the
