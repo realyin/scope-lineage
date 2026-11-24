@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- **Changed: validation reads the owner's confirmations, which changes `semantic validate` verdicts when
+  confirmations exist.** `semantic validate`, `semantic status`, `semantic fixed`, `semantic render` and
+  `catalog digest` take `--confirmations PATH` (a `semantic-confirmations/1` file, or a directory of them
+  read in file-name order); without it they read the run's `confirmations/` directory when it exists
+  (`<run>/confirmations` for `status` / `fixed`, `confirmations/` beside the documents directory for the
+  others), and every caller of the validator gets the same confirmations. Check 3 (`code_values`) passes a
+  value the owner confirmed for that table and column even when no comment or SQL mentions it, and fails a
+  confirmed value the document leaves out, marks `unconfirmed` or gives another meaning, with a message that
+  says to write it as confirmed (never to downgrade it); a confirmed value a constant-only column never
+  writes, or a confirmed `''` no producer writes, fails as a confirmation that contradicts the SQL. Check 4
+  (`grain`) fails a document whose `grain_columns` or `unique` differs from a confirmed row, or that writes
+  `grain_source: inferred` against one. Confirmations that were read are announced on stderr, the `--json`
+  validation report gains a top-level `confirmations` object and the status report's `directories` gains
+  `confirmations`; with no confirmations file found every output is byte for byte as before. A confirmations
+  file that cannot be read, or that its schema refuses, exits 2. `semantic confirm --confirmations` also
+  takes a directory, and replaying the same confirmations changes no byte and logs nothing new (its
+  summary line now counts a table as changed only when its document differs at the end), so a run can
+  replay them after every write; onto a rewritten document they restore the confirmed slots. A `summary.row`
+  confirmation that sets `grain_columns` or `unique` but not `grain_source` now turns an `inferred` grain into
+  `declared` (a `declared` or `proven` one stays; an explicit `grain_source` is written as given). New
+  `semantic facts --confirmations PATH --table T [...]` prints each table's confirmed facts one per line
+  (`无` when there are none), the text a writing or review prompt takes as its confirmed facts.
 - **Changed: `semantic confirm` holds an answer to the question that was asked.** A `question:<id>` entry of
   `semantic-confirmations/1` may carry two new optional fields: `asked`, the question's text as the person
   saw it, and `replace`. With `asked`, an entry whose question now reads otherwise (compared after NFKC and

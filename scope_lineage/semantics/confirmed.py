@@ -1,0 +1,284 @@
+"""What an owner confirmed, read from ``semantic-confirmations/1`` files, apart from any document.
+
+The confirmations files of a run are the source of truth for the facts a person gave:
+``semantic confirm`` writes them into the documents, ``semantic validate`` (checks 3 and
+4) holds every document to them, and ``semantic facts`` prints them for a writer. All
+three read them here, so one document gets one verdict whichever command looks at it.
+
+A path is one confirmations file, or a directory: every ``*.json`` directly in it whose
+``doc_format`` is ``semantic-confirmations/1``, in file-name order, its entries in order.
+Other JSON documents and other files are passed over; a file that is not readable JSON,
+or a confirmations file its schema refuses, is an error -- a half-written confirmations
+file must not drop a confirmation unnoticed.
+
+Per table (``bare_table``) the entries build the state ``apply_confirmations`` would leave
+in a document, later entries winning:
+
+- ``column:<c>.code_values``: a list replaces the column's confirmed values, one
+  ``{value, meaning}`` object is merged into them (a value already confirmed takes the
+  new meaning in place);
+- ``column:<c>.meaning``: the column's confirmed meaning;
+- ``summary.row``: an object is merged into the confirmed row fields, a string is the
+  row text (``grain_source`` is the one the entry set: ``semantic confirm`` also turns a
+  document's ``inferred`` grain into ``declared`` under a confirmed ``grain_columns`` or
+  ``unique``, which is what check 4 asks of the document);
+- ``question:<id>``: the answer, with the question's text when the entry carries
+  ``asked``.
+
+An entry whose value ``apply_confirmations`` would refuse whatever the document (a code
+value without a meaning, a row field the schema does not have, an empty answer) adds
+nothing. Each fact keeps who confirmed it and when.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .names import bare_table
+from .schema import CONFIRMATIONS_FORMAT, DOC_FORMAT, packaged_schema, schema_errors
+
+_COLUMN_TARGET = re.compile(r"column:(?P<column>[^.\s]+)\.(?P<slot>meaning|code_values)")
+# The row fields `semantic facts` prints first, in this order; any other confirmed row
+# field follows in name order.
+_ROW_ORDER = ("grain_columns", "grain_source", "unique", "text", "note")
+# The row's enum values in words for a writer, each followed by the field's own value.
+_ROW_VALUES = {
+    "unique": {"yes": "是", "no": "否", "unknown": "未知"},
+    "grain_source": {"declared": "声明", "inferred": "推断", "proven": "血缘证明"},
+}
+_ROW_WORDS = {
+    "grain_columns": "行粒度列",
+    "grain_source": "行粒度来源",
+    "unique": "按粒度列唯一",
+    "text": "一行是什么",
+    "note": "行的说明",
+}
+
+
+class ConfirmationsError(Exception):
+    """A confirmations path that cannot be read; ``messages`` say where and why."""
+
+    def __init__(self, messages: list[str]):
+        super().__init__("\n".join(messages))
+        self.messages = messages
+
+
+@dataclass(frozen=True)
+class Fact:
+    """One confirmed value, who confirmed it and when."""
+
+    value: object
+    by: str
+    date: str
+    asked: str | None = None
+
+
+@dataclass
+class TableConfirmed:
+    """The confirmed state of one table."""
+
+    row: dict[str, Fact] = field(default_factory=dict)
+    meanings: dict[str, Fact] = field(default_factory=dict)
+    codes: dict[str, dict[str, Fact]] = field(default_factory=dict)
+    answers: dict[str, Fact] = field(default_factory=dict)
+
+    def code_meanings(self, column: str) -> dict[str, str]:
+        """``value -> meaning`` confirmed on one column, in confirmed order."""
+        return {value: str(fact.value) for value, fact in self.codes.get(column, {}).items()}
+
+    def row_fields(self) -> dict[str, object]:
+        """The confirmed row fields, ``field -> value``."""
+        return {name: fact.value for name, fact in self.row.items()}
+
+    def __bool__(self) -> bool:
+        return bool(self.row or self.meanings or self.codes or self.answers)
+
+
+@dataclass
+class Confirmations:
+    """The confirmations read from one path: the files, their entries, the state per table."""
+
+    path: str
+    files: list[str]
+    entries: list[dict]
+    tables: dict[str, TableConfirmed]
+
+    def for_table(self, table: object) -> TableConfirmed | None:
+        return self.tables.get(bare_table(table))
+
+
+def read_confirmations(path: str | Path) -> Confirmations | None:
+    """The confirmations at ``path`` (a file or a directory); None when a directory holds
+    no confirmations file. Raises :class:`ConfirmationsError` when ``path`` does not exist
+    or a file cannot be read or fits no schema."""
+    root = Path(path)
+    if root.is_dir():
+        candidates = sorted(item for item in root.glob("*.json") if item.is_file())
+        explicit = False
+    elif root.is_file():
+        candidates, explicit = [root], True
+    else:
+        raise ConfirmationsError([f"--confirmations does not exist: {root}"])
+    files, entries, messages = [], [], []
+    for file in candidates:
+        try:
+            document = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            messages.append(f"--confirmations {file}: not a readable JSON document ({error})")
+            continue
+        if not explicit and not (
+            isinstance(document, dict) and document.get("doc_format") == CONFIRMATIONS_FORMAT
+        ):
+            continue
+        errors = schema_errors(document, CONFIRMATIONS_FORMAT)
+        if errors:
+            messages += [f"--confirmations {file} {error['at'] or '(document)'}: {error['message']}"
+                         for error in errors]
+            continue
+        files.append(str(file))
+        entries += document["confirmations"]
+    if messages:
+        raise ConfirmationsError(messages)
+    if not files:
+        return None
+    return Confirmations(path=str(root), files=files, entries=entries,
+                         tables=confirmed_state(entries))
+
+
+def confirmed_state(entries: list[dict]) -> dict[str, TableConfirmed]:
+    """``db.table -> TableConfirmed`` built from ``entries`` in order; later entries win."""
+    tables: dict[str, TableConfirmed] = {}
+    for entry in entries:
+        state = tables.setdefault(bare_table(entry.get("table")), TableConfirmed())
+        _take(state, entry)
+    return {table: state for table, state in tables.items() if state}
+
+
+def _take(state: TableConfirmed, entry: dict) -> None:
+    target, value = str(entry.get("target")), entry.get("value")
+    by, date = str(entry.get("by")), str(entry.get("date"))
+    if target.startswith("question:"):
+        if isinstance(value, str) and value.strip():
+            state.answers[target.split(":", 1)[1]] = Fact(value, by, date, entry.get("asked"))
+        return
+    if target == "summary.row":
+        fields = _row_fields(value)
+        for name, item in (fields or {}).items():
+            state.row[name] = Fact(item, by, date)
+        return
+    match = _COLUMN_TARGET.fullmatch(target)
+    if match is None:
+        return
+    column = match["column"]
+    if match["slot"] == "meaning":
+        if isinstance(value, str) and value.strip():
+            state.meanings[column] = Fact(value, by, date)
+        return
+    items = value if isinstance(value, list) else [value] if isinstance(value, dict) else None
+    if not items or not all(_is_code(item) for item in items):
+        return
+    if isinstance(value, list):
+        state.codes[column] = {}
+    codes = state.codes.setdefault(column, {})
+    for item in items:
+        codes[item["value"]] = Fact(item["meaning"], by, date)
+
+
+def _is_code(item) -> bool:
+    return (isinstance(item, dict) and isinstance(item.get("value"), str)
+            and isinstance(item.get("meaning"), str) and bool(item["meaning"].strip()))
+
+
+def _row_fields(value) -> dict | None:
+    """The row fields a ``summary.row`` value sets, or None when ``apply_confirmations``
+    would refuse it: a string is the text; an object must fit the row's schema."""
+    if isinstance(value, str):
+        return {"text": value} if value.strip() else None
+    if not isinstance(value, dict) or not value:
+        return None
+    schema = packaged_schema(DOC_FORMAT)
+    row = schema["definitions"]["row"]
+    fields_schema = {
+        "definitions": schema["definitions"], "type": "object",
+        "properties": row["properties"], "additionalProperties": False,
+    }
+    from jsonschema import Draft7Validator
+
+    if any(True for _ in Draft7Validator(fields_schema).iter_errors(value)):
+        return None
+    return dict(value)
+
+
+# ------------------------------------------------------------------ facts text
+
+
+def render_facts(confirmations: Confirmations | None, tables: list[str]) -> str:
+    """The confirmed facts of each table as plain lines, the text a writing prompt's
+    ``{FACTS}`` takes.
+
+    Per table a header line, then one fact per line -- the row fields, the column
+    meanings, the code values, the answered questions -- each ending with who confirmed
+    it and when (``unique`` and ``grain_source`` in words, the field's value after them); ``无`` when the table has none. Line breaks inside a confirmed text are
+    folded to spaces, so one line is always one fact.
+    """
+    lines: list[str] = []
+    for table in tables:
+        name = bare_table(table)
+        state = confirmations.for_table(name) if confirmations else None
+        lines.append(f"表 {name} 已确认的事实：")
+        facts = _fact_lines(state) if state else []
+        lines += facts or ["无"]
+    return "\n".join(lines) + "\n"
+
+
+def _fact_lines(state: TableConfirmed) -> list[str]:
+    lines = []
+    names = [name for name in _ROW_ORDER if name in state.row]
+    names += sorted(name for name in state.row if name not in _ROW_ORDER)
+    for name in names:
+        fact = state.row[name]
+        word = _ROW_WORDS.get(name, f"行字段 {name}")
+        lines.append(f"- {word}：{_row_value(name, fact.value)}{_by(fact)}")
+    for column, fact in state.meanings.items():
+        lines.append(f"- 列 {column} 的含义：{_one_line(fact.value)}{_by(fact)}")
+    for column, codes in state.codes.items():
+        for value, fact in codes.items():
+            lines.append(f"- 列 {column} 的码值「{_one_line(value)}」：{_one_line(fact.value)}"
+                         f"{_by(fact)}")
+    for question_id in sorted(state.answers, key=_question_order):
+        fact = state.answers[question_id]
+        asked = f"（问：{_one_line(fact.asked)}）" if fact.asked else " "
+        lines.append(f"- 问题 {question_id}{asked}的回答：{_one_line(fact.value)}{_by(fact)}")
+    return lines
+
+
+def _question_order(question_id: str) -> tuple:
+    digits = question_id.lstrip("q")
+    return (0, int(digits), question_id) if digits.isdigit() else (1, 0, question_id)
+
+
+def _row_value(name: str, value) -> str:
+    """A row field's value as a writer reads it: an enum in words, with the field's value."""
+    words = _ROW_VALUES.get(name, {})
+    if isinstance(value, str) and value in words:
+        return f"{words[value]}（{name}: {value}）"
+    return _value_text(value)
+
+
+def _value_text(value) -> str:
+    if isinstance(value, list):
+        return "、".join(_one_line(item) for item in value) or "（无）"
+    if isinstance(value, str):
+        return _one_line(value)
+    return _one_line(json.dumps(value, ensure_ascii=False))
+
+
+def _one_line(text) -> str:
+    return " ".join(str(text if text is not None else "").split())
+
+
+def _by(fact: Fact) -> str:
+    return f"（{_one_line(fact.by)} 于 {fact.date} 确认）"

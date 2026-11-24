@@ -1,5 +1,5 @@
-"""The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``, ``render``,
-and ``status`` / ``fixed`` / ``digest`` (in :mod:`scope_lineage.cli_semantic_status`).
+"""The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``, ``facts``,
+``render``, and ``status`` / ``fixed`` / ``digest`` (in :mod:`scope_lineage.cli_semantic_status`).
 
 Kept out of ``cli.py`` like ``tables`` and ``catalog``. This module is where the inputs
 are loaded -- the lineage walk ``describe`` uses, the task JSON reader ``parse`` uses,
@@ -51,6 +51,12 @@ from .semantics import (
     schema_errors,
     validation_report,
 )
+from .semantics.confirmed import (
+    Confirmations,
+    ConfirmationsError,
+    read_confirmations,
+    render_facts,
+)
 from .semantics.digests import document_digest
 from .semantics.names import bare_table
 from .semantics.checks_documented import QUALIFIER_TERMS
@@ -58,6 +64,8 @@ from .semantics.packet import PACKET_FORMAT
 from .semantics.review_notes import parse_review, with_fix_record
 from .semantics.status import NEXT_FORMAT, STATUS_FORMAT, document_flags, review_verdict
 from .semantics.validate import REPORT_FORMAT, check_file, report_flags
+
+CONFIRMATIONS_DIRECTORY = "confirmations"
 
 # The toolchain's own documents that may sit beside the ones `validate` checks; a status
 # report of the previous format is still one of them.
@@ -97,11 +105,22 @@ def add_semantic_parser(subcommands) -> None:
         "its qualifier_terms are added to check 12's generic qualifiers (税 / 增值税 / "
         "手续费 / 测试)",
     )
+    add_confirmations_option(validate, "confirmations/ beside the directory")
     confirm =actions.add_parser(
-        "confirm", help="Apply a semantic-confirmations/1 file to table-semantics documents"
+        "confirm",
+        help=(
+            "Apply semantic-confirmations/1 files to table-semantics documents; replaying "
+            "the same confirmations changes nothing"
+        ),
     )
     confirm.add_argument("directory", help="Directory of table-semantics/1 JSON documents")
-    confirm.add_argument("--confirmations", required=True, help="A semantic-confirmations/1 file")
+    confirm.add_argument(
+        "--confirmations", required=True,
+        help=(
+            "A semantic-confirmations/1 file, or a directory: every *.json in it whose "
+            "doc_format is semantic-confirmations/1, in file-name order"
+        ),
+    )
     confirm.add_argument(
         "--out", help="Write the confirmed documents here instead of rewriting them in place"
     )
@@ -113,8 +132,67 @@ def add_semantic_parser(subcommands) -> None:
             "record (fixed_doc_digest) moves to the confirmed document. Not with --out"
         ),
     )
+    _add_facts_parser(actions)
     _add_render_parser(actions)
     add_status_parsers(actions)
+
+
+def _add_facts_parser(actions) -> None:
+    facts = actions.add_parser(
+        "facts",
+        help="Print the facts the owner confirmed for tables, one per line (a prompt's {FACTS})",
+    )
+    facts.add_argument(
+        "--confirmations", required=True,
+        help=(
+            "A semantic-confirmations/1 file, or a directory of them (a run's "
+            "confirmations/); a directory holding none prints 无 for every table"
+        ),
+    )
+    facts.add_argument(
+        "--table", required=True, action="append", metavar="TABLE",
+        help="A table (db.table, a catalog prefix is ignored); repeatable, printed in this order",
+    )
+
+
+def add_confirmations_option(parser, default: str) -> None:
+    """``--confirmations`` of every command that validates documents."""
+    parser.add_argument(
+        "--confirmations", metavar="PATH",
+        help=(
+            "The owner's confirmations checks 3 and 4 hold the documents to: a "
+            "semantic-confirmations/1 file, or a directory of them (default: "
+            f"{default}, when it exists). Read ones are announced on stderr"
+        ),
+    )
+
+
+def load_confirmations(args: argparse.Namespace, default: Path) -> Confirmations | None | int:
+    """``--confirmations``, else ``default`` when it is a directory: the confirmations
+    read, None when there are none, or 2 (reported) when they cannot be read.
+
+    Confirmations that were read are announced on stderr with where they came from, as a
+    domain profile is: they change a verdict, so they must never do it unnoticed. With
+    none, nothing is printed and every output is what it was without them.
+    """
+    path, source = getattr(args, "confirmations", None), "--confirmations"
+    if not path:
+        if not default.is_dir():
+            return None
+        path, source = default, "default"
+    try:
+        confirmations = read_confirmations(path)
+    except ConfirmationsError as error:
+        for message in error.messages:
+            print(message, file=sys.stderr)
+        return 2
+    if confirmations is not None:
+        print(
+            f"confirmations: {confirmations.path} ({len(confirmations.files)} file(s), "
+            f"{len(confirmations.entries)} entry(ies), from {source})",
+            file=sys.stderr,
+        )
+    return confirmations
 
 
 def _add_render_parser(actions) -> None:
@@ -135,6 +213,7 @@ def _add_render_parser(actions) -> None:
         ),
     )
     add_packets_option(render)
+    add_confirmations_option(render, "confirmations/ beside the directory")
 
 
 def _add_packet_parser(actions) -> None:
@@ -231,6 +310,8 @@ def run_semantic(args: argparse.Namespace) -> int:
         return run_fixed(args)
     if args.semantic_command == "digest":
         return run_digest(args)
+    if args.semantic_command == "facts":
+        return _run_facts(args)
     return _run_confirm(args)
 
 
@@ -548,6 +629,9 @@ def _run_validate(args: argparse.Namespace) -> int:
         if not path.is_dir():
             print(f"{flag} does not exist: {path}", file=sys.stderr)
             return 2
+    confirmations = load_confirmations(args, directory.parent / CONFIRMATIONS_DIRECTORY)
+    if isinstance(confirmations, int):
+        return confirmations
     files = sorted(directory.rglob("*.json"))
     if not files:
         print(f"no JSON document under {directory}", file=sys.stderr)
@@ -556,9 +640,9 @@ def _run_validate(args: argparse.Namespace) -> int:
         files = _only_files(files, args.only)
         if files is None:
             return 1
-    checked = [_check_path(path, directory, packets, terms) for path in files]
+    checked = [_check_path(path, directory, packets, terms, confirmations) for path in files]
     entries = [entry for entry in checked if entry is not None]
-    report = validation_report(entries)
+    report = validation_report(entries, confirmations)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
@@ -595,7 +679,8 @@ def _only_files(files: list[Path], only: list[str]) -> list[Path] | None:
 
 
 def _check_path(
-    path: Path, directory: Path, packets: Path, terms: tuple[str, ...] = QUALIFIER_TERMS
+    path: Path, directory: Path, packets: Path, terms: tuple[str, ...] = QUALIFIER_TERMS,
+    confirmations: Confirmations | None = None,
 ) -> dict | None:
     """One file's report entry; None for this toolchain's other documents.
 
@@ -611,7 +696,8 @@ def _check_path(
     if isinstance(document, dict) and document.get("doc_format") in _OTHER_FORMATS:
         return None
     table = document.get("table") if isinstance(document, dict) else None
-    return check_file(document, _read_packet(packets, table), file, qualifier_terms=terms)
+    return check_file(document, _read_packet(packets, table), file, qualifier_terms=terms,
+                      confirmations=confirmations)
 
 
 def _read_packet(packets: Path, table) -> dict | None:
@@ -636,9 +722,13 @@ def _run_confirm(args: argparse.Namespace) -> int:
         print("--reviews is read only when the documents are confirmed in place, not with --out",
               file=sys.stderr)
         return 2
-    confirmations = _read_confirmations(Path(args.confirmations))
-    if confirmations is None:
+    try:
+        read = read_confirmations(args.confirmations)
+    except ConfirmationsError as error:
+        for message in error.messages:
+            print(message, file=sys.stderr)
         return 2
+    confirmations = read.entries if read is not None else []
     documents, files = _semantic_documents(directory)
     before = {table: document_digest(document) for table, document in documents.items()}
     result = apply_confirmations(documents, confirmations)
@@ -694,18 +784,6 @@ def _carry_fix_records(reviews: Path, result, before: dict[str, str]) -> None:
         print(f"  {table}  fixed_doc_digest {digest}  {path}")
 
 
-def _read_confirmations(path: Path) -> list | None:
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        print(f"--confirmations: not a readable JSON document ({error})", file=sys.stderr)
-        return None
-    errors = schema_errors(document, CONFIRMATIONS_FORMAT)
-    for error in errors:
-        print(f"--confirmations {error['at'] or '(document)'}: {error['message']}", file=sys.stderr)
-    return None if errors else document["confirmations"]
-
-
 def _semantic_documents(directory: Path) -> tuple[dict, dict]:
     documents, files = {}, {}
     for path in sorted(directory.rglob("*.json")):
@@ -718,6 +796,21 @@ def _semantic_documents(directory: Path) -> tuple[dict, dict]:
             documents[table] = document
             files[table] = path.relative_to(directory)
     return documents, files
+
+
+# ------------------------------------------------------------------ facts
+
+
+def _run_facts(args: argparse.Namespace) -> int:
+    """Print the confirmed facts of each ``--table``; 2 when the confirmations cannot be read."""
+    try:
+        confirmations = read_confirmations(args.confirmations)
+    except ConfirmationsError as error:
+        for message in error.messages:
+            print(message, file=sys.stderr)
+        return 2
+    print(render_facts(confirmations, args.table), end="")
+    return 0
 
 
 # ------------------------------------------------------------------ render
@@ -742,6 +835,9 @@ def _run_render(args: argparse.Namespace) -> int:
     for value in (validation, ontology, packets):
         if isinstance(value, int):
             return value
+    confirmations = load_confirmations(args, directory.parent / CONFIRMATIONS_DIRECTORY)
+    if isinstance(confirmations, int):
+        return confirmations
     documents, skipped = _renderable_documents(directory)
     if not documents:
         print(f"no table-semantics/1 document to render under {directory}", file=sys.stderr)
@@ -752,7 +848,7 @@ def _run_render(args: argparse.Namespace) -> int:
     for name, body in pages.items():
         (out / name).write_text(body, encoding="utf-8")
     print(f"Rendered {len(documents)} table page(s) and index.md (skipped={skipped}) -> {out}")
-    warn_unfit(documents, packets, validation)
+    warn_unfit(documents, packets, validation, confirmations)
     return 1 if skipped else 0
 
 
@@ -788,17 +884,21 @@ def packets_directory(args: argparse.Namespace) -> Path | None | int:
     return beside if beside.is_dir() else None
 
 
-def warn_unfit(documents: list[dict], packets: Path | None, validation: dict | None = None) -> None:
+def warn_unfit(
+    documents: list[dict], packets: Path | None, validation: dict | None = None,
+    confirmations: Confirmations | None = None,
+) -> None:
     """Name on stderr the tables whose document is not fit to publish.
 
-    Judged against the packets when there are any (``status``'s rules), else read from a
-    validation report; with neither, say that nothing was checked. One line per flag.
+    Judged against the packets when there are any (``status``'s rules, with the same
+    ``confirmations``), else read from a validation report; with neither, say that
+    nothing was checked. One line per flag.
     """
     tables = sorted(bare_table(document["table"]) for document in documents)
     if packets is not None:
         flags = {
             bare_table(document["table"]): document_flags(
-                document, _read_packet(packets, document["table"])
+                document, _read_packet(packets, document["table"]), confirmations
             )
             for document in documents
         }

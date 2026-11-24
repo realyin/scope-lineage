@@ -6,9 +6,10 @@ A run keeps one directory per step, each overridable::
     <run>/docs/<db.table>.json             written, validated and fixed by the model
     <run>/reviews/<db.table>.md            the independent review, with front matter
     <run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
+    <run>/confirmations/*.json             the owner's semantic-confirmations/1 files
 
 ``status`` reads what is there, validates each document in-process against its packet
-and reports each table's stage (:mod:`scope_lineage.semantics.status`); ``--next`` lists
+(and the run's confirmations, as ``semantic validate`` does) and reports each table's stage (:mod:`scope_lineage.semantics.status`); ``--next`` lists
 the tables a step still needs, in batches, so a rerun after an interruption picks up
 where the last one stopped. ``fixed`` is a fix's last step: it writes the fix record
 (``fixed_doc_digest``) into the review's front matter, only for a valid document revised
@@ -62,6 +63,7 @@ def add_status_parsers(actions) -> None:
         "--batch-size", type=_positive, default=5, help="Tables per batch with --next (5)"
     )
     status.add_argument("--out", help="Write the --next batches here instead of stdout")
+    _confirmations_option(status)
     _add_fixed_parser(actions)
     digest = actions.add_parser(
         "digest", help="Print the digest of table-semantics documents, for a review's front matter"
@@ -81,6 +83,19 @@ def _add_fixed_parser(actions) -> None:
     for name in _DIRECTORIES[:3]:
         fixed.add_argument(f"--{name}", help=f"Directory instead of <run>/{name}")
     add_only(fixed, "The tables whose fix finished (db.table)", required=True)
+    _confirmations_option(fixed)
+
+
+def _confirmations_option(parser) -> None:
+    from .cli_semantic import add_confirmations_option
+
+    add_confirmations_option(parser, "<run>/confirmations")
+
+
+def _run_confirmations(args: argparse.Namespace, run: Path):
+    from .cli_semantic import CONFIRMATIONS_DIRECTORY, load_confirmations
+
+    return load_confirmations(args, run / CONFIRMATIONS_DIRECTORY)
 
 
 def _positive(text: str) -> int:
@@ -99,9 +114,17 @@ def run_status(args: argparse.Namespace) -> int:
     if not run.is_dir():
         print(f"run directory does not exist: {run}", file=sys.stderr)
         return 2
+    confirmations = _run_confirmations(args, run)
+    if isinstance(confirmations, int):
+        return confirmations
     directories = {name: Path(getattr(args, name) or run / name) for name in _DIRECTORIES}
-    entries = [table_status(files) for files in _table_files(directories, args.only)]
-    report = status_report(entries, {name: str(path) for name, path in directories.items()})
+    entries = [table_status(files, confirmations)
+               for files in _table_files(directories, args.only)]
+    named = {name: str(path) for name, path in directories.items()}
+    if confirmations is not None:
+        # Only when read: without confirmations the report is what it always was.
+        named["confirmations"] = confirmations.path
+    report = status_report(entries, named)
     stdout_taken = args.json == "-" or (args.next and not args.out)
     if args.json:
         _emit(report, args.json)
@@ -119,11 +142,14 @@ def run_fixed(args: argparse.Namespace) -> int:
     if not run.is_dir():
         print(f"run directory does not exist: {run}", file=sys.stderr)
         return 2
+    confirmations = _run_confirmations(args, run)
+    if isinstance(confirmations, int):
+        return confirmations
     directories = {name: Path(getattr(args, name, None) or run / name) for name in _DIRECTORIES}
     reviews = _reviews(directories["reviews"])
     code = 0
     for files in _table_files(directories, args.only, reviews):
-        entry = table_status(files)
+        entry = table_status(files, confirmations)
         refusal = _fix_refusal(entry, files)
         if refusal:
             print(f"{files.table}: no fix record written: {refusal}", file=sys.stderr)

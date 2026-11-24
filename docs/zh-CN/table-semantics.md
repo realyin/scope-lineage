@@ -11,7 +11,8 @@
   及其 SQL、输入表、语义画像已经推出的血缘事实；
 - `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验，外加只看文字的第 14 项）检查写好的
   `table-semantics/1` 文档，逐条列出要重写的地方；
-- `scope-lineage semantic confirm` 把人的回答写回文档；
+- `scope-lineage semantic confirm` 把人的回答写回文档，每次写作之后都可以重放；`scope-lineage semantic facts`
+  把这些回答逐条打印出来，交给写作者；
 - `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接；
 - `scope-lineage semantic status` 读回一个运行目录，报告每张表走到哪一步，并把下一步要处理的表分好批；
   `scope-lineage semantic fixed` 记录一次修订已经做完。
@@ -337,10 +338,19 @@ Schema 只查结构。模型常出错的两个数量故意留给第 7 项检查�
 ## `semantic validate`
 
 ```bash
-scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json] [--domain-profile <file>]
+scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json] [--domain-profile <file>] [--confirmations <path>]
 ```
 
 `--domain-profile` 读一份 `domain-profile/1` 文件，其中的 `qualifier_terms` 加到第 12 项的通用限定词上；文件读不了时退出码 2。
+
+`--confirmations` 指定 owner 的确认：一个 `semantic-confirmations/1` 文件，或放这类文件的目录（目录下直接的每个
+`*.json`，`doc_format` 是 `semantic-confirmations/1` 的才读，按文件名顺序；其他文件跳过）。不给时，`<documents>`
+旁边有 `confirmations/` 就读它——运行目录里 `<run>/docs` 与 `<run>/confirmations` 并列。第 3、4 项随后按每份文档
+自己那张表的确认来查（见下表）。读到确认时，标准错误打印一行（`confirmations: <路径> (N file(s), M entry(ies),
+from --confirmations|default)`），`--json` 报告顶层多一个 `confirmations` 对象（`path`、`files`、`entries`）；
+标准输出的文字汇总格式不变。一个确认文件都没找到时，所有输出与没有这项功能时逐字节相同。确认文件读不了或不合
+Schema 时退出码 2。`semantic status`、`semantic fixed`、`semantic render` 和 `catalog digest` 用同样的规则读同一份
+确认，所以同一份文档不论由哪个命令判定，结论都一样。
 
 读取 `<documents>` 下每个 `*.json`；工具链自己的其他文档（`semantic-confirmations/1`、材料包、报告）跳过，
 其他一律检查。Schema 不通过的文档报出错误、不做交叉检查。合法的文档与 `<packet dir>/<table>/packet.json`
@@ -359,8 +369,8 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | --- | --- | --- | --- |
 | 1 | `coverage` | 缺目标表的列、多出或重复的列、顺序与表内不一致 | — |
 | 2 | `source_columns` | 来源列既不在该列的血缘里，也不在任何输入表里（该列的血缘是它各 producer 的来源列加查码关联键 `lookup_keys`：从内联字典这类常量行集读值时，决定读哪一行的物理键） | 只在输入表元数据里，不在该列的血缘里 |
-| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`）。码值要单独出现，不能是更长的词或数字的一部分；只有在注释（列注释、来源列注释、SQL 头注释）里，以数字结尾的码值后面可以直接跟字母（`1普通2VIP回访` 里的 `2`）。空值（`""` 或只有空白）不按文字找：只有该列某个 producer 会写出 `''`（`literal_outputs`：COALESCE / NVL 的回填、常量、CASE / IF 的分支）才通过，`''` 只出现在条件里不算。每个 producer 都是 `constant_only` 的列只会有这些常量：它的每个码值（含 `unconfirmed` 的）都必须是其中之一，只写 NULL 的列没有码值。没有 `literal_outputs` 的材料包没有这样的列 | — |
-| 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键 | 声称的粒度列与证明的键不同 |
+| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`）。码值要单独出现，不能是更长的词或数字的一部分；只有在注释（列注释、来源列注释、SQL 头注释）里，以数字结尾的码值后面可以直接跟字母（`1普通2VIP回访` 里的 `2`）。空值（`""` 或只有空白）不按文字找：只有该列某个 producer 会写出 `''`（`literal_outputs`：COALESCE / NVL 的回填、常量、CASE / IF 的分支）才通过，`''` 只出现在条件里不算。每个 producer 都是 `constant_only` 的列只会有这些常量：它的每个码值（含 `unconfirmed` 的）都必须是其中之一，只写 NULL 的列没有码值。没有 `literal_outputs` 的材料包没有这样的列。有确认时，owner 为这张表这一列确认过的码值不需要注释或 SQL 依据；反过来，每个确认过的码值都必须出现在该列、不标 `unconfirmed`、含义与确认一致（NFKC、合并空白后比较），报错让写作者照确认写，不会引导标 `unconfirmed`。常量列与空值两条仍然优先：这种列不会写出的确认值判失败，报错说确认与 SQL 矛盾、交回 owner | — |
+| 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键。有行粒度确认时：确认的 `grain_columns` 与文档的集合不同、确认的 `unique` 与文档不同，或确认了二者之一而 `grain_source` 写成 `inferred` | 声称的粒度列与证明的键不同 |
 | 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则。原文本身或它的某个 AND 合取项（去掉注释）以某种形式与过滤相等，才算引用；原文是整句（SELECT、INSERT … SELECT 等）时，它里面每个 WHERE / HAVING / ON（含嵌套子查询的）的合取项也算；只是包含过滤文字的更长原文（CASE 分支、MERGE 条件）不算。带 `right_of` 且 `right_side_kind` 为 `rank_first` 或 `values` 的过滤不要求引用；只带 `right_of` 的仍要用规则引用，提示里写明不要写进 `summary.scope`。修法是照抄这一个条件，不必抄整段 WHERE | 材料包里没有 SQL，无法核对原文 |
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过八个 | — |
@@ -458,7 +468,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 | --- | --- |
 | 0 | 所有文档都通过 Schema，且没有交叉检查失败（允许有警告） |
 | 1 | 至少一份文档有 Schema 错误或交叉检查失败（`packet_digest` 过期、没有材料包都算；报告照常打印），或目录里没有 JSON |
-| 2 | 文档目录或 `--packets` 不存在 |
+| 2 | 文档目录或 `--packets` 不存在，或确认文件读不了、不合 Schema |
 
 ## 独立审读与修订
 
@@ -488,12 +498,15 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 <run>/reviews/<db.table>.fixlog.txt     修订者的逐条处理，按审读摘要分段追加；status 不读它
 <run>/reviews/<db.table>.prior.fixlog.txt   重写前的修订记录，只交给修正点清单脚本；status 不读它
 <run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
+<run>/confirmations/*.json             the owner's semantic-confirmations/1 files
 ```
 
 每个目录都可以用 `--packets`、`--docs`、`--reviews`、`--pages` 换到别处（例如把页面放在 `catalog render`
 输出目录下的 `<pages>/semantics`）。表的集合是材料包、文档、审读三处出现过的表的并集；给了 `--only` 时就是
 这几张表，运行目录里什么都没有的表记为 `no_packet`。文档目录里工具链自己的其他文档（确认文件、校验报告、
-status 报告、分批文件）跳过，与 `validate` 相同。
+status 报告、分批文件）跳过，与 `validate` 相同。每份文档按这一轮的确认校验，与 `semantic validate` 相同：
+`--confirmations`，不给时 `<run>/confirmations` 存在就读。读到确认时，`--json` 报告的 `directories` 多一项
+`confirmations`；没读到时报告不变。
 
 ### 阶段
 
@@ -567,7 +580,7 @@ scope-lineage semantic fixed <run> --only <db.table> ... [--packets <dir>] [--do
 | --- | --- |
 | 0 | 每张表的回执都写入了 |
 | 1 | 至少一张表被拒绝（其余的照常写入） |
-| 2 | 运行目录不存在，或没有 `--only` |
+| 2 | 运行目录不存在、没有 `--only`，或确认文件读不了 |
 
 ### 审读的 front matter
 
@@ -591,9 +604,9 @@ low: 0
 ### 输出
 
 ```bash
-scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]]
+scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]] [--confirmations <path>]
 scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
-scope-lineage semantic fixed <run> --only <db.table> ...
+scope-lineage semantic fixed <run> --only <db.table> ... [--confirmations <path>]
 scope-lineage semantic digest <doc.json> ...
 ```
 
@@ -663,15 +676,15 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
 | 退出码 | 条件 |
 | --- | --- |
 | 0 | 已报告（有表过期或校验不通过也是 0） |
-| 2 | 运行目录不存在，或 `--json -` 与不带 `--out` 的 `--next` 都要占用标准输出 |
+| 2 | 运行目录不存在，`--json -` 与不带 `--out` 的 `--next` 都要占用标准输出，或确认文件读不了 |
 
 ## `semantic confirm`
 
 ```bash
-scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir> | --reviews <dir>]
+scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out <dir> | --reviews <dir>]
 ```
 
-确认文件是 `semantic-confirmations/1` 文档（Schema：`scope_lineage/schemas/semantic-confirmations.schema.json`）。
+`--confirmations` 是一个文件或放这类文件的目录，读法与 `semantic validate` 相同（按文件名顺序、条目按原顺序）。确认文件是 `semantic-confirmations/1` 文档（Schema：`scope_lineage/schemas/semantic-confirmations.schema.json`）。
 每条写明一张表、一个目标、回答（`value`）、回答人（`by`）和日期（`date`，`YYYY-MM-DD`）：
 
 ```json
@@ -694,9 +707,12 @@ scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir> |
 | `question:<id>` | 回答文字 | `status: answered`，写入 `answer`、`answered_by`、`answered_on` |
 | `column:<c>.meaning` | 含义文字 | 替换 `meaning`；该列 `sources` 加 `confirmed` |
 | `column:<c>.code_values` | `{value, meaning}` 列表，或单个这样的对象 | 列表整体替换码值，单个对象合并进去；每个被确认的码值加 `confirmed` 并置 `unconfirmed: false` |
-| `summary.row` | 行字段组成的对象，或行描述文字 | 合并进 `summary.row`；其 `sources` 加 `confirmed` |
+| `summary.row` | 行字段组成的对象，或行描述文字 | 合并进 `summary.row`；其 `sources` 加 `confirmed`。对象设了 `grain_columns` 或 `unique` 而没设 `grain_source` 时，`inferred` 的粒度改成 `declared`（`declared`、`proven` 不动） |
 
-每条已套用的确认记入 `confirmed[]`，同一文件套用两次，第二次不改变任何东西。表、问题或列不存在、值的形状不对、
+每条已套用的确认记入 `confirmed[]`（同一目标、同一人、同一天只记一次）。同样的确认套用两次，第二次不改变任何东西：
+文档一个字节都不变，`confirmed[]` 不新增，摘要行里变化的表是 0 张。所以运行中每次写作或修订之后都可以重放确认；
+重放到重写过的文档上，会把确认过的槽位放回去（码值含义并置 `unconfirmed: false`、行字段、列含义、问题的回答），
+`semantic validate` 的第 3、4 项随后就会通过。表、问题或列不存在、值的形状不对、
 或套用后文档会违反 Schema 的确认，**不套用、也不丢弃**：摘要行计入 `unmatched`，并逐条列出原因。不给 `--out`
 时就地改写有变化的文档；给了 `--out` 时所有文档写到那里，原文件不动。确认文件本身格式不对时退出码 2，
 `--reviews` 与 `--out` 同时给也是 2。
@@ -720,6 +736,35 @@ owner 的回答不是要修订者再看一遍的修改。就地确认时，工�
 `<db.table>  fixed_doc_digest <摘要>  <审读路径>`。这张表随后是 `fixed render_stale`：`--next render` 会列出它，
 `--next fix` 不会。审读没有认可的表，审读文件不动（修订还没做完）；给了 `--out` 时不动任何审读。
 
+## `semantic facts`
+
+```bash
+scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...]
+```
+
+按给出的顺序，把 owner 为每张表确认过的事实逐行打印出来：这就是写作、审读提示词里「已确认事实」要填的文字。
+`--confirmations` 的读法与 `semantic confirm` 相同；每张表的状态就是 `semantic confirm` 会留下的状态（后面的条目
+优先，码值列表替换确认过的集合，单个对象合并进去）。每张表先打一行表头，再每条事实一行——行字段（粒度列、粒度
+来源、是否唯一、一行是什么、说明）、列含义、码值、已回答的问题（条目带 `asked` 时附上问题原文）——每行末尾写明谁
+在哪天确认；`unique` 与 `grain_source` 写成中文并在括号里附字段值（`是（unique: yes）`、
+`声明（grain_source: declared）`）；确认文字里的换行换成空格。没有确认的表打印 `无`。示例确认文件的输出：
+
+```text
+表 demo_dwd.dwd_party_customer_info_df 已确认的事实：
+- 按粒度列唯一：是（unique: yes）（demo-reviewer 于 2026-09-26 确认）
+- 行的说明：同一个 dt 分区内按客户号唯一，业务方已确认。（demo-reviewer 于 2026-09-26 确认）
+- 列 verify_status 的含义：实名认证状态（demo-reviewer 于 2026-09-26 确认）
+- 列 gender_cd 的码值「F」：女（demo-reviewer 于 2026-09-26 确认）
+- 列 gender_cd 的码值「M」：男（demo-reviewer 于 2026-09-26 确认）
+- 列 gender_cd 的码值「U」：未知（demo-reviewer 于 2026-09-26 确认）
+- 问题 q1 的回答：不会。注册系统只允许 F、M、U 三个值。（demo-reviewer 于 2026-09-26 确认）
+```
+
+| 退出码 | 条件 |
+| --- | --- |
+| 0 | 已打印（含没有确认事实的表） |
+| 2 | `--confirmations` 不存在，确认文件读不了或不合 Schema，或没有 `--table` |
+
 ## `semantic render`
 
 ```bash
@@ -738,6 +783,7 @@ scope-lineage semantic render <documents> --out <dir> \
 | `--validation` | 否 | `semantic validate --json` 写出的 `table-semantics-validation/1` 报告：页面标出未通过的条目，文末加「校验」一节，索引写通过率 |
 | `--ontology` | 否 | `catalog build` 写出的 `ontology.json`：每张表的域与概念取自目录，概念链到 `../concepts/<slug>.md` |
 | `--packets` | 否 | `semantic packet` 的 `--out`（不给时用 `<documents>` 旁边的 `packets/`，存在才读）；只用于下面的警告 |
+| `--confirmations` | 否 | 警告所做的校验读的 owner 确认，读法与 `semantic validate` 相同（不给时用 `<documents>` 旁边的 `confirmations/`，存在才读） |
 
 `packet_stale`（按另一版材料包写成）、`invalid`（`semantic validate` 有检查失败）或没有材料包的文档照常渲染，
 但在 stderr 按标记各打一行点名：`warning: packet_stale (written against another packet: rewrite it whole): <db.table>, ...`。
@@ -791,7 +837,7 @@ scope-lineage semantic render <documents> --out <dir> \
 | --- | --- |
 | 0 | 所有文档都已渲染（`packet_stale`、`invalid` 的文档也渲染，在 stderr 点名） |
 | 1 | 有文档不合 Schema（其余照常渲染），目录里没有可渲染的文档，或 `--validation` / `--ontology` 的 `doc_format` 不对 |
-| 2 | 文档目录、`--validation` 或 `--ontology` 不存在或读不了 |
+| 2 | 文档目录、`--validation` 或 `--ontology` 不存在或读不了，或确认文件读不了 |
 
 ## 与本体目录、与 `describe` 的关系
 

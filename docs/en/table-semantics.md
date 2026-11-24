@@ -16,7 +16,9 @@ deterministic work and never calls a model:
 - `scope-lineage semantic validate` checks a written `table-semantics/1` document against
   its JSON Schema and against the packet (thirteen cross checks, and a fourteenth on the prose alone), and lists per item what to
   rewrite;
-- `scope-lineage semantic confirm` writes a person's answers back into the documents;
+- `scope-lineage semantic confirm` writes a person's answers back into the documents, and
+  can be replayed after every write; `scope-lineage semantic facts` prints those answers as
+  plain lines for a writer;
 - `scope-lineage semantic render` renders the documents as one page per table and an
   index, linked both ways with the ontology catalog's concept pages;
 - `scope-lineage semantic status` reads a run directory back, reports each table's stage
@@ -438,11 +440,25 @@ check 7 so they land in the rewrite list instead of failing the whole document: 
 ## `semantic validate`
 
 ```bash
-scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json] [--domain-profile <file>]
+scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json] [--domain-profile <file>] [--confirmations <path>]
 ```
 
 `--domain-profile` reads a `domain-profile/1` file whose `qualifier_terms` are added to check
 12's generic qualifiers; a file that cannot be read exits 2.
+
+`--confirmations` names the owner's confirmations: a `semantic-confirmations/1` file, or a
+directory of them (every `*.json` directly in it whose `doc_format` is
+`semantic-confirmations/1`, in file-name order; other files are passed over). Without the
+flag, `confirmations/` beside `<documents>` is read when it exists -- the run layout keeps
+`<run>/docs` and `<run>/confirmations` side by side. Checks 3 and 4 then hold each document
+to what was confirmed for its own table (see the table below). Confirmations that were read
+are announced on standard error (`confirmations: <path> (N file(s), M entry(ies), from
+--confirmations|default)`) and the `--json` report gains a top-level `confirmations` object
+(`path`, `files`, `entries`); the text summary on standard output keeps its form. With no
+confirmations file found, every output is byte for byte what it is without this feature. A
+file that is not readable JSON or that its schema refuses exits 2. `semantic status`,
+`semantic fixed`, `semantic render` and `catalog digest` read the same confirmations the same
+way, so a document gets one verdict whichever command judges it.
 
 Every `*.json` under `<documents>` is read; the toolchain's own other documents
 (`semantic-confirmations/1`, packets, reports) are skipped, anything else is checked. A
@@ -464,8 +480,8 @@ The fourteen checks (thirteen against the packet, the last on the prose alone):
 | --- | --- | --- | --- |
 | 1 | `coverage` | a target column is missing, a column is extra or repeated, or the order differs from the table's | — |
 | 2 | `source_columns` | a source column is neither in that column's lineage nor in any input table (the column's lineage is its producers' sources plus their `lookup_keys`: for a value read off a constant row set such as an inline dictionary, the physical keys deciding which row is read) | it is only in an input table's metadata, not in the column's lineage |
-| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`). The value must stand alone, not inside a longer word or number; only in a comment (the column's, a source column's, the SQL header's) may a value ending in a digit run straight into letters (the `2` of `1普通2VIP回访`). An empty value (`""`, or blanks) is no text to find: it passes only when a producer of the column writes `''` (`literal_outputs`: a COALESCE / NVL fallback, a constant, a CASE / IF branch), not when `''` is only compared in a condition. A column every producer of which is `constant_only` holds its constants and nothing else: each of its code values, `unconfirmed` too, must be one of them, and a column that only writes NULL has none. A packet without `literal_outputs` has no such column | — |
-| 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet | the claimed grain columns differ from the proven key |
+| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`). The value must stand alone, not inside a longer word or number; only in a comment (the column's, a source column's, the SQL header's) may a value ending in a digit run straight into letters (the `2` of `1普通2VIP回访`). An empty value (`""`, or blanks) is no text to find: it passes only when a producer of the column writes `''` (`literal_outputs`: a COALESCE / NVL fallback, a constant, a CASE / IF branch), not when `''` is only compared in a condition. A column every producer of which is `constant_only` holds its constants and nothing else: each of its code values, `unconfirmed` too, must be one of them, and a column that only writes NULL has none. A packet without `literal_outputs` has no such column. With confirmations, a value the owner confirmed for this table and column needs no comment or SQL behind it; every confirmed value must then be in the column, not `unconfirmed`, with the confirmed meaning (compared after NFKC and folding whitespace), and the message says to write it as confirmed, never to mark it `unconfirmed`. The constant column and the empty value still come first: a confirmed value such a column never writes fails as a confirmation that contradicts the SQL, to take back to the owner | — |
+| 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet. With a confirmed row: a confirmed `grain_columns` differs from the document's set, a confirmed `unique` from its value, or either is confirmed and `grain_source` is `inferred` | the claimed grain columns differ from the proven key |
 | 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule. A quote cites a filter when it, or one of its AND conjuncts (comments dropped), equals the filter in some form; when the quote is a whole statement (a SELECT, an INSERT … SELECT), so does each conjunct of every WHERE / HAVING / ON in it, nested subqueries included; a longer quote that merely contains the filter's text (a CASE branch, a MERGE condition) cites nothing. A filter with `right_of` and a `right_side_kind` of `rank_first` or `values` need not be cited; one with `right_of` alone must be, by a rule, and the message says to keep it out of `summary.scope`. The fix quotes that one condition, not the whole WHERE | the packet has no SQL to check a quote against |
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |
 | 7 | `sources` | a sourced item has an empty `sources`, or there are more than eight questions | — |
@@ -589,7 +605,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 | --- | --- |
 | 0 | every document is schema-valid and fails no cross check (warnings allowed) |
 | 1 | at least one document has a schema error or a failed cross check (a stale `packet_digest` and a missing packet included; the report is printed all the same), or the directory holds no JSON |
-| 2 | the documents directory or `--packets` does not exist |
+| 2 | the documents directory or `--packets` does not exist, or a confirmations file cannot be read or fits no schema |
 
 ## Independent review and revision
 
@@ -621,6 +637,7 @@ the validator in-process; it never calls a model and never changes a file.
 <run>/reviews/<db.table>.fixlog.txt     the fixer's per-finding replies, one section per review digest; status does not read it
 <run>/reviews/<db.table>.prior.fixlog.txt   the fix log kept across a rewrite, for the corrections script only; status does not read it
 <run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
+<run>/confirmations/*.json             the owner's semantic-confirmations/1 files
 ```
 
 Each directory can be moved with `--packets`, `--docs`, `--reviews` and `--pages` (for
@@ -628,7 +645,10 @@ example to put the pages at `<pages>/semantics` under the `catalog render` outpu
 tables are those that appear in any of the packets, documents or reviews; with `--only` they
 are exactly those tables, and a table with nothing in the run is `no_packet`. The
 toolchain's other documents in the documents directory (confirmations, validation reports,
-status reports, batch files) are skipped, as `validate` skips them.
+status reports, batch files) are skipped, as `validate` skips them. Each document is
+validated against the run's confirmations as `semantic validate` validates it: `--confirmations`,
+else `<run>/confirmations` when it exists. When confirmations were read, the `--json` report's
+`directories` gains `confirmations`; without, the report is unchanged.
 
 ### Stages
 
@@ -713,7 +733,7 @@ command, only `semantic confirm` moves an existing acceptance to the confirmed d
 | --- | --- |
 | 0 | every table's record was written |
 | 1 | at least one table was refused (the others were still written) |
-| 2 | the run directory does not exist, or no `--only` |
+| 2 | the run directory does not exist, no `--only`, or a confirmations file cannot be read |
 
 ### The review's front matter
 
@@ -742,9 +762,9 @@ record. The parser needs no YAML library: one `key: value` per line.
 ### Output
 
 ```bash
-scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]]
+scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]] [--confirmations <path>]
 scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
-scope-lineage semantic fixed <run> --only <db.table> ...
+scope-lineage semantic fixed <run> --only <db.table> ... [--confirmations <path>]
 scope-lineage semantic digest <doc.json> ...
 ```
 
@@ -819,15 +839,16 @@ out of the round and tell the user rather than dispatch it forever.
 | Exit code | Condition |
 | --- | --- |
 | 0 | reported (stale or failing tables still exit 0) |
-| 2 | the run directory does not exist, or `--json -` and `--next` without `--out` both want standard output |
+| 2 | the run directory does not exist, `--json -` and `--next` without `--out` both want standard output, or a confirmations file cannot be read |
 
 ## `semantic confirm`
 
 ```bash
-scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir> | --reviews <dir>]
+scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out <dir> | --reviews <dir>]
 ```
 
-The confirmations file is a `semantic-confirmations/1` document (schema:
+`--confirmations` is one file or a directory of them, read as `semantic validate` reads it
+(file-name order, entries in order). The confirmations file is a `semantic-confirmations/1` document (schema:
 `scope_lineage/schemas/semantic-confirmations.schema.json`). Each entry names one table,
 one target, the answer (`value`), who gave it (`by`) and when (`date`, `YYYY-MM-DD`):
 
@@ -851,10 +872,15 @@ one target, the answer (`value`), who gave it (`by`) and when (`date`, `YYYY-MM-
 | `question:<id>` | the answer text | `status: answered`, `answer`, `answered_by`, `answered_on` |
 | `column:<c>.meaning` | the meaning text | replaces `meaning`; the column's `sources` gains `confirmed` |
 | `column:<c>.code_values` | a list of `{value, meaning}`, or one such object | a list replaces the code values, one object is merged into them; each confirmed value gains `confirmed` and `unconfirmed: false` |
-| `summary.row` | an object of row fields, or the row text | merged into `summary.row`; its `sources` gains `confirmed` |
+| `summary.row` | an object of row fields, or the row text | merged into `summary.row`; its `sources` gains `confirmed`. An object that sets `grain_columns` or `unique` but not `grain_source` turns an `inferred` grain into `declared` (a `declared` or `proven` one stays) |
 
-Every applied confirmation is logged under `confirmed[]`, and applying the same file twice
-changes nothing the second time. A confirmation whose table, question or column does not
+Every applied confirmation is logged under `confirmed[]` (once per target, person and date),
+and applying the same confirmations twice changes nothing the second time: no byte of the
+documents, no new `confirmed[]` entry, and the summary line counts 0 changed tables. So a run
+can replay its confirmations after every write or revision; onto a rewritten document they
+put the confirmed slots back (code value meanings with `unconfirmed: false`, row fields,
+column meanings, question answers), and checks 3 and 4 of `semantic validate` then pass on
+them. A confirmation whose table, question or column does not
 exist, whose value has the wrong shape, or whose value would make the document fail the
 schema is **not applied and not dropped**: the summary line counts it as `unmatched` and
 names it with the reason. Without `--out` the changed documents are rewritten in place;
@@ -886,6 +912,40 @@ confirmed document: `fixed_doc_digest` becomes the new digest, and a line
 review did not accept keeps its review untouched (its fix is still to be made); with `--out`
 no review is touched.
 
+## `semantic facts`
+
+```bash
+scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [--table <db.table> ...]
+```
+
+Prints what the owner confirmed for each table, in the order given, as plain lines: the text
+a writing or review prompt takes as its confirmed facts. `--confirmations` is read as
+`semantic confirm` reads it; the per-table state is the one `semantic confirm` would leave
+(a later entry wins, a list of code values replaces the confirmed set, one object is merged
+into it). For each table: a header line, then one fact per line -- the row fields (grain
+columns, grain source, uniqueness, row text, note), the column meanings, the code values,
+the answered questions (with the question's text when the entry carries `asked`) -- each
+ending with who confirmed it and when; `unique` and `grain_source` are said in words with the
+field's value after them (`是（unique: yes）`, `声明（grain_source: declared）`); line breaks
+inside a confirmed text become spaces.
+A table with none prints `无`. For the example confirmations:
+
+```text
+表 demo_dwd.dwd_party_customer_info_df 已确认的事实：
+- 按粒度列唯一：是（unique: yes）（demo-reviewer 于 2026-09-26 确认）
+- 行的说明：同一个 dt 分区内按客户号唯一，业务方已确认。（demo-reviewer 于 2026-09-26 确认）
+- 列 verify_status 的含义：实名认证状态（demo-reviewer 于 2026-09-26 确认）
+- 列 gender_cd 的码值「F」：女（demo-reviewer 于 2026-09-26 确认）
+- 列 gender_cd 的码值「M」：男（demo-reviewer 于 2026-09-26 确认）
+- 列 gender_cd 的码值「U」：未知（demo-reviewer 于 2026-09-26 确认）
+- 问题 q1 的回答：不会。注册系统只允许 F、M、U 三个值。（demo-reviewer 于 2026-09-26 确认）
+```
+
+| Exit code | Condition |
+| --- | --- |
+| 0 | printed (a table with no confirmed fact included) |
+| 2 | `--confirmations` does not exist, a confirmations file cannot be read or fits no schema, or `--table` is missing |
+
 ## `semantic render`
 
 ```bash
@@ -905,6 +965,7 @@ is reported on stderr and not rendered, and the exit code is 1.
 | `--validation` | no | A `table-semantics-validation/1` report written by `semantic validate --json`: the page marks the failed items and ends with a 校验 section, the index shows the pass rate |
 | `--ontology` | no | An `ontology.json` written by `catalog build`: each table's domain and concept come from the catalog, the concept linked to `../concepts/<slug>.md` |
 | `--packets` | no | The `--out` of `semantic packet` (default: `packets/` beside `<documents>`, when it exists); only for the warning below |
+| `--confirmations` | no | The owner's confirmations the warning's validation reads, as `semantic validate` reads them (default: `confirmations/` beside `<documents>`, when it exists) |
 
 A document that is `packet_stale` (written against another packet), `invalid` (fails a
 check of `semantic validate`) or has no packet is still rendered, but its table is named on
@@ -968,7 +1029,7 @@ outputs are byte-for-byte what they were before this feature.
 | --- | --- |
 | 0 | Every document was rendered (a packet_stale or invalid one included: it is named on stderr) |
 | 1 | A document does not fit the schema (the rest are still rendered), no document could be rendered, or `--validation` / `--ontology` declares the wrong `doc_format` |
-| 2 | The document directory, `--validation` or `--ontology` does not exist or cannot be read |
+| 2 | The document directory, `--validation` or `--ontology` does not exist or cannot be read, or a confirmations file cannot be read |
 
 ## Relation to the ontology catalog and to `describe`
 
