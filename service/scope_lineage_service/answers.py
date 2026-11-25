@@ -73,6 +73,34 @@ taken back by a replay (a single object only merges), so the export says to remo
 entry for it (``export_notes``). A code value the SQL never writes (a constant column) is
 not refused here or by ``semantic confirm`` -- neither has the packet --; validation fails
 it as 「确认与 SQL 矛盾，交回 owner」.
+
+Platform results and observations
+---------------------------------
+
+A server started with ``--probes FILE`` (``question-probes/1``) takes a platform result
+pasted for one query. The draft (``probe_results.draft_observation``) is never stored; a
+person's confirmation is, under the optional top-level ``observations`` key -- absent when
+there is none, so a file without observations reads and writes byte for byte as before::
+
+    {"probe", "table", "question", "asked", "target", "value", "evidence",
+     "pasted_sha256", "by", "date"}
+
+``target`` is the probe's ``lands`` (``summary.row.observed``, ``column:<c>.observed_values``,
+``input:<db.table>``), ``value`` the observation, ``evidence`` the reference ``{probe,
+partition, on, sha256}`` (the probes file's sha256), ``pasted_sha256`` the sha256 of the text
+pasted, ``asked`` the question's text the probe was written for, ``by`` the person who
+confirmed. One record per slot (``observation_key``: the table and target, and for an input
+its set of columns); a later one replaces it. Judged against the disk
+(``judge_observation``): the table, question or column gone -> not matched (missing); the
+question no longer reads as ``asked`` -> not matched (rewritten); the slot on disk holds the
+value -> written back, deleted by the writer; otherwise in effect. An observation is never
+overlaid on the documents (only a replay of the confirmations writes one): the page lists
+its slot as not written back, and the export writes it as an observation confirmation with
+its ``evidence`` (``observation_confirmation``), after the answers' entries.
+
+A sentence answer may rest on the result of a query that lands nothing: its ``source`` is
+then ``{"kind": "query", "probe", "partition", "on", "sha256"}`` and its exported
+``question:`` entry carries the same reference as ``evidence``. No row of a result is kept.
 """
 
 from __future__ import annotations
@@ -89,7 +117,16 @@ from scope_lineage import cli_catalog_answers as core
 from scope_lineage.render.catalog_context import PAGE_KINDS, ROW_SLOT
 from scope_lineage.semantics.names import bare_table
 from scope_lineage.semantics.names import folded_text as folded
-from scope_lineage.semantics.observed import IDENTIFIER_CATEGORIES
+from scope_lineage.semantics.observed import (
+    IDENTIFIER_CATEGORIES,
+    INPUT,
+    OBSERVED_ROW,
+    OBSERVED_VALUES,
+    input_key,
+    input_table,
+    observation_problem,
+    observed_kind,
+)
 
 ANSWERS_FORMAT = "question-answers/1"
 CONFIRMATIONS_FORMAT = "semantic-confirmations/1"
@@ -106,6 +143,14 @@ RECORD_KEYS = {
     "table", "question", "asked", "base", "kind", "answer", "reason", "choice", "to",
     "source", "by", "date", "target", "value", "slot_base",
 }
+OBSERVATION_KEYS = {
+    "probe", "table", "question", "asked", "target", "value", "evidence", "pasted_sha256",
+    "by", "date",
+}
+EVIDENCE_KEYS = ("probe", "partition", "on", "sha256")
+QUERY = "query"
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_PROBE_ID = re.compile(r"[A-Za-z0-9_]+")
 ROW_TARGET = "summary.row"
 UNIQUE_WORDS = {"yes": "是", "no": "否"}
 ROW_FIELDS = ("unique", "grain_columns", "grain_source")
@@ -199,6 +244,8 @@ def content(record: dict | None) -> tuple | None:
             record.get("choice"), folded(record.get("to")))
     if "target" in record:
         said += (record["target"], json.dumps(record["value"], ensure_ascii=False, sort_keys=True))
+    if (record.get("source") or {}).get("kind") == QUERY:
+        said += (json.dumps(record["source"], ensure_ascii=False, sort_keys=True),)
     return said
 
 
@@ -370,7 +417,8 @@ def read_records(path: Path) -> list[dict]:
 def check_document(document) -> list[dict]:
     if not isinstance(document, dict) or document.get("doc_format") != ANSWERS_FORMAT:
         raise AnswersFileError(f"not a {ANSWERS_FORMAT} document")
-    if set(document) != {"doc_format", "answers"} or not isinstance(document["answers"], list):
+    if set(document) - {"observations"} != {"doc_format", "answers"} or not isinstance(
+            document["answers"], list):
         raise AnswersFileError('the document is {"doc_format", "answers": [...]}')
     seen = set()
     for number, record in enumerate(document["answers"], 1):
@@ -383,7 +431,42 @@ def check_document(document) -> list[dict]:
                 f"answers[{number}]: a second record for {record['table']} {record['question']}"
             )
         seen.add(key)
+    check_observations(document)
     return document["answers"]
+
+
+def check_observations(document: dict) -> list[dict]:
+    """The document's observation records (none without the key); ``AnswersFileError`` when
+    one is not legal or two hold one slot."""
+    observations = document.get("observations", [])
+    if not isinstance(observations, list) or ("observations" in document and not observations):
+        raise AnswersFileError("observations is a non-empty list (absent when there is none)")
+    seen = set()
+    for number, record in enumerate(observations, 1):
+        problem = observation_record_problem(record)
+        if problem:
+            raise AnswersFileError(f"observations[{number}]: {problem}")
+        key = observation_key(record)
+        if key in seen:
+            raise AnswersFileError(f"observations[{number}]: a second record for "
+                                   f"{record['table']} {record['target']}")
+        seen.add(key)
+    return observations
+
+
+def read_file(path: Path) -> tuple[list[dict], list[dict]]:
+    """``(records, observations)`` of the file; none of either when it does not exist."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return [], []
+    except (OSError, UnicodeDecodeError) as error:
+        raise AnswersFileError(f"cannot be read ({error})") from None
+    try:
+        document = json.loads(raw)
+    except ValueError as error:
+        raise AnswersFileError(f"not a JSON document ({error})") from None
+    return check_document(document), document.get("observations", [])
 
 
 def record_problem(record) -> str | None:
@@ -425,8 +508,9 @@ def record_problem(record) -> str | None:
             return str(error)
     if "choice" in record and (kind not in CHOICE_KINDS or record["choice"] not in CHOICES):
         return f"choice is yes or no, on {' or '.join(CHOICE_KINDS)} only"
-    if record.get("source") != SOURCE:
-        return f"source must be {json.dumps(SOURCE)}"
+    problem = _source_problem(record.get("source"), kind == ANSWER and not structured)
+    if problem:
+        return problem
     if not isinstance(record.get("date"), str) or not _DATE.fullmatch(record["date"]):
         return "date must be YYYY-MM-DD"
     base = record.get("base", ...)
@@ -440,6 +524,16 @@ def record_problem(record) -> str | None:
         ) or not all(base[key] is None or isinstance(base[key], str) for key in BASE_KEYS):
             return "base is null or {answer, answered_by, answered_on}"
     return None
+
+
+def _source_problem(source, sentence_answer: bool) -> str | None:
+    """A person, or -- on a sentence answer only -- a query's result by reference."""
+    if isinstance(source, dict) and source.get("kind") == QUERY:
+        if not sentence_answer:
+            return "only a sentence answer rests on a query"
+        problem = evidence_problem({key: value for key, value in source.items() if key != "kind"})
+        return f"source: {problem}" if problem else None
+    return None if source == SOURCE else f"source must be {json.dumps(SOURCE)}"
 
 
 def _structured_problem(record: dict) -> str | None:
@@ -460,12 +554,14 @@ def _structured_problem(record: dict) -> str | None:
     return None
 
 
-def write_records(path: Path, records: list[dict]) -> None:
-    """Replace the file with ``records``: a temporary file beside it, then a rename, so a
-    reader sees the old file or the new one, never half of one. ``OSError`` when it cannot
-    be written."""
-    text = json.dumps({"doc_format": ANSWERS_FORMAT, "answers": records},
-                      ensure_ascii=False, indent=2) + "\n"
+def write_records(path: Path, records: list[dict], observations: list[dict] | None = None) -> None:
+    """Replace the file with ``records`` (and ``observations``, the key written only when
+    there is one): a temporary file beside it, then a rename, so a reader sees the old file
+    or the new one, never half of one. ``OSError`` when it cannot be written."""
+    document = {"doc_format": ANSWERS_FORMAT, "answers": records}
+    if observations:
+        document["observations"] = observations
+    text = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
     directory = path.parent if str(path.parent) else Path(".")
     handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=directory)
     try:
@@ -558,6 +654,8 @@ def confirmation(record: dict) -> dict:
              "asked": record["asked"]}
     if record["base"] is not None:
         entry["replace"] = True
+    if (record.get("source") or {}).get("kind") == QUERY:
+        entry["evidence"] = {key: record["source"][key] for key in EVIDENCE_KEYS}
     return entry
 
 
@@ -671,6 +769,111 @@ def judge_all(records: list[dict], semantics: dict | None) -> Judgement:
     return Judgement(list(records), [judge(record, semantics) for record in records])
 
 
-def export_document(records: list[dict]) -> dict:
+def export_document(records: list[dict], observations=()) -> dict:
     return {"doc_format": CONFIRMATIONS_FORMAT,
-            "confirmations": [entry for record in records for entry in confirmations(record)]}
+            "confirmations": [entry for record in records for entry in confirmations(record)]
+            + [observation_confirmation(record) for record in observations]}
+
+
+# ------------------------------------------------------------------ observations
+
+
+def evidence_problem(evidence) -> str | None:
+    """Why ``evidence`` is not the reference ``{probe, partition, on, sha256}``, or None."""
+    if not isinstance(evidence, dict) or set(evidence) != set(EVIDENCE_KEYS):
+        return "evidence is {probe, partition, on, sha256}"
+    if not isinstance(evidence["probe"], str) or not _PROBE_ID.fullmatch(evidence["probe"]):
+        return "evidence.probe is a probe id"
+    partition = evidence["partition"]
+    if not isinstance(partition, dict) or "column" not in partition or not set(partition) <= {
+            "column", "values"}:
+        return "evidence.partition is {column, values}"
+    column, values = partition["column"], partition.get("values")
+    if not (column is None or (isinstance(column, str) and column)) or (
+            values is not None and not (isinstance(values, list) and values and all(
+                isinstance(v, str) and v for v in values))):
+        return "evidence.partition is {column, values}"
+    if not isinstance(evidence["on"], str) or not _DATE.fullmatch(evidence["on"]):
+        return "evidence.on is YYYY-MM-DD"
+    if not isinstance(evidence["sha256"], str) or not _SHA256.fullmatch(evidence["sha256"]):
+        return "evidence.sha256 is a sha256 in hex"
+    return None
+
+
+def observation_record_problem(record) -> str | None:
+    """Why ``record`` is not a legal observation record, or None."""
+    if not isinstance(record, dict):
+        return "not an object"
+    if set(record) != OBSERVATION_KEYS:
+        return f"an observation record has the keys {', '.join(sorted(OBSERVATION_KEYS))}"
+    for name in ("probe", "table", "question", "asked", "target", "pasted_sha256"):
+        if not isinstance(record[name], str) or not record[name]:
+            return f"{name} must be a non-empty string"
+    if record["table"] != bare_table(record["table"]):
+        return f"table must be written db.table in lower case, not {record['table']!r}"
+    kind = observed_kind(record["target"])
+    if kind is None:
+        return "target is summary.row.observed, column:<c>.observed_values or input:<db.table>"
+    problem = observation_problem(kind, record["value"]) or evidence_problem(record["evidence"])
+    if problem:
+        return problem
+    if record["probe"] != record["evidence"]["probe"] or record["probe"] != record["value"].get(
+            "query"):
+        return "evidence.probe and the observation's query are the record's probe"
+    if not _SHA256.fullmatch(record["pasted_sha256"]):
+        return "pasted_sha256 is a sha256 in hex"
+    try:
+        if clean_text(record["by"], "by", MAX_NAME) != record["by"]:
+            return "by is not stripped (leading or trailing whitespace)"
+    except TextRefused as error:
+        return str(error)
+    if not isinstance(record["date"], str) or not _DATE.fullmatch(record["date"]):
+        return "date must be YYYY-MM-DD"
+    return None
+
+
+def observation_key(record: dict) -> tuple:
+    """The slot an observation record holds: its table and target, an input's columns too."""
+    if observed_kind(record["target"]) == INPUT:
+        return (record["table"],) + input_key(input_table(record["target"]),
+                                              record["value"]["columns"])
+    return (record["table"], record["target"])
+
+
+def observation_slot(document: dict | None, record: dict):
+    """What the document holds in the record's slot now: None when nothing, ``...`` when
+    the document or the column is gone."""
+    if document is None:
+        return ...
+    target = record["target"]
+    kind = observed_kind(target)
+    if kind == OBSERVED_ROW:
+        return ((document.get("summary") or {}).get("row") or {}).get("observed")
+    if kind == OBSERVED_VALUES:
+        column = find_column(document, target[len("column:"):-len(f".{OBSERVED_VALUES}")])
+        return ... if column is None else column.get(OBSERVED_VALUES)
+    key = input_key(input_table(target), record["value"]["columns"])
+    for item in document.get("observed_inputs") or []:
+        if input_key(item.get("table"), item.get("columns") or []) == key:
+            return {name: value for name, value in item.items() if name != "table"}
+    return None
+
+
+def judge_observation(record: dict, semantics: dict | None) -> Judged:
+    """Where an observation record stands against the documents on disk."""
+    question = find_question(semantics, record["table"], record["question"])
+    now = now_of(question)
+    slot = observation_slot((semantics or {}).get(record["table"]), record)
+    if question is None or slot is ...:
+        return Judged(record, UNMATCHED, MISSING, now)
+    if folded(question.get("text")) != folded(record["asked"]):
+        return Judged(record, UNMATCHED, REWRITTEN, now)
+    if slot == record["value"]:
+        return Judged(record, WRITTEN, None, now)
+    return Judged(record, EFFECTIVE, None, now)
+
+
+def observation_confirmation(record: dict) -> dict:
+    """The observation confirmation an observation record exports, with its evidence."""
+    return {"table": record["table"], "target": record["target"], "value": record["value"],
+            "by": record["by"], "date": record["date"], "evidence": record["evidence"]}

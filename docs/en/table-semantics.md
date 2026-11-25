@@ -983,6 +983,20 @@ like `confirmed[]`. `table-semantics/1` and `semantic-confirmations/1` are exten
 versioned: a document or confirmations file without observations reads as before, and one
 with observations needs a version of the tool that knows them.
 
+Any confirmation entry may carry `evidence`, the platform query it rests on, by reference
+only: `{"probe": "<item id in question-probes/1>", "partition": {"column": "dt", "values":
+["20261122"]}, "on": "2026-11-25", "sha256": "<sha256 of the probes file>"}`. The result's
+rows are never in it, nor in the documents or the run directory: the browse page keeps
+what a person confirmed in its answers file. `semantic confirm` keeps `evidence` in the
+confirmations file and judges nothing by it; the document gains no key from it, and an
+entry without it applies exactly as before. The browse page writes it on the observation
+entries it drafts from a pasted result (the service's `--probes`) and on an answer a
+person backed with a query's result. `scope_lineage.semantics.probe_results` drafts those
+entries: only the result JSON a query run hands back (`sql_id, status, run_on, bizdate,
+sql_executed, columns, rows, note`), only the two fixed shapes, the result's columns
+exactly the query's own output columns, and `sql_executed` the item's SQL with its
+placeholders filled in; anything else is refused with the reason.
+
 ## `semantic facts`
 
 ```bash

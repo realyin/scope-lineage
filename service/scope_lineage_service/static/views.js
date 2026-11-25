@@ -529,7 +529,14 @@ export function slotMarks(marks, column) {
   const prefix = `column:${column}.code_values:`;
   const codes = [...marks.slots].filter((slot) => slot.startsWith(prefix)).map((slot) => slot.slice(prefix.length)).sort();
   if (codes.length) words.push(`码值 ${codes.join("、")}`);
+  if (marks.slots.has(`column:${column}.observed_values`)) words.push("观测取值");
   return words.length ? words.join("、") : null;
+}
+
+/** The input tables whose confirmed observation is not written back yet. */
+export function inputSlotMarks(marks) {
+  if (!marks || !marks.slots) return [];
+  return [...marks.slots].filter((slot) => slot.startsWith("input:")).map((slot) => slot.slice("input:".length)).sort();
 }
 
 function semanticsDocument(doc, marks) {
@@ -554,6 +561,11 @@ function semanticsDocument(doc, marks) {
   if (doc.observed_inputs && doc.observed_inputs.length) {
     parts.push(fold(`上游观测（${doc.observed_inputs.length}）`, false,
       list(doc.observed_inputs, (o) => [tableLink(o.table), " ", observedInputText(o)])));
+  }
+  const pendingInputs = inputSlotMarks(marks);
+  if (pendingInputs.length) {
+    parts.push(h("p", {}, badge("观测未写回", "warn"), " 上游 ", joined(pendingInputs.map(tableLink)),
+      "：页面上已确认，导出确认文件、写回后才进文档。"));
   }
   const known = new Set(["summary", "columns", "rules", "steps", "task", "tasks", "table", "doc_format",
     "observed_inputs"]);
@@ -580,6 +592,10 @@ function summaryValue(key, item, marks) {
         note && q.status !== "answered" ? h("div", { class: "muted" },
           `页面备注：${recordText(note)}（${[note.by, note.date].filter(Boolean).join("，")}）`) : null];
     });
+  }
+  if (key === "row" && marks && marks.slots && marks.slots.has("summary.row.observed") && !marks.slots.has("row")) {
+    return [badge("观测未写回", "warn"), " ", item && (item.observed || item.grain_source === "observed")
+      ? rowValue(item) : value(item)];
   }
   if (key === "row" && marks && marks.slots && marks.slots.has("row")) {
     return [badge("未写回", "warn"), " ", item && (item.observed || item.grain_source === "observed")
@@ -1056,6 +1072,184 @@ export function structuredBody(item, form, slot) {
   return body;
 }
 
+// ------------------------------------------------------------- platform results
+// With ``--probes`` each semantics card lists its question's platform queries. A result
+// pasted for a query that lands becomes a draft the server never stores; 「确认」 stores it
+// as an observation (answers file, ``observations``). A result of a query that lands
+// nothing can only back a sentence answer, by reference. The tool runs no query.
+
+/** Where a query's result may land, in words. */
+export function landsText(lands) {
+  if (!lands) return "不落槽位，只作回答依据";
+  if (lands === "summary.row.observed") return "可落：行粒度观测";
+  if (lands.startsWith("input:")) return `可落：输入表 ${lands.slice("input:".length)} 的唯一性观测`;
+  const match = /^column:(.+)\.observed_values$/.exec(lands);
+  return match ? `可落：列 ${match[1]} 的取值观测` : lands;
+}
+
+/** A drafted (or confirmed) observation in words: every number, the partition, the query. */
+export function draftText(draft) {
+  const target = draft.target;
+  const value = draft.value;
+  if (target === "summary.row.observed") return `行粒度：${observedRowText(value)}`;
+  if (target.startsWith("input:")) return `输入表 ${target.slice("input:".length)}：${observedInputText(value)}`;
+  const match = /^column:(.+)\.observed_values$/.exec(target);
+  return `列 ${match ? match[1] : target}：${observedValuesText({ observed_values: value })}`;
+}
+
+/** The evidence reference of a draft or an answer in words. */
+export function evidenceText(evidence) {
+  return `依据：查询 ${evidence.probe}，${partitionWords(evidence.partition)}，${evidence.on} 执行` +
+    `（查询文件 sha256 ${String(evidence.sha256).slice(0, 12)}…）`;
+}
+
+/** ``POST /api/observations``'s body: the pasted text again and the draft as shown. */
+export function observationBody(probe, pasted, by, drafted) {
+  return { probe, pasted, by: normalised(by),
+    seen: { ...drafted.draft, pasted_sha256: drafted.pasted_sha256 } };
+}
+
+/** ``POST /api/answers``'s body for a sentence answer backed by a query's pasted result. */
+export function evidenceAnswerBody(item, probe, pasted, form) {
+  return { ...recordBody(item.table, item.id, item.text, seenOf(item), { ...form, kind: "answer" }),
+    probe_result: { probe, pasted } };
+}
+
+/** The queries of a card: the SQL to copy, how to read it, and a paste box. */
+function probesPart(card, item, context) {
+  const box = h("div", { class: "probe-box" });
+  box.append(h("h3", {}, `平台查询（${item.probes.length}）`),
+    h("p", { class: "muted" }, "复制 SQL 到平台执行（占位符由执行人替换），把结果 JSON 原样贴回；工具不执行任何查询。"));
+  for (const probe of item.probes) box.append(probeBlock(card, item, probe, context));
+  return box;
+}
+
+function probeBlock(card, item, probe, context) {
+  const block = h("div", { class: "probe" });
+  const sql = h("pre", {}, probe.sql || "");
+  const copy = h("button", { type: "button", onclick: async () => {
+    try {
+      await navigator.clipboard.writeText(probe.sql || "");
+      copy.textContent = "已复制";
+    } catch (error) {
+      copy.textContent = "复制不了，请手动选中";
+    }
+  } }, "复制 SQL");
+  append(block, [
+    h("div", {}, code(probe.id), " ", badge(landsText(probe.lands), probe.lands ? null : "warn"),
+      probe.stale ? badge("问题已改写，查询可能过时", "warn") : null),
+    h("p", {}, text(probe.ask)),
+    probe.sql ? [sql, h("div", { class: "answer-actions" }, copy)] : null,
+    probe.how_to_read ? h("p", { class: "muted" }, `读法：${probe.how_to_read}`) : null,
+    probe.note ? h("p", { class: "muted" }, probe.note) : null,
+  ]);
+  if (context.writable && probe.sql) block.append(pasteForm(card, item, probe, context));
+  return block;
+}
+
+function pasteForm(card, item, probe, context) {
+  const area = h("textarea", { rows: "4", placeholder: "把这条查询的结果 JSON 原样贴在这里", "aria-label": "查询结果" });
+  const preview = h("button", { type: "button" }, "预览");
+  const out = h("div", { role: "status" });
+  const form = h("div", { class: "answer-form" }, area, h("div", { class: "answer-actions" }, preview), out);
+  preview.addEventListener("click", async () => {
+    const pasted = area.value;
+    preview.disabled = true;
+    out.replaceChildren(h("span", { class: "muted" }, "正在读……"));
+    const { status, body } = await postJson("/api/probe-results/draft", { probe: probe.id, pasted });
+    preview.disabled = false;
+    if (status !== 200) {
+      out.replaceChildren(h("p", { class: "error" }, errorText(status, body)));
+      return;
+    }
+    if (body.refused) {
+      out.replaceChildren(h("p", { class: "error" }, `出不了${probe.lands ? "草稿" : "依据"}：${body.refused}`));
+      return;
+    }
+    out.replaceChildren(...(body.draft ? draftConfirm(card, item, probe, pasted, body, context)
+      : evidenceForm(card, item, probe, pasted, body, context)));
+  });
+  return form;
+}
+
+function draftConfirm(card, item, probe, pasted, drafted, context) {
+  const message = h("span", { class: "muted", role: "status" });
+  const confirm = h("button", { type: "button" }, "确认");
+  confirm.addEventListener("click", async () => {
+    if (!normalised(context.name.value)) {
+      message.textContent = "先填回答人。";
+      context.name.focus();
+      return;
+    }
+    rememberName(normalised(context.name.value));
+    confirm.disabled = true;
+    const { status, body } = await postJson("/api/observations",
+      observationBody(probe.id, pasted, context.name.value, drafted));
+    if (status === 201) {
+      reloadCard(card, item, context, null);
+    } else if (status === 409) {
+      reloadCard(card, item, context, "贴的结果或查询文件在预览之后变了，已重新载入，请再预览一遍。");
+    } else {
+      confirm.disabled = false;
+      message.textContent = errorText(status, body);
+    }
+  });
+  return [h("p", {}, h("strong", {}, "草稿（未保存）"), " ", draftText(drafted.draft)),
+    h("p", { class: "muted" }, evidenceText(drafted.draft.evidence)),
+    h("div", { class: "answer-actions" }, confirm, message)];
+}
+
+function evidenceForm(card, item, probe, pasted, drafted, context) {
+  const textBox = h("textarea", { rows: "2", maxlength: String(MAX_TEXT), placeholder: "凭这条结果写一句回答，写在一行里" });
+  const message = h("span", { class: "muted", role: "status" });
+  const send = h("button", { type: "button" }, "以此为依据回答");
+  send.addEventListener("click", async () => {
+    const typed = { kind: "answer", text: textBox.value, by: context.name.value };
+    const problem = formProblem(typed);
+    if (problem) {
+      message.textContent = problem;
+      return;
+    }
+    rememberName(normalised(context.name.value));
+    send.disabled = true;
+    const { status, body } = await postJson("/api/answers", evidenceAnswerBody(item, probe.id, pasted, typed));
+    if (status === 201 || status === 409) reloadCard(card, item, context, status === 409 ? errorText(status, body) : null);
+    else {
+      send.disabled = false;
+      message.textContent = errorText(status, body);
+    }
+  });
+  return [h("p", { class: "muted" }, evidenceText(drafted.evidence), "；结果的行不保存，只记引用。"),
+    textBox, h("div", { class: "answer-actions" }, send, message)];
+}
+
+function observationCard(record, context) {
+  const card = h("div", { class: "card" });
+  const draw = (notice) => {
+    const parts = [
+      kv([
+        ["表", tableLink(record.table)],
+        ["问题", `${record.question} ${record.asked}`],
+        ["观测", draftText(record)],
+        ["确认", `${record.by}，${record.date}`],
+        ["", evidenceText(record.evidence)],
+      ]),
+    ];
+    if (context.writable) {
+      parts.push(h("div", { class: "answer-actions" }, h("button", { type: "button", onclick: async (event) => {
+        event.target.disabled = true;
+        const { status, body } = await postJson("/api/observations/withdraw", { seen: record });
+        if (status === 200) await refreshPage(context);
+        else draw(errorText(status, body));
+      } }, "撤回")));
+    }
+    if (notice) parts.push(h("p", { class: "error", role: "status" }, notice));
+    card.replaceChildren(...parts);
+  };
+  draw(null);
+  return card;
+}
+
 /** ``POST /api/answers/withdraw``'s body: the record as the page showed it. */
 export function withdrawBody(table, question, record) {
   return { table, question, seen: record };
@@ -1208,6 +1402,7 @@ function drawCard(card, item, context, notice) {
     ]),
   ];
   if (context.answers) parts.push(answerPart(card, item, context));
+  if (item.probes && item.probes.length) parts.push(probesPart(card, item, context));
   if (notice) parts.push(h("p", { class: "error", role: "status" }, notice));
   card.replaceChildren(...parts);
 }
@@ -1509,12 +1704,24 @@ function drawAnswersBlock(block, answers, context) {
   parts.push(...section(`没对上的回答（${unmatched.length}）`, unmatched.length
     ? h("div", {}, unmatched.map((entry) => unmatchedCard(entry, context)))
     : h("p", { class: "muted" }, "没有：页面上留的回答和备注都对得上现在的文档。")));
+  const observed = answers.observations || null;
+  if (observed) {
+    const records = observed.records || [];
+    const lost = observed.unmatched || [];
+    parts.push(...section(`已确认、未写回的观测（${records.length}）`,
+      records.length ? h("div", {}, records.map((record) => observationCard(record, context)))
+        : h("p", { class: "muted" }, "没有。"),
+      lost.length ? h("div", {}, h("p", { class: "error" }, `没对上的观测（${lost.length}）：`),
+        list(lost, (entry) => [tableLink(entry.table), ` ${entry.question}：${entry.message}；`,
+          draftText(entry.record)])) : null));
+  }
   if (answers.problem) parts.push(h("p", { class: "error" }, answers.problem));
   const digests = Object.entries(answers.digests || {});
+  const observedCount = observed ? observed.effective : 0;
   parts.push(...section("写回文档",
-    h("p", {}, answers.exported
+    h("p", {}, answers.exported || observedCount
       ? h("a", { class: "button", href: "/api/answers/export", download: EXPORT_FILE },
-        `导出确认文件（${answers.exported} 条回答）`)
+        `导出确认文件（${answers.exported} 条回答${observedCount ? `、${observedCount} 条观测` : ""}）`)
       : h("span", { class: "muted" }, "还没有可以导出的回答（备注不写回文档）。")),
     (answers.export_notes || []).length ? h("div", {}, h("p", { class: "error" }, "导出前请看："),
       list(answers.export_notes, (note) => note)) : null,
