@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.18.0
 - **Added: `semantic-confirmations/1` entries take an optional `evidence`, a reference to the platform
   query they rest on** -- `{probe, partition, on, sha256}`: the `question-probes/1` item's id, the partition
   its result read, the date it ran and the probes file's sha256; never the result's rows. `semantic
@@ -34,7 +34,7 @@
   on a server others reach without `--answers-allow-remote`, pasted text at most 64 K characters. Without
   `--probes` every output is unchanged, and an answers file without `observations` reads and writes byte for
   byte as before. Runbook S12 (and S9b) now say to paste results on the page rather than hand-write the
-  entries. The service needs the core release that carries `probe_results`; raise its lower bound then.
+  entries. The service needs the core's `probe_results`, first shipped in 0.18.0 (its lower bound is raised to it).
 
 ## 0.17.0
 - **Changed: `semantic probes check` C9 holds a landing query to what it can stand for.** A value set read

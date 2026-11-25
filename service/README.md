@@ -16,7 +16,7 @@ OpenAI-compatible endpoints.
 
 From a checkout of this repository (the page's answers need the core's additions first shipped in 0.17.0 -- answers
 overlaid on the documents and marked in the context pack and the board, and the structured answers' overlay
-and slot marks; installing the core from the same
+and slot marks; pasted platform results need `semantics.probe_results`, first shipped in 0.18.0; installing the core from the same
 checkout keeps the two in step):
 
 ```bash
