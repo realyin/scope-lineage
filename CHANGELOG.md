@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.0
 - **Changed: `semantic probes check` C9 holds a landing query to what it can stand for.** A value set read
   on an input column lands only when the packet's lineage passes that one column through to the target
   (one producer, `sources` exactly that column, no `case_outputs`, nothing `computed_by`, every step a
