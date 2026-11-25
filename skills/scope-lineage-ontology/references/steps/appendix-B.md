@@ -27,6 +27,8 @@ $RUN/
   blocked/docs/<表>.json     blocked 的文档；blocked/<表>.validate.txt 是它的 FAIL 原文
   next.json  status.json     最近一次 --next / --json 的输出
   validation.json            全量校验报告（S9；只能由不带 --only 的 validate 写）
+  probes/                    question-probes.json、check.txt、results/<id>.json（S9b，可选；status 不读）
+  sensitive-columns.txt      owner 给的敏感列名单（S9b 的检查自己读；可选）
   digest/                    digest.md、digest.json（S10b）
   catalog/                   起点目录 + T5 的修改（S10a、S10c）
   catalog_plan.md            分组方案（S10c）

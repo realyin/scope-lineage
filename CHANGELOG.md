@@ -1,6 +1,34 @@
 # Changelog
 
 ## Unreleased
+- **Changed: `semantic probes check` C9 holds a landing query to what it can stand for.** A value set read
+  on an input column lands only when the packet's lineage passes that one column through to the target
+  (one producer, `sources` exactly that column, no `case_outputs`, nothing `computed_by`, every step a
+  direct projection) -- the rule check 3 compares observed values by, now one shared function; a
+  condition column or a computed source fails, and the check no longer needs `--docs` for it (it used to
+  accept any of the document's `source_columns`). `question-probes/1` items take an optional one-line
+  `filter` (the task's own read conditions beyond partitions); a landing query that keeps only some rows of
+  a partition -- a predicate on a non-partition column, or a dedup on a window column -- fails without it.
+  An own-row uniqueness count over fewer columns than the document's grain warns: a zero proves the grain
+  unique, a positive count says nothing about it. T-probes says the same, adds the partition rule for
+  questions that read across partitions, and S9b gives the person running the queries three rules (replace
+  only placeholders, record errors verbatim, table names as written).
+- **Added (runbook): optional step S9b -- platform queries for the open questions.** After S9 an agent (new
+  template T-probes, `fill probes … MODE=首写|返工`) splits each open question into sub-questions classed
+  `data` / `human` / `corpus` and writes `$RUN/probes/question-probes.json` (`question-probes/1`): aggregates
+  only, `LIMIT` at most 50 (51 for a value set), a partition filter with `want` and `fallback` or a
+  `full_scan` reason, no sensitive or identifier column's values, `asked` the question's exact text,
+  `engine` (default `spark`) and `placeholders` with example values. A sub-question that can land as an
+  observation -- the uniqueness of the table's grain or of an input table's join key, a column's value set
+  -- uses the fixed output columns (`rows, keys, duplicate_keys`; `value, cnt` with `LIMIT 51`) and sets
+  `lands`; the template carries one worked example of each. The orchestrator runs `semantic probes check`
+  into `$RUN/probes/check.txt` (the owner's `$RUN/sensitive-columns.txt` is read when present) and sends
+  failures back for at most two rounds, then hands the file to the person who runs the queries; one result
+  JSON per query (`sql_id, status, run_on, bizdate, sql_executed, columns, rows, note`) comes back under
+  `$RUN/probes/results/`, entered as observation confirmations by hand as S12 describes. The tool never
+  runs a query. `next_step.py` lists S9b (`[-]` without a probes file) but never makes it current; when the
+  probes file is newer than `check.txt`, or there is no report, it prints the check command under the
+  checklist.
 - **Added: `catalog pending reply` -- the owner's reply to a missing definition, appended to the same
   `catalog-pending/1` file.** A reply is a line of its own (`kind: reply`, `missing`, `reply`, `status`,
   optional `by`, `date`), keyed by the `missing` text the way `list` groups entries; it is not a hit -- no

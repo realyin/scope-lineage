@@ -212,7 +212,7 @@ def _commands() -> list[tuple[str, str]]:
 
 def test_every_fill_command_in_the_runbook_fits_its_template():
     templates = _templates()
-    assert len(templates) == 10, sorted(templates)
+    assert len(templates) == 11, sorted(templates)
     commands = _commands()
     assert len(commands) >= 12, commands
     problems = []

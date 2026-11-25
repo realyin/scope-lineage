@@ -8,7 +8,10 @@ head. One that loses track skips a step, redoes a finished one, or stops at the 
 holds and prints:
 
   - the S0–S13 checklist, each step ``[x]`` done, ``[ ]`` not yet, or ``[-]`` skipped
-    (S2a, the optional domain-profile step, is skipped when env.sh names a profile);
+    (S2a, the optional domain-profile step, is skipped when env.sh names a profile;
+    S9b, the optional platform queries, is never current: ``[-]`` without
+    ``probes/question-probes.json``, ``[x]`` when ``probes/check.txt`` is newer than it,
+    otherwise ``[ ]`` with the check command printed under the checklist);
   - the current step, why it is current, and the file of that step to follow
     (``references/steps/<step>.md``);
   - while table semantics is in progress (S4–S9), each table's next action and template,
@@ -55,6 +58,7 @@ STEPS = [
     ("S7", "修订"),
     ("S8", "状态推进与复审"),
     ("S9", "全量校验与渲染表语义页"),
+    ("S9b", "为待确认问题写平台查询（可选）"),
     ("S10a", "起点目录"),
     ("S10b", "起草材料 digest"),
     ("S10c", "起草概念与分组方案"),
@@ -77,6 +81,10 @@ STATUS_COMMAND = (
 GROUP = re.compile(r"^##\s+组\s+(\S+)\s*$", re.M)
 # Table semantics is under way but status.json cannot say where: S4–S9 are all unknown.
 REFRESH = "刷新状态"
+PROBES_COMMAND = (
+    'sl semantic probes check "$RUN/probes/question-probes.json" --packets "$RUN/packets" '
+    '--docs "$RUN/docs" > "$RUN/probes/check.txt"; echo "exit=$?"'
+)
 TABLE_STEPS = {"S4", "S5", "S6", "S7", "S8", "S9"}
 
 
@@ -354,6 +362,30 @@ def _env_fix(run: Path) -> list[str]:
     ]
 
 
+def _probes_state(run: Path) -> str | None:
+    """S9b: None without a probes file, ``checked`` when ``probes/check.txt`` is not older than
+    it, else why the check has to run again. Optional: it never changes the current step."""
+    probes = run / "probes" / "question-probes.json"
+    if not probes.is_file():
+        return None
+    report = run / "probes" / "check.txt"
+    if not report.is_file():
+        return "有 probes/question-probes.json，还没有检查报告 probes/check.txt"
+    if report.stat().st_mtime < probes.stat().st_mtime:
+        return "probes/question-probes.json 比检查报告 probes/check.txt 新"
+    return "checked"
+
+
+def _probes_hint(state: str | None) -> list[str]:
+    if state in (None, "checked"):
+        return []
+    return [
+        f"S9b（可选，不影响当前步）：{state}。先 . \"$RUN/env.sh\"，再检查（有 FAIL 照 S9b 交回返工）：",
+        f"  {PROBES_COMMAND}",
+        "",
+    ]
+
+
 def _confirmations_fix(run: Path, current: str) -> list[str]:
     """FACTS and the replay after every write read $RUN/confirmations; S0 makes it."""
     if current == "S0" or (run / "confirmations").is_dir():
@@ -376,9 +408,12 @@ def main(argv: list[str]) -> int:
     current, reason, lines, skipped = _assess(run)
     position = ORDER["S4"] if current == REFRESH else ORDER.get(current, len(STEPS))
 
+    probes = _probes_state(run)
     out = [f"运行目录：{run}", *_env_fix(run), *_confirmations_fix(run, current), "进度："]
     for step, title in STEPS:
-        if step in skipped:
+        if step == "S9b":
+            mark = "[-]" if probes is None else "[x]" if probes == "checked" else "[ ]"
+        elif step in skipped:
             mark = "[-]"
         elif current == REFRESH and step in TABLE_STEPS:
             mark = "[?]"
@@ -388,6 +423,7 @@ def main(argv: list[str]) -> int:
             mark = "[ ]"
         out.append(f"  {mark} {step} {title}" + ("  ← 当前" if step == current else ""))
     out.append("")
+    out.extend(_probes_hint(probes))
     if current == "完成":
         out.append("当前：完成")
         out.append(f"原因：{reason}")

@@ -1101,6 +1101,7 @@ observation (see Observed facts under `semantic confirm`) are the person's.
 | `partitions` | one item per partitioned table read: `table`, `column`, the value wanted (`want`) and the `fallback` when it is not there yet (`latest_available` or `none`) |
 | `full_scan` | why the query reads a partitioned table without a partition filter |
 | `engine` | the engine to run the query on (a platform may route a query elsewhere) |
+| `filter` | one line: the task's own read conditions the query applies beyond its partitions (such as `unique_id IS NOT NULL`, or a row-number dedup); the observation drafted from a landing item carries it |
 | `lands` | the observation target the result may become: `summary.row.observed`, `column:<c>.observed_values` or `input:<db.table>`; absent or null when it lands nowhere |
 | `how_to_read`, `note` | how to read the result (data items); who or what answers it (human and corpus items) |
 
@@ -1116,7 +1117,7 @@ observation (see Observed facts under `semantic confirm`) are the person's.
 | C6 | the query returns more than one row (grouped, `DISTINCT`, or detail rows) without a `LIMIT` of at most 50 -- 51 for a `value_set`, whose 51st row says the list is not complete |
 | C7 | with `--docs`: the table has no document, the document has no such question, or the question no longer reads as `asked` (NFKC and whitespace folded, as `semantic confirm` compares); an answered question warns |
 | C8 | two items share an id; a data item has no `sql`, `shape` or `how_to_read`; a human or corpus item has no `note`, or has `sql` or `lands` |
-| C9 | an item with `lands`: the output columns or their expressions are not the fixed ones of its shape (below) |
+| C9 | an item with `lands`: the output columns or their expressions are not the fixed ones of its shape (below); the query keeps only some rows of a partition -- a predicate on a column that is not a partition column, or a dedup (a window column filtered) -- and `filter` does not say so. An own-row uniqueness count over fewer columns than the document's grain warns: `duplicate_keys` 0 proves the grain unique, a positive count says nothing about it |
 
 A data item without `engine` warns. Inside `COUNT` / `COUNT_IF`, a comparison or a
 window's `PARTITION BY` / `ORDER BY`, a column shows no value, so counting an identifier
@@ -1145,9 +1146,11 @@ nothing: each expression is classified by its form, so `COUNT(DISTINCT k) AS row
     derived table that only filters or projects the rows counts as the table's rows.
     Whether the parts read the same partitions is not compared.
 - `value_set` (`column:<c>.observed_values`): exactly `value, cnt`; `value` is the one
-  `GROUP BY` column -- the target column `c`, or a column of an input that is one of `c`'s
-  `source_columns` in its document (without `--docs` this warns); `cnt` is `COUNT(*)`; no
-  `HAVING`; `LIMIT 51`.
+  `GROUP BY` column -- the target column `c`, or its single direct pass-through source
+  column: in the packet's lineage `c` has one producer, whose `sources` is exactly that input
+  column, with no `case_outputs`, nothing `computed_by` and every step a direct projection
+  (the rule check 3 compares observed values by). A condition column or a computed source
+  holds other values and fails. `cnt` is `COUNT(*)`; no `HAVING`; `LIMIT 51`.
 
 The target must fit the shape and the packet: a `uniqueness` target for a `value_set`, a
 column the table does not have, or an input that is not in the packet fails.

@@ -49,7 +49,7 @@ def test_the_runbook_is_an_index_that_links_every_step_file():
 
 def test_every_template_is_one_file_and_the_templates_index_links_it():
     names = sorted(path.name for path in TEMPLATES.glob("*.md"))
-    roles = [f"T{n}" for n in range(1, 10)] + ["T-domain-profile"]
+    roles = [f"T{n}" for n in range(1, 10)] + ["T-domain-profile", "T-probes"]
     assert names == sorted([f"{role}.md" for role in roles] + ["checklist.md", "ledger.md", "result.md"])
     for role in roles:
         text = (TEMPLATES / f"{role}.md").read_text(encoding="utf-8")
