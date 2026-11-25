@@ -193,3 +193,139 @@ def test_a_body_built_by_the_page_is_taken_by_the_server(inputs, tmp_path) -> No
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+# ------------------------------------------------------------------ structured answers
+
+
+ROW_VALUE = {"unique": "no", "grain_columns": ["customer_id", "dt"]}
+CODE_VALUE = [{"value": "X", "meaning": "其他"}, {"value": "1", "meaning": "已实名"}]
+
+
+@pytest.mark.parametrize("target, value", [
+    ("summary.row", ROW_VALUE),
+    ("summary.row", {"unique": "yes", "grain_columns": ["customer_id"]}),
+    ("column:etl_time.meaning", "装载批次时间"),
+    ("column:verify_status.code_values", CODE_VALUE),
+])
+def test_the_page_writes_the_servers_sentence_and_reads_its_slot(target, value) -> None:
+    from service_paths import SEMANTICS
+
+    from scope_lineage_service import answers as records_file
+
+    document = json.loads((SEMANTICS / f"{CUSTOMER}.json").read_text(encoding="utf-8"))
+    assert _call("structuredSentence", target, value) == records_file.structured_sentence(target, value)
+    assert _call("slotOf", document, target, value) == records_file.slot_of(document, target, value)
+
+
+STRUCTURED = {"mode": "code_values", "column": "verify_status", "by": "甲", "text": "",
+              "codes": [{"value": "X", "meaning": "其他"}, {"value": "", "meaning": ""}]}
+
+
+@pytest.mark.parametrize("change, problem", [
+    ({}, None),
+    ({"by": ""}, "先填回答人"),
+    ({"column": ""}, "先选列"),
+    ({"codes": [{"value": "", "meaning": "空"}]}, "码值不能是空的"),
+    ({"codes": [{"value": "X", "meaning": ""}]}, "含义不能是空的"),
+    ({"codes": [{"value": "X", "meaning": "a"}, {"value": "X", "meaning": "b"}]}, "两次"),
+    ({"codes": [{"value": "字" * 65, "meaning": "a"}]}, "64"),
+    ({"mode": "meaning", "meaning": ""}, "含义不能是空的"),
+    ({"mode": "meaning", "meaning": "装载批次时间"}, None),
+    ({"mode": "row", "unique": "", "columns": "customer_id"}, "是否唯一"),
+    ({"mode": "row", "unique": "no", "columns": ""}, "粒度列"),
+    ({"mode": "row", "unique": "no", "columns": "a, a"}, "重复"),
+    ({"mode": "row", "unique": "no", "columns": "a b c d e f g h i"}, "8"),
+    ({"mode": "row", "unique": "no", "columns": "customer_id，dt"}, None),
+    ({"text": "补充\n两行"}, "一行"),
+])
+def test_structured_form_problems(change, problem) -> None:
+    found = _call("structuredProblem", {**STRUCTURED, **change})
+    assert (found is None) if problem is None else (problem in found), found
+
+
+def test_structured_body() -> None:
+    slot = {"X": None}
+    body = _call("structuredBody", OPEN, {**STRUCTURED, "text": " 以码表为准 "}, slot)
+    assert body == {"table": CUSTOMER, "question": "q1", "kind": "answer", "asked": "问题一？",
+                    "seen": {"disk": None, "record": None, "slot": slot}, "by": "甲",
+                    "target": "column:verify_status.code_values",
+                    "value": [{"value": "X", "meaning": "其他"}], "answer": " 以码表为准 "}
+    row = _call("structuredBody", OPEN, {"mode": "row", "unique": "no", "columns": "a, b",
+                                         "by": "甲", "text": ""}, {})
+    assert row["target"] == "summary.row" and "answer" not in row
+    assert row["value"] == {"unique": "no", "grain_columns": ["a", "b"]}
+
+
+def test_structured_record_text_and_marks() -> None:
+    record = {**RECORD, "target": "column:etl_time.meaning", "value": "装载批次时间"}
+    del record["answer"]
+    del record["choice"]
+    assert _call("recordText", record) == "列 etl_time 的含义：装载批次时间"
+    assert _call("recordText", {**record, "answer": "补充"}) == "列 etl_time 的含义：装载批次时间；补充"
+    assert _call("columnChoices", {"columns": [{"column": "gender_cd"}]}, None) == ["gender_cd"]
+    assert _call("columnChoices", {"columns": []}, {"columns": [{"column": "a"}, {"column": "b"}]}) == ["a", "b"]
+
+
+def test_table_page_slot_marks() -> None:
+    static = resources.files("scope_lineage_service") / "static"
+    base = static.joinpath("views.js").as_uri()
+    module = (f"import * as views from '{base}';\n"
+              "const marks = views.pageMarks({document: {}, unwritten: [], page: {}, unwritten_slots: "
+              "['row', 'column:gender_cd.meaning', 'column:gender_cd.code_values:X', "
+              "'column:gender_cd.code_values:N']});\n"
+              "console.log(JSON.stringify([views.slotMarks(marks, 'gender_cd'), "
+              "views.slotMarks(marks, 'etl_time'), marks.slots.has('row'), "
+              "views.slotMarks(views.pageMarks({document: {}, unwritten: []}), 'gender_cd')]));")
+    done = subprocess.run([NODE, "--input-type=module", "-e", module], capture_output=True,
+                          text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == ["含义、码值 N、X", None, True, None]
+
+
+def test_a_structured_body_built_by_the_page_is_taken_by_the_server(inputs, tmp_path) -> None:
+    prepare(inputs["semantics"])
+    state = CatalogState(str(inputs["ontology"]), semantics=str(inputs["semantics"]),
+                         answers=str(tmp_path / "answers.json"), answers_writer=True)
+    httpd = make_server(state, port=0, quiet=True)
+    thread = threading.Thread(target=httpd.serve_forever, args=(0.05,), daemon=True)
+    thread.start()
+
+    def request(method, path, payload=None):
+        connection = http.client.HTTPConnection(*httpd.server_address[:2], timeout=10)
+        try:
+            body = json.dumps(payload).encode() if payload is not None else None
+            connection.request(method, path, body=body,
+                               headers={"Content-Type": "application/json"})
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def item():
+        board = request("GET", f"/api/questions?status=all&source=semantics&table={CUSTOMER}")[1]
+        return next(found for found in board["items"] if found["id"] == "q1")
+
+    def shown():
+        return request("GET", f"/api/semantics?table={CUSTOMER}")[1]["document"]
+
+    try:
+        form = {"mode": "code_values", "column": "gender_cd", "by": "甲", "text": "",
+                "codes": [{"value": "X", "meaning": "其他"}]}
+        target, value = "column:gender_cd.code_values", [{"value": "X", "meaning": "其他"}]
+        slot = _call("slotOf", shown(), target, value)
+        assert request("POST", "/api/answers", _call("structuredBody", item(), form, slot))[0] == 201
+        answered = item()
+        assert _call("cardState", answered)["mode"] == "unwritten"
+        assert answered["answer"] == "列 gender_cd 的码值：X=其他"
+        # a page still showing the slot as it was before is refused
+        changed = {**form, "codes": [{"value": "X", "meaning": "别的"}]}
+        assert request("POST", "/api/answers",
+                       _call("structuredBody", answered, changed, slot))[0] == 409
+        fresh = _call("slotOf", shown(), target, value)
+        assert fresh == {"X": "其他"}
+        assert request("POST", "/api/answers",
+                       _call("structuredBody", answered, changed, fresh))[0] == 201
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

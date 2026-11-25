@@ -9,8 +9,9 @@ Without that mapping every output is what it was before (``catalog-answers-befor
 holds the sha256 of each output, recorded before answers were carried; the only
 difference allowed is the answer of an answered question).
 
-``overlay_answers`` applies a page's ``question:<id>`` answers to copies of the documents
-it names and leaves every other document the very object it was.
+``overlay_answers`` applies a page's ``question:<id>`` answers (and the structured shapes
+of ``test_catalog_page_structured``) to copies of the documents it names and leaves every
+other document the very object it was.
 """
 
 from __future__ import annotations
@@ -439,7 +440,7 @@ def test_overlay_lists_what_it_could_not_apply(semantics) -> None:
     changed, unmatched = answers.overlay_answers(semantics, [
         _confirmation("demo_dwd.no_such_table", "question:q1"),
         _confirmation(CUSTOMER, "question:q9"),
-        _confirmation(CUSTOMER, "column:gender_cd.meaning", "性别"),
+        _confirmation(CUSTOMER, "column:gender_cd.code_values", [{"value": "X", "meaning": "其他"}]),
         _confirmation(CUSTOMER, "summary.row", "一行一个客户"),
     ])
 
@@ -447,8 +448,10 @@ def test_overlay_lists_what_it_could_not_apply(semantics) -> None:
     assert len(unmatched) == 4
     assert reasons[("demo_dwd.no_such_table", "question:q1")].startswith("unknown table")
     assert reasons[(CUSTOMER, "question:q9")].startswith("unknown question")
-    for target in ("column:gender_cd.meaning", "summary.row"):
-        assert reasons[(CUSTOMER, target)] == "only question:<id> answers are overlaid"
+    # a shape no page produces (a code value list, a row text); the page's own structured
+    # shapes are in test_catalog_page_structured
+    for target in ("column:gender_cd.code_values", "summary.row"):
+        assert reasons[(CUSTOMER, target)] == answers.ONLY_PAGE_TARGETS
     assert all(changed[name] is semantics[name] for name in semantics)
     assert changed[CUSTOMER]["columns"] == semantics[CUSTOMER]["columns"]
 

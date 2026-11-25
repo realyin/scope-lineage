@@ -211,6 +211,9 @@ td.num { text-align: right; white-space: nowrap; }
 }
 .answer-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
 .answer-actions input { flex: 1 1 10rem; min-width: 0; }
+/* the form shows one answer mode's fields at a time: a toggled group that is also a flex
+   row (.answer-actions) stays hidden */
+.answer-form [hidden] { display: none !important; }
 a.button {
   display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 0.25rem 0.6rem;
   background: var(--accent-soft);

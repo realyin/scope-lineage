@@ -503,7 +503,10 @@ stderr 说明），按表名排序写出 `digest.md` 与 `digest.json`（`catalo
 - 标识列、外部标识列、状态列、时间列、度量列、描述列（各带含义，有码值时带码值；`digest.json` 里文档有时还带
   `derivation`、`null_meaning`、`watch`，给 `--tables`（`scope-lineage tables` 写的 `tables.json`）时带物理类型 `type`），技术列只列名；
 - 表的 `rules`（`[{id, kind, text}]`，`digest.md` 里是 `- Rule r1 (filter): ...`）；承接某条规则的约束在 `rules` 里写 `<库.表>#<id>`；
-- 由哪些表加工而来（带角色）、被哪些表读取；要注意的点（`watch`）与未回答的问题。
+- 由哪些表加工而来（带角色）、被哪些表读取；要注意的点（`watch`）与未回答的问题；
+- 已回答的问题连同答案（`answered_questions`：`[{id, text, answer}]`，有记录时带 `answered_by`、`answered_on`；
+  `digest.md` 里是 `- Answered q1: <问题> -> <答案> (<谁>, <日期>)`）。没有已回答问题的表没有这个键，也没有这一行。
+  只认写进文档的回答（`semantic confirm`）：浏览页记录文件里还没写回的回答不读。
 
 给 `--catalog` 时，开头多一段「目录覆盖」：没有表现的表，以及已有表现的表里没有绑定的列（表名忽略大小写与
 catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」（`code_set_sources`：表 → 码值集 id），不算没有表现的表；

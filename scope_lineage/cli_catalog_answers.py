@@ -285,20 +285,84 @@ def read_pending_file(path: str) -> str:
 
 
 def pending_answer(
-    text: str, document: dict | None = None, semantics: dict | None = None
+    text: str, document: dict | None = None, semantics: dict | None = None,
+    status: str = "active",
 ) -> CatalogAnswer:
-    """``catalog pending list`` of a pending file's text."""
+    """``catalog pending list`` of a pending file's text; ``status`` is ``--status``."""
     from .render.catalog_pending import pending_report, read_pending, render_pending_text
 
     entries, problems = read_pending(text.splitlines())
-    report = pending_report(entries, problems, document=document, semantics=semantics)
-    return CatalogAnswer(report, 1 if problems else 0, render_pending_text)
+    report = pending_report(
+        entries, problems, document=document, semantics=semantics, status=status
+    )
+    return CatalogAnswer(report, 1 if report["problems"] else 0, render_pending_text)
 
 
 def pending_list(
-    path: str, document: dict | None = None, semantics: dict | None = None
+    path: str, document: dict | None = None, semantics: dict | None = None,
+    status: str = "active",
 ) -> CatalogAnswer:
-    return pending_answer(read_pending_file(path), document, semantics)
+    return pending_answer(read_pending_file(path), document, semantics, status)
+
+
+def pending_reply(
+    path: str,
+    *,
+    missing: str,
+    reply: str,
+    status: str,
+    by: str | None = None,
+    date: str | None = None,
+) -> dict:
+    """Append what ``catalog pending reply`` appends; the line written.
+
+    Exit 2: a text that does not fit on one line, an unknown status, a bad date, or a file
+    that cannot be read or written; exit 1: no entry of the file names ``missing``.
+    Nothing is written on a refusal."""
+    from .cli_catalog_pending import _append, _is_date, today
+    from .render.catalog_pending import (
+        BY_LIMIT,
+        REPLY_LIMIT,
+        REPLY_STATUSES,
+        read_pending,
+        reply_line,
+        reply_text_problem,
+        same_missing,
+    )
+
+    problem = (
+        reply_text_problem(missing, "--missing", REPLY_LIMIT)
+        or reply_text_problem(reply, "--reply", REPLY_LIMIT)
+        or (reply_text_problem(by, "--by", BY_LIMIT) if by is not None else None)
+    )
+    if problem is None and status not in REPLY_STATUSES:
+        problem = f"--status takes {', '.join(REPLY_STATUSES)}, not {status!r}"
+    if problem is None and date is not None and not _is_date(date):
+        problem = f"--date takes YYYY-MM-DD, not {date!r}"
+    if problem:
+        raise CatalogAnswerError(2, f"catalog pending reply: {problem}")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise CatalogAnswerError(
+            2, f"catalog pending reply: cannot read {path}: {error}"
+        ) from error
+    entries, _ = read_pending(text.splitlines())
+    known = {same_missing(e["missing"]) for e in entries if e.get("kind") != "reply"}
+    if same_missing(missing) not in known:
+        raise CatalogAnswerError(
+            1, f"catalog pending reply: no entry of {path} names {missing.strip()!r}; "
+            "nothing written (catalog pending list shows what is there)"
+        )
+    line = reply_line(missing=missing, reply=reply, status=status, by=by,
+                      date=date or today())
+    try:
+        _append(Path(path), [line])
+    except OSError as error:
+        raise CatalogAnswerError(
+            2, f"catalog pending reply: cannot write {path}: {error}"
+        ) from error
+    return line
 
 
 # ------------------------------------------------------------------ browsing
@@ -388,7 +452,7 @@ def questions(
 
     report = None
     if pending_text is not None:
-        report = pending_answer(pending_text, document, semantics).result
+        report = pending_answer(pending_text, document, semantics, status="all").result
     return _browse(lambda: questions_board(
         document, semantics, report, page_states=page_states, **request
     ))
@@ -398,45 +462,90 @@ def questions(
 
 
 QUESTION_TARGET = "question:"
-ONLY_QUESTIONS = "only question:<id> answers are overlaid"
+ONLY_QUESTIONS = "only question:<id> answers are overlaid"  # the reason before page targets
+ONLY_PAGE_TARGETS = (
+    "only the targets a browsing page answers are overlaid: question:<id>, summary.row "
+    "{unique, grain_columns}, column:<c>.meaning (a text) and column:<c>.code_values (one "
+    "{value, meaning})"
+)
+ROW_TARGET = "summary.row"
+ROW_KEYS = frozenset({"unique", "grain_columns"})
+CODE_KEYS = frozenset({"value", "meaning"})
+
+
+def page_target(entry: dict) -> bool:
+    """Whether ``entry`` is one of the shapes a browsing page produces: a ``question:<id>``
+    answer, a ``summary.row`` object of exactly ``unique`` and ``grain_columns``, a
+    ``column:<c>.meaning`` text, or a ``column:<c>.code_values`` single ``{value, meaning}``
+    object (never a list: a list replaces every code value of the column)."""
+    target, value = str(entry.get("target") or ""), entry.get("value")
+    if target.startswith(QUESTION_TARGET):
+        return True
+    if target == ROW_TARGET:
+        return isinstance(value, dict) and set(value) == ROW_KEYS
+    column, _, slot = target.partition(".")
+    if not column.startswith("column:") or len(column) == len("column:"):
+        return False
+    if slot == "meaning":
+        return isinstance(value, str)
+    if slot == "code_values":
+        return isinstance(value, dict) and set(value) == CODE_KEYS
+    return False
 
 
 def overlay_answers(
-    semantics: dict | None, confirmations: Iterable[dict]
+    semantics: dict | None, confirmations: Iterable[dict], *, indexed: bool = False
 ) -> tuple[dict, list[dict]]:
     """``(semantics with the answers applied, the ones not applied)``.
 
     ``confirmations`` are ``semantic-confirmations/1`` entries a browsing page holds; only
-    ``question:<id>`` targets are applied, by ``semantic confirm``'s own
+    the shapes a page produces (``page_target``) are applied -- ``question:<id>`` answers,
+    ``summary.row`` ``{unique, grain_columns}``, ``column:<c>.meaning`` and one
+    ``column:<c>.code_values`` object --, by ``semantic confirm``'s own
     ``apply_confirmations``, to copies of the documents of the tables they name. The
     returned mapping keeps ``semantics``' keys, and every document no answer changed is
     the very object it was, so a caller's cache keyed by those objects stays valid;
     ``semantics`` and its documents are not changed. Each entry not applied is
-    ``{table, target, reason}``: first the targets that are not questions, then those
-    ``apply_confirmations`` refused (an unknown table or question, an empty answer, a
-    question that no longer reads as ``asked``, an answer on disk changed without
-    ``replace``). An entry it skipped -- the very answer is already on disk -- changes
-    nothing and is not listed.
+    ``{table, target, reason}``: first the shapes no page produces (``ONLY_PAGE_TARGETS``),
+    then those ``apply_confirmations`` refused (an unknown table, question or column, an
+    empty answer, a question that no longer reads as ``asked``, an answer on disk changed
+    without ``replace``). An entry it skipped -- the very answer is already on disk --
+    changes nothing and is not listed. ``indexed``: each entry not applied also carries
+    ``index``, its position in ``confirmations``, so a caller that grouped entries (one page
+    record exported as a structured entry and a ``question:`` entry) can tell which group
+    a refusal belongs to -- a structured target does not name its question.
+
+    Entries are applied one by one, as ``semantic confirm`` applies them: the overlay has no
+    groups. A caller that wants a record's entries to stand or fall together drops every
+    entry of a record with a refusal and overlays again.
     """
     from .semantics.confirm import apply_confirmations
     from .semantics.names import bare_table
 
     semantics = semantics or {}
+    confirmations = list(confirmations)
     keys: dict[str, str] = {}
     for key in semantics:
         keys.setdefault(bare_table(key), key)
-    refused, wanted = [], []
-    for entry in confirmations:
-        if str(entry.get("target") or "").startswith(QUESTION_TARGET):
+    refused, wanted, positions = [], [], []
+    for index, entry in enumerate(confirmations):
+        if page_target(entry):
             wanted.append(entry)
+            positions.append(index)
         else:
-            refused.append(
-                {"table": entry.get("table"), "target": entry.get("target"), "reason": ONLY_QUESTIONS}
-            )
+            item = {"table": entry.get("table"), "target": entry.get("target"),
+                    "reason": ONLY_PAGE_TARGETS}
+            if indexed:
+                item["index"] = index
+            refused.append(item)
     named = {bare_table(entry.get("table")) for entry in wanted}
     subset = {table: semantics[keys[table]] for table in named if table in keys}
     result = apply_confirmations(subset, wanted)
     changed = dict(semantics)
     for table in result.changed:
         changed[keys[table]] = result.documents[table]
-    return changed, refused + result.unmatched
+    unmatched = result.unmatched
+    if indexed:
+        unmatched = [{**item, "index": positions[at]}
+                     for item, at in zip(result.unmatched, result.unmatched_at)]
+    return changed, refused + unmatched

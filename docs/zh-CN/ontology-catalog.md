@@ -1210,6 +1210,30 @@ scope-lineage catalog pending list pending.jsonl --ontology out/ontology.json --
 - 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
 ```
 
+负责人用 `reply` 回复一项，回复也是同一个文件里追加的一行，已有的行照样不改：
+
+```bash
+scope-lineage catalog pending reply pending.jsonl --missing "注销的客户算不算" \
+  --reply "不算：注销的客户不进新增" --status answered [--by owner] [--date 2026-11-23]
+scope-lineage catalog pending list pending.jsonl [--status active|open|answered|resolved|rejected|all]
+```
+
+```json
+{"doc_format": "catalog-pending/1", "kind": "reply", "date": "2026-11-23", "missing": "注销的客户算不算", "reply": "不算：注销的客户不进新增", "status": "answered", "by": "owner"}
+```
+
+`--missing` 按 `list` 分组的同一规则对上一项（NFKC、忽略大小写、合并空白）；没有哪条记录是它时什么都不写，退出码 `1`。
+`--status` 三选一：`answered`（给了定义，目录还没收进去）、`resolved`（目录已经有了）、`rejected`（不会给定义）；后两个关闭
+这一项。`--reply`、`--missing`、`--by` 要写在一行里：空白、带换行或控制字符、超过长度（`--reply`、`--missing` 2000 字，`--by`
+100 字）都拒绝，退出码 `2`，日期不对、文件读不了或写不了也是 `2`。回复不算命中：不加次数、不加问题、不动记录日期。
+
+`list` 给每一项带上它最新的一条回复（按行号）和状态（没有回复是 `open`）；默认 `--status active` 不列已关闭的项，抬头下面说
+另有几项已关闭。文本里每项多一行「状态：已答复（日期，回复人，第 N 行）：回复」，`--json` 的每项多 `status` 与 `reply`
+（`{reply, status, by, date, line}` 或 `null`），报告多 `replies`（回复的行数）、`status`（这次的筛选）、`closed`（被筛掉的已
+关闭项）。文件里没有回复时（且 `--status` 不是某个回复状态），文本和 JSON 与以前逐字节相同。格式不对的回复行和格式不对的
+记录一样列为读不了的行（退出码 `1`），指向没有记录的项的回复也是。旧版本把回复行当成读不了的行。服务的问题看板把有回复的
+待确认项算作「已回答」（回复自己的状态在 `reply` 里）；服务不提供写回复的接口，回复用命令行写。
+
 ## 以服务提供：HTTP 与 MCP
 
 `search`、`context`、`query`、`check-sql` 与 `pending list/add` 也可以不经命令行、由一个常驻服务回答。服务放在本仓库的
@@ -1240,6 +1264,19 @@ HTTP 服务还在 `/` 提供一个只读的浏览页面（浏览器打开 `http:
 看板只在给了 `page_states`（哪怕是空的）时接受状态筛选 `set_aside`；`all` 也包含它们，计数和概念分面照常跟着状态筛选走。
 文档本身不加任何键；不给 `page_states` 或给空映射时，所有输出与不支持它时相同（已回答问题的回答除外）。备注挂在文档里已回答的问题上时
 不起作用：以文档的回答为准。
+
+页面也可以用结构化的值回答问题。`overlay_answers` 除 `question:<id>` 外只套页面能产生的三种形状：`summary.row` 且值恰为 `unique`
+与 `grain_columns` 两键的对象、`column:<c>.meaning` 且值为文字、`column:<c>.code_values` 且值为单个 `{value, meaning}` 对象（不收列表：
+列表会替换整列码值）；其他形状（观测、行的文字、带别的键的行对象）一律拒收，理由是 `ONLY_PAGE_TARGETS`。传 `indexed=True` 时每条拒收
+多一个 `index`（条目在输入里的位置），调用方据此把拒收对回自己的记录（结构化目标不带问题 id）。叠加不分组：条目一条一条套，与
+`semantic confirm` 相同。`page_states` 此时还接受 `(表, 槽位)` 键（`row`、`column:<c>.meaning`、`column:<c>.code_values:<值>`），
+值只能是 `{"written": false}`；取数包给行标 `written: false`，给列标 `unwritten: ["meaning", "code_values:<值>", …]`（表下与点名的列下
+都标），文本在行后加 `（页面填写，尚未写回）`，在字段一览的列后加 `（页面填写，尚未写回：含义、码值 'X'）`，点名的列在含义与码值行后加同样的
+标注。不给槽位键时一切不变。
+
+页面把一条记录的两个条目（结构化槽位与关掉问题的 `question:` 条目）当作一体：任一条被拒，两条都不叠加。`semantic confirm` 不是这样：
+带 `--require-asked` 重放导出的文件时，问题若已改写，`question:` 条目对不上，而按列名定位的结构化条目照样生效。重放后要看 unmatched 清单。
+服务的浏览页就这样回答（一句话之外的行粒度 / 列含义 / 码值）；回答文件、守卫与导出见 [service/README.md](../../service/README.md)。
 
 以 `--ask` 启动时，页面还多一个问数面板：服务器上的模型按技能的 `catalog-answers.md` 步骤回答数据问题，只能用上面这些回答作工具；页面显示每一步、
 SQL、每个条件的依据和每个待确认占位（在占位旁填写的定义会追加到待确认文件）。它从不执行 SQL；它会产生费用，并把目录文字发给模型提供方，所以默认关闭。
@@ -1334,7 +1371,10 @@ stderr 说明），按表名排序写出 `digest.md` 与 `digest.json`（`catalo
 - 标识列、外部标识列、状态列、时间列、度量列、描述列（各带含义，有码值时带码值；`digest.json` 里文档有时还带
   `derivation`、`null_meaning`、`watch`，给 `--tables`（`scope-lineage tables` 写的 `tables.json`）时带物理类型 `type`），技术列只列名；
 - 表的 `rules`（`[{id, kind, text}]`，`digest.md` 里是 `- Rule r1 (filter): ...`）；承接某条规则的约束在 `rules` 里写 `<库.表>#<id>`；
-- 由哪些表加工而来（带角色）、被哪些表读取；要注意的点（`watch`）与未回答的问题。
+- 由哪些表加工而来（带角色）、被哪些表读取；要注意的点（`watch`）与未回答的问题；
+- 已回答的问题连同答案（`answered_questions`：`[{id, text, answer}]`，有记录时带 `answered_by`、`answered_on`；
+  `digest.md` 里是 `- Answered q1: <问题> -> <答案> (<谁>, <日期>)`）。没有已回答问题的表没有这个键，也没有这一行。
+  只认写进文档的回答（`semantic confirm`）：浏览页记录文件里还没写回的回答不读。
 
 给 `--catalog` 时，开头多一段「目录覆盖」：没有表现的表，以及已有表现的表里没有绑定的列（表名忽略大小写与
 catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」（`code_set_sources`：表 → 码值集 id），不算没有表现的表；

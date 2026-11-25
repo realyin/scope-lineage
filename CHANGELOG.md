@@ -1,6 +1,63 @@
 # Changelog
 
 ## Unreleased
+- **Added: `catalog pending reply` -- the owner's reply to a missing definition, appended to the same
+  `catalog-pending/1` file.** A reply is a line of its own (`kind: reply`, `missing`, `reply`, `status`,
+  optional `by`, `date`), keyed by the `missing` text the way `list` groups entries; it is not a hit -- no
+  count, no question, no date moves. `--status` is `answered` (defined, not in the catalog yet), `resolved`
+  or `rejected` (both close the item). Texts must fit on one line (no line break or control character;
+  2000 characters, 100 for `--by`), refused with exit 2; a `missing` no entry names is refused with exit 1;
+  nothing is written on a refusal. `catalog pending list` shows each item's latest reply and status and by
+  default leaves out closed items (new `--status active|open|answered|resolved|rejected|all`); its JSON
+  gains `status`/`reply` per item and `replies`/`status`/`closed` only when the file has a reply, so a file
+  without replies lists byte for byte as before. A malformed reply line, or one naming no entry, is a line
+  that cannot be read (exit 1); older versions read every reply line that way. The service's
+  `list_pending` / `GET /api/pending` follow `list`'s default; its question board counts a replied pending
+  item as answered and the page shows the reply. The service writes no replies.
+- **Added: `catalog digest` carries an answered question with its answer.** A question answered by
+  `semantic confirm` used to leave the digest altogether: only `open` questions were listed, so the drafter of
+  a catalog saw less after the owner answered than before. Each table now has `answered_questions`
+  (`[{id, text, answer}]`, plus `answered_by` and `answered_on` when recorded), printed in `digest.md` as
+  `- Answered q1: <question> -> <answer> (<by>, <on>)`. A table with no answered question has no such key and
+  no such line, so its digest is byte for byte what it was; a question marked `answered` without answer text
+  carries nothing. Only answers written into the documents count: one a browsing page still holds in its
+  record file is not read.
+- **Changed (runbook): the catalog drafter follows those answers, and confirmation rebuilds the digest.** T5
+  takes an `- Answered` line as the owner's answer for that table only: it writes `scope`, `maps_to` and the
+  rest accordingly with 「依据 digest Answered qN」 in `notes`, asks no 「待 owner 确认」 on a point already
+  answered, and follows an answer in tension with the table's SQL while recording the tension; its reply
+  counts the answers used. After S12, a run that already has a catalog reruns S10b (no model) and edits the
+  catalog by hand in S10f instead of re-drafting at S10c, then S10g. `next_step.py` sends the run back to S10b
+  when a document of the run's tables is newer than `digest.md` or `digest.json`, to S10f (listing the
+  digest's answered questions) when `catalog_changes.md` is older than the digest, and to S10g when
+  `onto/ontology.json` or `catalog_check.txt` is older than `catalog_changes.md`.
+- **Added: structured page answers in the core overlay and the context pack.** `overlay_answers` applies,
+  besides `question:<id>`, the three shapes a browsing page produces: `summary.row` with exactly `{unique,
+  grain_columns}`, `column:<c>.meaning` with a text, and `column:<c>.code_values` with one `{value, meaning}`
+  object (never a list); every other shape is refused with the new reason `ONLY_PAGE_TARGETS` (it was
+  `ONLY_QUESTIONS`, kept as a name). New keyword `indexed=True`: each refusal carries `index`, the entry's
+  position, so a caller maps refusals back to its records (`ConfirmResult.unmatched_at` gives the same for
+  `apply_confirmations`). `page_index` takes `(table, slot)` keys (`row`, `column:<c>.meaning`,
+  `column:<c>.code_values:<value>`, state `{"written": false}` only); the pack marks the row `written: false`
+  and a column `unwritten: [...]`, its text adding 「（页面填写，尚未写回）」. Without slot keys, and for an overlay
+  of `question:` entries only, every output is as before. The overlay has no groups; the docs say that a replay
+  under `--require-asked` applies a structured entry whose question was rewritten.
+- **Added (service): structured answers on the browse page.** Beside 一句话, a card answers with 行粒度
+  (`summary.row` `{unique, grain_columns}`), 列含义 (`column:<c>.meaning`) or 码值 (`column:<c>.code_values`, 1--50
+  `{value, meaning}`); the server writes the question's sentence from the value (「否：按 (a, b) 不唯一」, 「列 c 的
+  含义：…」, 「列 c 的码值：1=…；2=…」) and an optional note follows it. `question-answers/1` records gain the optional
+  `target`, `value` and `slot_base` (the slot on disk when answered); the judgement holds the slot too (written
+  back: sentence and slot on disk; in effect: question and slot unchanged; a column gone: missing). Guards: the
+  table's own columns, 1--8 grain columns, no code values on identifier columns, and no row answer on a
+  `proven` grain (400, D-H1); `POST /api/answers` takes `target`, `value` and `seen.slot` (409 when the slot
+  shown is not the slot now); a slot another question's page answer holds is refused (400), and of two such
+  records in a file only the first is overlaid. A record's slot and question entries are overlaid together:
+  refusals are traced to records by entry and the overlay repeats until nothing is refused (capped). The export
+  writes one single-object entry per code value, then the `question:` entry; structured entries carry no
+  `asked`. The pack marks overlaid slots, `/api/semantics` adds `unwritten_slots`, and the board's summary adds
+  `export_notes` when a code value's meaning on disk was changed (a replay cannot withdraw it: remove the old
+  entry). A code value the SQL never writes fails at validation (「确认与 SQL 矛盾，交回 owner」), not before; the
+  README and S12 say so. Without structured records every output is byte for byte as before.
 - **Added: platform queries for open questions -- the new `question-probes/1` format and `semantic probes
   check`.** A probes file lists, per open question of a table, its sub-questions (`class`: `data`, `human`,
   `corpus`), and for each one the data can answer one Spark SELECT with its `shape`, `partitions` (`want`,

@@ -47,8 +47,14 @@ hold answers and notes the documents do not have yet; ``page_states`` takes them
 ``(table, question id)`` (``page_index``), and the pack marks them (``mark_question``):
 ``written: false`` on an answer overlaid from the page, ``page`` on a question with a note,
 and ``status: "set_aside"`` on one the note sets aside (it stays listed, and the text puts it
-apart from the open ones). The documents gain no key. Without ``page_states`` (or with an
-empty one) the pack is what it was.
+apart from the open ones). A page may also answer with a structured value -- the row's
+grain, a column's meaning, one code value -- overlaid on the documents; ``page_states`` then
+also takes ``(table, slot)`` keys (``row``, ``column:<c>.meaning``,
+``column:<c>.code_values:<value>``, each ``{"written": False}``), and the pack marks the row
+``written: false`` and a column ``unwritten: ["meaning", "code_values:<value>", ...]``, the
+text adding 「（页面填写，尚未写回）」 after the row, the column's line and its meaning and
+code values. The documents gain no key. Without ``page_states`` (or with an empty one) the
+pack is what it was.
 """
 
 from __future__ import annotations
@@ -81,12 +87,14 @@ from .catalog_view import CatalogView, catalog_table_name, realises
 __all__ = [
     "CONTEXT_FORMAT",
     "PAGE_KINDS",
+    "ROW_SLOT",
     "SET_ASIDE",
     "SET_ASIDE_KINDS",
     "context_pack",
     "mark_question",
     "page_index",
     "render_context_text",
+    "unwritten_slots",
 ]
 
 CONTEXT_FORMAT = "catalog-context/1"
@@ -105,6 +113,11 @@ SET_ASIDE_KINDS = frozenset({"invalid", "not_applicable"})
 SET_ASIDE = "set_aside"
 _NOTE_KEYS = ("kind", "reason", "choice", "to", "by", "date")
 _NOT_WRITTEN = {"written": False}
+# A structured slot a browsing page answered (``page_index``): the row, a column's meaning,
+# one of a column's code values.
+ROW_SLOT = "row"
+_SLOT = re.compile(r"row|column:(?P<column>[^.\s]+)\.(?:meaning|code_values:(?P<value>.+))", re.S)
+UNWRITTEN_TEXT = "（页面填写，尚未写回）"
 
 
 def context_pack(
@@ -940,10 +953,13 @@ def _semantics(
     questions = [item for item in every_question if _about(item.get("about"), focus)]
     cited = _cited_rules(scope, watch, questions)
     rule_keys = ("id", "kind", "text", "watch") if brief else ("id", "kind", "text", "sql", "watch")
+    row_entry = _row(row)
+    if (states or {}).get(ROW_SLOT) == _NOT_WRITTEN:
+        row_entry["written"] = False
     answer = {
         "present": True,
         "what": summary.get("what"),
-        "row": _row(row),
+        "row": row_entry,
         "refresh": _pick(refresh, ("cycle", "time", "how_to_read", "watch")),
         "scope": scope,
         "good_for": list(summary.get("good_for") or []),
@@ -961,8 +977,9 @@ def _semantics(
             for item in summary.get("downstream") or []
         ],
         "columns": [
-            _pick(column, ("column", "category") if brief
-                  else ("column", "meaning", "category", "observed_values"))
+            _mark_column(_pick(column, ("column", "category") if brief
+                               else ("column", "meaning", "category", "observed_values")), states,
+                         column.get("column"))
             for column in document.get("columns") or []
         ],
     }
@@ -1035,8 +1052,13 @@ def page_index(page_states: Optional[Mapping]) -> dict[tuple[str, str], dict]:
     A state is ``{"written": False}`` (an answer overlaid from the page, not written back)
     or a note ``{"kind", "reason", "by", "date"}`` with an optional ``choice`` (``yes`` /
     ``no``) and, for ``redirect``, ``to``; ``kind`` is one of ``PAGE_KINDS``. The table
-    is matched the way the documents are (``catalog_table_name``, any case). Anything
-    else raises ``ValueError``.
+    is matched the way the documents are (``catalog_table_name``, any case).
+
+    A second kind of key names a structured slot the page answered, overlaid and not
+    written back: ``(table, slot)`` with ``slot`` ``row``, ``column:<c>.meaning`` or
+    ``column:<c>.code_values:<value>``; its state is ``{"written": False}`` only. A key
+    that is ``row`` or starts with ``column:`` is a slot (a question id is ``q<n>``).
+    Anything else raises ``ValueError``.
     """
     found: dict[tuple[str, str], dict] = {}
     for key, state in (page_states or {}).items():
@@ -1045,6 +1067,19 @@ def page_index(page_states: Optional[Mapping]) -> dict[tuple[str, str], dict]:
         where = (catalog_table_name(str(key[0]).strip()).lower(), str(key[1]))
         if not isinstance(state, Mapping):
             raise ValueError(f"page state of {where[0]} {where[1]} is not an object: {state!r}")
+        if where[1] == ROW_SLOT or where[1].startswith("column:"):
+            if not _SLOT.fullmatch(where[1]):
+                raise ValueError(
+                    f"page slot of {where[0]} is row, column:<c>.meaning or "
+                    f"column:<c>.code_values:<value>, not {where[1]!r}"
+                )
+            if dict(state) != _NOT_WRITTEN:
+                raise ValueError(
+                    f"page slot {where[1]} of {where[0]} takes {{'written': False}} only, "
+                    f"not {dict(state)!r}"
+                )
+            found[where] = dict(_NOT_WRITTEN)
+            continue
         if "kind" not in state:
             if dict(state) != _NOT_WRITTEN:
                 raise ValueError(
@@ -1063,9 +1098,31 @@ def page_index(page_states: Optional[Mapping]) -> dict[tuple[str, str], dict]:
 
 
 def _table_states(states: Optional[Mapping], table: str) -> dict[str, dict]:
-    """``{question id: state}`` of one table, from ``page_index``."""
+    """``{question id or slot: state}`` of one table, from ``page_index``."""
     key = catalog_table_name(str(table).strip()).lower()
     return {qid: state for (name, qid), state in (states or {}).items() if name == key}
+
+
+def unwritten_slots(states: Optional[Mapping], column: str) -> list[str]:
+    """What the page answered of one column and has not written back, from one table's
+    states: ``meaning`` first, then ``code_values:<value>`` in value order."""
+    meaning, codes = [], []
+    for key, state in (states or {}).items():
+        match = _SLOT.fullmatch(str(key))
+        if not match or match["column"] != column or state != _NOT_WRITTEN:
+            continue
+        if match["value"] is None:
+            meaning.append("meaning")
+        else:
+            codes.append(match["value"])
+    return meaning + [f"code_values:{value}" for value in sorted(codes)]
+
+
+def _mark_column(entry: dict, states: Optional[Mapping], column: str) -> dict:
+    unwritten = unwritten_slots(states, column)
+    if unwritten:
+        entry["unwritten"] = unwritten
+    return entry
 
 
 def mark_question(entry: dict, question: Mapping, state: Optional[Mapping]) -> dict:
@@ -1128,7 +1185,8 @@ def _column(
         "table": table,
         "column": name,
         "catalog": _binding(view, table, binding, material) if binding else None,
-        "semantics": _described(described) if described else None,
+        "semantics": _mark_column(_described(described), own, described.get("column"))
+        if described else None,
         "watch": [
             _pick(item, ("kind", "text", "refs"))
             for item in summary.get("watch") or []
@@ -1540,7 +1598,8 @@ def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:
     row = sem.get("row") or {}
     if row:
         note = f"；{row['note']}" if row.get("note") else ""
-        lines.append(f"- 一行是：{row.get('text') or ''}（{_unique_text(row)}）{note}")
+        written = UNWRITTEN_TEXT if row.get("written") is False else ""
+        lines.append(f"- 一行是：{row.get('text') or ''}（{_unique_text(row)}）{note}{written}")
     lines += [
         f"- 上游观测：{item['table']} {observed_input_text(item)}"
         for item in sem.get("observed_inputs") or []
@@ -1587,9 +1646,21 @@ def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:
     lines += [
         f"- {c['column']}：{c.get('meaning') or ''}" + (f"（{c['category']}）" if c.get("category") else "")
         + (f"；{observed_values_text(c)}" if c.get("observed_values") else "")
+        + _unwritten_text(c.get("unwritten"))
         for c in sem["columns"]
     ]
     return lines
+
+
+def _unwritten_text(unwritten) -> str:
+    """「（页面填写，尚未写回：含义、码值 'X'）」 after a column, or nothing."""
+    if not unwritten:
+        return ""
+    codes = [item.split(":", 1)[1] for item in unwritten if item.startswith("code_values:")]
+    parts = ["含义"] if "meaning" in unwritten else []
+    if codes:
+        parts.append("码值 " + "、".join(repr(code) for code in codes))
+    return f"（页面填写，尚未写回：{'、'.join(parts)}）"
 
 
 def _unique_text(row: Mapping) -> str:
@@ -1704,7 +1775,9 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
     if sem is None:
         lines.append("- 表语义：没有这一列的说明")
     else:
-        lines.append(f"- 含义：{sem.get('meaning') or ''}" + (f"（{sem['category']}）" if sem.get("category") else ""))
+        unwritten = sem.get("unwritten") or []
+        lines.append(f"- 含义：{sem.get('meaning') or ''}" + (f"（{sem['category']}）" if sem.get("category") else "")
+                     + (UNWRITTEN_TEXT if "meaning" in unwritten else ""))
         for key, label in (("derivation", "加工"), ("null_meaning", "空值"), ("watch", "注意")):
             if sem.get(key):
                 lines.append(f"  - {label}：{sem[key]}")
@@ -1712,7 +1785,8 @@ def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
             lines.append(f"  - 分支 {branch.get('branch')}：{branch.get('text')}")
         if sem.get("code_values"):
             pairs = "、".join(f"{v.get('value')!r}={v.get('meaning')}" for v in sem["code_values"])
-            lines.append(f"  - 码值：{pairs}")
+            codes = [item for item in unwritten if item.startswith("code_values:")]
+            lines.append(f"  - 码值：{pairs}" + (_unwritten_text(codes) if codes else ""))
         if sem.get("observed_values"):
             lines.append(f"  - 观测取值：{observed_values_text(sem)}")
     if shown_in and (column["watch"] or column["questions"]):

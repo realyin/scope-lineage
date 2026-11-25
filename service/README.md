@@ -15,7 +15,8 @@ OpenAI-compatible endpoints.
 ## Install
 
 From a checkout of this repository (the page's answers need the core's additions in the release after 0.16.0 -- answers
-overlaid on the documents and marked in the context pack and the board; installing the core from the same
+overlaid on the documents and marked in the context pack and the board, and the structured answers' overlay
+and slot marks; installing the core from the same
 checkout keeps the two in step):
 
 ```bash
@@ -69,7 +70,7 @@ command line keeps full paths.
 | GET | `/api/neighbourhood` | `concept` (required), `limit` | none |
 | GET | `/api/semantics` | `table` (required) | none |
 | GET | `/api/questions` | `table`, `concept`, `status` (`open`, `answered`, `all`; with `--answers` also `set_aside`), `source` (`semantics`, `pending`), `text`, `offset`, `limit` | none |
-| POST | `/api/answers` | body (`application/json`): `table`, `question`, `kind`, `answer` or `reason`, `choice`, `to`, `by`, `asked`, `seen` (with `--answers`; see below) | none |
+| POST | `/api/answers` | body (`application/json`): `table`, `question`, `kind`, `answer` or `reason`, `choice`, `to`, `by`, `asked`, `seen`, and for a structured answer `target`, `value` (with `--answers`; see below) | none |
 | POST | `/api/answers/withdraw` | body (`application/json`): `table`, `question`, `seen` (with `--answers`) | none |
 | GET | `/api/answers/export` | none (with `--answers`) | `scope-lineage-service answers export` |
 
@@ -287,6 +288,53 @@ deleted. Between the export and `confirm` the file is an ordinary confirmations 
 documents may have been rewritten meanwhile. A question rewritten in between comes back `unmatched`
 (`question was rewritten`), and running the same file again reports its answers as `skipped`.
 
+**Structured answers** -- beside 一句话, a card's answer form offers 行粒度, 列含义 and 码值: the person gives
+the value itself, and the server writes the question's sentence from it. The record gains `target`, `value`
+and `slot_base` (`answer` becomes an optional note after the sentence; no `choice`):
+
+| 页签 | `target` | `value` | Sentence |
+| --- | --- | --- | --- |
+| 行粒度 | `summary.row` | `{"unique": "yes" \| "no", "grain_columns": ["a", "b"]}` | `是：按 (a, b) 每行唯一` / `否：按 (a, b) 不唯一` |
+| 列含义 | `column:<c>.meaning` | `"<text>"` | `列 c 的含义：…` |
+| 码值 | `column:<c>.code_values` | `[{"value", "meaning"}, ...]` (1--50) | `列 c 的码值：1=…；2=…` |
+
+The column menu lists the question's own columns (`about`), or every column of the table when it names none.
+The guards: grain columns are 1--8 distinct columns of the table; a code value is 1--64 characters, not
+blank, given once, never on an identifier column; texts on one line as above; a row answer is refused (400)
+when the document's grain is `proven` -- the lineage proved it, so say the disagreement in a sentence. Only
+the table's own columns can be answered. `slot_base` is the slot on disk when the answer was given (the row's
+`{unique, grain_columns, grain_source}`, the column's meaning, or `{value: meaning or null}` of the code
+values given), and the judgement holds the slot too: **written back** needs the sentence on disk *and* the
+slot to hold the value (the same `unique` and set of grain columns; the same meaning; each code value with
+the meaning and not `unconfirmed`); **in effect** needs the question at `base` *and* the slot at `slot_base`;
+a column gone is **not matched** (missing). The page sends `seen.slot`, the slot as it showed it (the
+overlaid document); a different slot now is 409. Two questions may not answer one slot (the row, or the same
+code value of a column): the second is refused (400) naming the first, and in a file that holds both anyway
+only the first is overlaid -- the second is listed as not overlaid.
+
+A structured answer overlays its slot and its question together: when either entry is refused, the record is
+taken out whole (「叠加不上」) and the others overlaid again, until nothing is refused (a few passes at most);
+a refusal is traced to its record by the entry, not by its target. The pack marks the slot -- the row
+`written: false`, a column `unwritten: ["meaning", "code_values:X"]`, the text `（页面填写，尚未写回）` -- and
+`/api/semantics` lists it in `unwritten_slots` beside `unwritten`. The export writes the structured entries
+first -- each code value one single-object entry, never a list, which would replace the column's other codes
+-- then the `question:` entry with `asked`; the structured entries carry no `asked` (`semantic confirm`
+refuses it on a target that is not a question). Three things a replay does not do the way the page does:
+
+- **The two entries are not one in a replay.** `semantic confirm --require-asked` after a rewrite leaves the
+  `question:` entry unmatched, while the structured entry, addressed by column name, still applies. Read the
+  unmatched list.
+- **A changed code value cannot be withdrawn by a replay**: a single-object entry only merges, so an older
+  entry for the same value, in a file that sorts later, says the old meaning again. When a page answer changes
+  a code value's meaning on disk, the export says so (the board's 「导出前请看」, the command's `note:` lines
+  on stderr): remove the old confirmation entry from `$RUN/confirmations/` before putting the new file there.
+- **A code value the SQL never writes is not refused before validation.** Neither the page nor `semantic
+  confirm` has the packet: a code value on a constant-only column, or an empty string no producer writes, is
+  written back, and `semantic validate` fails it as 「确认与 SQL 矛盾，交回 owner」. Take it back to the owner.
+
+Without structured records every output -- the board, `/api/semantics`, `/api/context`, the export -- is what
+it was.
+
 **Endpoints** (404 `not_configured` without `--answers`):
 
 - `POST /api/answers` -- `{table, question, kind, answer | reason, choice?, to?, by, asked, seen}`. `asked`
@@ -296,12 +344,16 @@ documents may have been rewritten meanwhile. A question rewritten in between com
   its answer on disk or its record is not what the page saw (two people changing one record: the later is
   refused); 400 for a refused text, `choice` on another kind, a `redirect` without `to`, the same as what is
   there now, a note on a question answered on disk; 404 for an unknown table or question; 503 when the
-  answers file cannot be read or written.
+  answers file cannot be read or written. A structured answer adds `target` and `value`, and `seen` becomes
+  `{disk, record, slot}`; 400 for a value out of shape, a column the table does not have, an identifier
+  column's code values, a row answer on a proven grain, or a slot another question's page answer holds; 409
+  when `slot` is not the slot shown now.
 - `POST /api/answers/withdraw` -- `{table, question, seen: <the record shown>}`: deletes the record (an
   answer then reads as its document says again). 200 `{withdrawn}`, 404 without a record, 409 when it changed.
 - `GET /api/answers/export` -- the confirmations file (JSON only; `Content-Disposition: attachment`).
 - `/api/questions` adds `answers`: `{status, writable, effective, exported, digests, unmatched: [{table,
-  question, record, reason, message, now}], refused?, reason?, problem?}`.
+  question, record, reason, message, now}], export_notes?, refused?, reason?, problem?}` (`now.slot` on a
+  structured record; `export_notes` only when there is something to say).
 
 **Texts and the injection path** -- an answer, a reason, a name and `to` are stored as typed, stripped of
 leading and trailing whitespace only (full-width punctuation such as `：（），？` stays as written, into the
@@ -552,7 +604,8 @@ placeholder reading, brief parsing and event view model) are checked by running 
 `node` when it is on `PATH` (`test_service_page_js.py`, `test_service_answers_page_js.py`,
 `test_ask_page_js.py`, skipped otherwise; no JavaScript package is installed). The page's answers have their
 own tests: the record file, every rule of the judgement and the deletes (`test_service_answers.py`) and the
-endpoints, the outputs and the export through `semantic confirm` (`test_service_answers_http.py`).
+endpoints, the outputs and the export through `semantic confirm` (`test_service_answers_http.py`); the
+structured answers theirs (`test_service_structured_answers.py`).
 
 The ask panel's tests never call a model or need the SDK: the loop runs against a scripted model behind
 its one seam (`test_ask_loop.py`), the endpoints against the development fake (`test_ask_http.py`), and the
