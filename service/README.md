@@ -39,7 +39,7 @@ pip install -e . -e service
 ## HTTP
 
 ```bash
-scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE] [--answers FILE [--answers-allow-remote]] \
+scope-lineage-service http ONTOLOGY [--semantics DIR] [--pending FILE] [--answers FILE [--answers-allow-remote]] [--probes FILE] \
   [--host 127.0.0.1] [--port 8765] [--max-body 1048576] [--allow-host NAME]... [--quiet] \
   [--ask [--ask-model M] [--ask-effort E] [--ask-models FILE] [--ask-max-...] | --ask-dev-fake-model]
 ```
@@ -73,6 +73,10 @@ command line keeps full paths.
 | POST | `/api/answers` | body (`application/json`): `table`, `question`, `kind`, `answer` or `reason`, `choice`, `to`, `by`, `asked`, `seen`, and for a structured answer `target`, `value` (with `--answers`; see below) | none |
 | POST | `/api/answers/withdraw` | body (`application/json`): `table`, `question`, `seen` (with `--answers`) | none |
 | GET | `/api/answers/export` | none (with `--answers`) | `scope-lineage-service answers export` |
+| GET | `/api/probes` | `table` (required), `question` (with `--probes`; see below) | none |
+| POST | `/api/probe-results/draft` | body (`application/json`): `probe`, `pasted` (with `--probes`) | none |
+| POST | `/api/observations` | body (`application/json`): `probe`, `pasted`, `by`, `seen` (with `--probes` and `--answers`) | none |
+| POST | `/api/observations/withdraw` | body (`application/json`): `seen` (with `--probes` and `--answers`) | none |
 
 Every answer endpoint takes `format=text` for what the command prints without `--json`. The JSON body is
 byte for byte what the command prints with `--json`. The command's exit code is in the
@@ -376,6 +380,56 @@ only records still exactly as judged are deleted; a failed delete fails no reque
 `/health`'s `answers.problem`). `mcp --answers FILE`, and any other server given the same file, overlay it
 read-only and never write or delete. Two writers on one file are not protected against.
 
+### Pasting platform results (`--probes`)
+
+```bash
+scope-lineage-service http out/ontology.json --semantics "$RUN/docs" --answers "$RUN/question-answers.json" \
+  --probes "$RUN/probes/question-probes.json"
+```
+
+`--probes FILE` names a `question-probes/1` file (runbook S9b; read-only, read again when it changes; one
+that cannot be read or is not that format stops the start with exit 2). Each table-semantics card on the
+board then lists its question's queries (`probes` on the board's items: the SQL with a copy button -- the
+placeholders are left for the person running it --, how to read the result, where it may land, and
+`stale` when the question no longer reads as the query asked it). The server never runs a query.
+
+- **Paste and preview.** The person running a query pastes its result as it came back: the one JSON
+  object `{sql_id, status, run_on, bizdate, sql_executed, columns, rows, note}` (`elapsed_sec` may be
+  there), at most 64 K characters; nothing else (no TSV or CSV) is read. For a query that lands
+  (`lands`), `POST /api/probe-results/draft` returns the draft `{target, value, evidence}` and
+  `pasted_sha256`, and the card shows every number, the partition and the query id. The draft is never
+  stored. No draft -- `refused` with the reason -- when `sql_id` is not the probe's, `status` is not `ok`,
+  `sql_executed` is not the probe's SQL with its placeholders filled in (whitespace aside), the columns are
+  not exactly the query's own top-level output columns and the fixed columns of its shape (`rows, keys,
+  duplicate_keys`; `value, cnt`), a count is null (an empty table), negative or not an integer, the counts
+  disagree (`duplicate_keys <= keys <= rows`, no duplicates exactly when `rows == keys`, `rows` at least 1),
+  a value set has more than 51 rows or a value twice, or a non-integer cell has a contact shape
+  (`scope_lineage.semantics.probe_results`).
+- **Confirm.** 「确认」 with the answerer's name posts `{probe, pasted, by, seen}` (`seen` is the draft shown,
+  with `pasted_sha256`) to `POST /api/observations`: the server reads the pasted text again and stores the
+  observation under `observations` in the answers file -- `{probe, table, question, asked, target, value,
+  evidence, pasted_sha256, by, date}`, `by` the person who confirmed, one per slot (a later one replaces
+  it). 201 `{observation}`; 409 when the draft is not the one shown (the text or the probes file changed);
+  400 when there is no draft, the question was rewritten after the query was written, or `semantic confirm`
+  would refuse the entry on the document on disk (an identifier column's values, say); 403 and 404 as for
+  answers. `POST /api/observations/withdraw {seen}` deletes one (409 when it changed).
+- **Not written back yet.** An observation is never overlaid on the documents: `/api/semantics` lists its
+  target in `unwritten_slots` (`summary.row.observed`, `column:<c>.observed_values`, `input:<db.table>`),
+  the table page marks it 「观测未写回」, and the board's `answers` gains `observations: {effective,
+  records, unmatched}` with the observations listed above the export. Once the document holds the value
+  (after the export is replayed) the record is deleted; a question rewritten or a column gone makes it not
+  matched (not exported).
+- **Export.** `/api/answers/export` and `answers export` write each observation in effect after the
+  answers' entries, as an observation confirmation with `evidence` -- the reference `{probe, partition,
+  on, sha256}` (the probes file's sha256). The rows of a result never leave the answers file.
+- **Evidence for a sentence.** A query that lands nothing gives no draft; its pasted result previews as the
+  reference `evidence`, and 「以此为依据回答」 posts a sentence answer with `probe_result: {probe, pasted}`
+  (`/api/answers` takes the field only with `--probes`): the record's `source` is `{kind: "query", probe,
+  partition, on, sha256}` and its exported `question:` entry carries the same `evidence`. No row is kept.
+
+Without `--probes` the endpoint list, `/health`, the board and every other output are what they were; an
+answers file without `observations` reads and writes byte for byte as before.
+
 ## Ask panel (opt-in)
 
 The page's **问数** view takes a data question and has a model answer it -- on the server, never in the
@@ -602,10 +656,11 @@ The browse page's pure JavaScript functions (the graph layout and its labels, th
 sorts offered, the document title, the answer cards' state, `seen` and request bodies, and the ask panel's
 placeholder reading, brief parsing and event view model) are checked by running the page's own modules with
 `node` when it is on `PATH` (`test_service_page_js.py`, `test_service_answers_page_js.py`,
-`test_ask_page_js.py`, skipped otherwise; no JavaScript package is installed). The page's answers have their
+`test_ask_page_js.py`, `test_service_probe_page_js.py`, skipped otherwise; no JavaScript package is installed). The page's answers have their
 own tests: the record file, every rule of the judgement and the deletes (`test_service_answers.py`) and the
 endpoints, the outputs and the export through `semantic confirm` (`test_service_answers_http.py`); the
-structured answers theirs (`test_service_structured_answers.py`).
+structured answers theirs (`test_service_structured_answers.py`); pasted platform results, drafts,
+observations, evidence and the `--probes` guards theirs (`test_service_probe_results.py`).
 
 The ask panel's tests never call a model or need the SDK: the loop runs against a scripted model behind
 its one seam (`test_ask_loop.py`), the endpoints against the development fake (`test_ask_http.py`), and the

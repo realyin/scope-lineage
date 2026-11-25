@@ -647,7 +647,7 @@ def test_the_delete_reads_the_file_again_and_keeps_a_changed_record(paths) -> No
     records_file.write_records(paths["answers"], [replaced])
 
     with state._lock:
-        kept = state._delete([judged_record])
+        kept, _ = state._delete([judged_record])
     assert kept == [replaced] and file_records(paths) == [replaced]
 
 

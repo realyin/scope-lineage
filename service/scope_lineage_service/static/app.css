@@ -214,6 +214,12 @@ td.num { text-align: right; white-space: nowrap; }
 /* the form shows one answer mode's fields at a time: a toggled group that is also a flex
    row (.answer-actions) stays hidden */
 .answer-form [hidden] { display: none !important; }
+/* the platform queries of a card (a server with --probes) and their paste boxes */
+.probe-box { border-top: 1px dashed var(--line); margin-top: 0.4rem; padding-top: 0.4rem; }
+.probe-box h3 { margin: 0 0 0.2rem; font-size: 1em; }
+.probe { margin: 0.5rem 0; padding-left: 0.6rem; border-left: 2px solid var(--line); }
+.probe pre { margin: 0.3rem 0; }
+.answer-form textarea[aria-label="查询结果"] { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 a.button {
   display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 0.25rem 0.6rem;
   background: var(--accent-soft);

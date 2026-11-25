@@ -16,6 +16,25 @@
   has a contact shape. The partition comes from the item's `partitions` with the values the query ran with
   (`requested` when the result's `bizdate` says it fell back); the item's `filter` and `engine` are carried.
   `evidence_reference` gives only the reference for a result of an item that lands nothing.
+- **Added (service): platform results are pasted back on the questions board (`http --probes FILE`).** With a
+  `question-probes/1` file each table-semantics card lists its question's queries (SQL with a copy button,
+  how to read the result, where it may land, `stale` when the question was rewritten). A result pasted for a
+  query that lands is drafted by the core (`POST /api/probe-results/draft`; every number, the partition and
+  the query id are shown; nothing is stored) or refused with the reason; 「确认」 with the answerer's name
+  (`POST /api/observations`) reads the pasted text again -- 409 when the draft is not the one shown --,
+  checks the entry against the document on disk as `semantic confirm` would, and stores it under a new
+  optional `observations` key of the answers file (`by` the person who confirmed; one per slot, a later one
+  replacing it; `POST /api/observations/withdraw` deletes one). Observations are never overlaid: their slots
+  are listed in `unwritten_slots` and marked 「观测未写回」 on the table page, the board lists them above the
+  export, and the export (`/api/answers/export`, `answers export`) writes them as observation confirmations
+  with `evidence`; a document that holds the value deletes the record. A result of a query that lands
+  nothing can back a sentence answer (`probe_result` on `POST /api/answers`, only with `--probes`): the
+  record's `source` is `{kind: query, probe, partition, on, sha256}` and its exported `question:` entry
+  carries the same `evidence`. No row of a result is kept. The same guards as answers: writes refused (403)
+  on a server others reach without `--answers-allow-remote`, pasted text at most 64 K characters. Without
+  `--probes` every output is unchanged, and an answers file without `observations` reads and writes byte for
+  byte as before. Runbook S12 (and S9b) now say to paste results on the page rather than hand-write the
+  entries. The service needs the core release that carries `probe_results`; raise its lower bound then.
 
 ## 0.17.0
 - **Changed: `semantic probes check` C9 holds a landing query to what it can stand for.** A value set read

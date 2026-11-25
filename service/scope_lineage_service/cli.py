@@ -66,6 +66,11 @@ def _parser() -> argparse.ArgumentParser:
                 help="Take the page's answers even when other machines can reach this server "
                      "(a non-loopback --host, or --allow-host): anyone who reaches the port can "
                      "answer under any name, and the text reaches models and MCP")
+            mode.add_argument(
+                "--probes", metavar="FILE",
+                help="A question-probes/1 file (read-only): the questions board shows each "
+                     "question's platform queries and takes pasted results as draft "
+                     "observations a person confirms into the --answers file")
             mode.add_argument("--host", default="127.0.0.1",
                               help="IPv4 address to bind (default 127.0.0.1, this machine only)")
             mode.add_argument("--port", type=int, default=8765,
@@ -108,11 +113,13 @@ def _export(args) -> int:
         print(error.message, file=sys.stderr)
         return error.exit_code
     try:
-        records = records_file.read_records(Path(args.answers))
+        records, observations = records_file.read_file(Path(args.answers))
     except records_file.AnswersFileError as error:
         print(f"{args.answers}: {error}", file=sys.stderr)
         return 2
     judgement = records_file.judge_all(records, semantics)
+    observed = [records_file.judge_observation(record, semantics) for record in observations]
+    seen = [item.record for item in observed if item.state == records_file.EFFECTIVE]
     effective = [item.record for item in judgement.of(records_file.EFFECTIVE)
                  if item.record["kind"] == records_file.ANSWER]
     _, refused = records_file.overlay_records(semantics, effective)
@@ -128,10 +135,12 @@ def _export(args) -> int:
                 record, records_file.UNMATCHED, records_file.NOT_APPLIED, None,
                 f"{records_file.REASON_TEXT[records_file.NOT_APPLIED]}：{reason}"))
     out = Path(args.out)
-    out.write_text(json.dumps(records_file.export_document(kept), ensure_ascii=False, indent=2)
-                   + "\n", encoding="utf-8")
-    print(f"Exported {len(kept)} answer(s) to {out} (not matched={len(unmatched)})",
-          file=sys.stderr)
+    unmatched += [item for item in observed if item.state == records_file.UNMATCHED]
+    out.write_text(json.dumps(records_file.export_document(kept, seen), ensure_ascii=False,
+                              indent=2) + "\n", encoding="utf-8")
+    observed_words = f", {len(seen)} observation(s)" if observations else ""
+    print(f"Exported {len(kept)} answer(s){observed_words} to {out} "
+          f"(not matched={len(unmatched)})", file=sys.stderr)
     for item in unmatched:
         entry = item.listing()
         now = entry["now"]
@@ -142,7 +151,7 @@ def _export(args) -> int:
               f"磁盘上现在：{held}", file=sys.stderr)
     for note in records_file.export_notes(kept):
         print(f"  note: {note}", file=sys.stderr)
-    for table in sorted({record["table"] for record in kept}):
+    for table in sorted({record["table"] for record in kept + seen}):
         print(f"  {table}  document_digest {document_digest(semantics[table])}", file=sys.stderr)
     return 1 if unmatched else 0
 
@@ -322,7 +331,8 @@ def main(argv: list[str] | None = None) -> int:
         return _export(args)
     try:
         state = CatalogState(args.ontology, semantics=args.semantics, pending=args.pending,
-                             answers=args.answers, answers_writer=args.mode == "http")
+                             answers=args.answers, answers_writer=args.mode == "http",
+                             probes=getattr(args, "probes", None))
     except CatalogAnswerError as error:
         print(error.message, file=sys.stderr)
         return error.exit_code

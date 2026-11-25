@@ -46,6 +46,14 @@ server other machines can reach -- a non-loopback ``--host``, or any ``--allow-h
 unless it was started with ``--answers-allow-remote``: an answer's text reaches the
 context pack, the ask panel's model and MCP. Every text is kept as typed, stripped only,
 and refused when blank, too long, or carrying a line break or a control character.
+
+The platform-result endpoints (``/api/probes``, ``/api/probe-results/draft``,
+``/api/observations...``) exist only when the server was started with ``--probes``
+(otherwise 404 ``not_configured``, and the endpoint list does not name them): the board
+shows each question's queries, a pasted result becomes a draft nothing stores, and
+「确认」 stores it in the answers file under the same guards as an answer (403 on a server
+others reach without ``--answers-allow-remote``, 409 when the draft is not the one shown).
+A pasted text is at most ``probes.MAX_PASTE`` characters.
 """
 
 from __future__ import annotations
@@ -76,12 +84,14 @@ from scope_lineage.render.catalog_search import SEARCH_KINDS
 from . import __version__
 from . import answers as records_file
 from .ask.service import AskError
+from .probes import MAX_PASTE
 from .state import (
     AnswerRefused,
     AnswersNotConfigured,
     AnswersUnavailable,
     CatalogState,
     PendingNotConfigured,
+    ProbesNotConfigured,
 )
 
 EXIT_HEADER = "X-Scope-Lineage-Exit-Code"
@@ -307,6 +317,43 @@ ENDPOINTS = [
         "cli": "scope-lineage-service answers export ANSWERS --semantics DIR --out FILE",
     },
     {
+        "method": "GET", "path": "/api/probes", "probes": True,
+        "description": (
+            "The platform queries of a table's questions from the --probes file "
+            "(question-probes/1): each item's SQL, how to read its result, where it may land, "
+            "and stale when its question no longer reads as asked. JSON only."
+        ),
+        "params": {"table": "required: db.table", "question": "optional: a question id"},
+    },
+    {
+        "method": "POST", "path": "/api/probe-results/draft", "probes": True,
+        "description": (
+            "Read one pasted platform result (the result JSON a query run hands back) for a "
+            "probe: draft ({target, value, evidence}) for a query that lands, evidence (the "
+            "reference {probe, partition, on, sha256}) for one that does not, or refused with "
+            "the reason; and pasted_sha256. Writes nothing. A sentence answer backed by a "
+            "result that lands nothing: POST /api/answers with probe_result {probe, pasted}."
+        ),
+        "params": {"body": "application/json: probe (its id), pasted (the result text)"},
+    },
+    {
+        "method": "POST", "path": "/api/observations", "probes": True, "answers": True,
+        "description": (
+            "Confirm a drafted observation: the pasted text is read again and stored under "
+            "observations in the answers file. 201 with the record; 409 when the draft is not "
+            "the one shown (seen); 400 when there is no draft or the document would refuse it; "
+            "403 on a server other machines reach, unless started with --answers-allow-remote."
+        ),
+        "params": {"body": "application/json: probe, pasted, by (who confirms), seen (the "
+                           "draft as shown, with pasted_sha256)"},
+    },
+    {
+        "method": "POST", "path": "/api/observations/withdraw", "probes": True, "answers": True,
+        "description": "Delete one observation record. 404 when there is none; 409 when it is "
+                       "not the one the page saw.",
+        "params": {"body": "application/json: seen (the record as shown)"},
+    },
+    {
         "method": "GET", "path": "/",
         "description": "The browse page (HTML); its scripts and styles are served beside it.",
         "params": {},
@@ -494,7 +541,7 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 path = self.path.partition("?")[0]
                 headers["Allow"] = ", ".join(sorted(self._routes()[path]))
             self._send_error(error, headers)
-        except (PendingNotConfigured, AnswersNotConfigured) as error:
+        except (PendingNotConfigured, AnswersNotConfigured, ProbesNotConfigured) as error:
             self._send_error(RequestError(404, "not_configured", error.message))
         except AnswersUnavailable as error:
             self._send_error(RequestError(503, "answers_unavailable", error.message))
@@ -524,6 +571,11 @@ class CatalogHandler(BaseHTTPRequestHandler):
             "/api/answers": {"POST": self._answer_post},
             "/api/answers/withdraw": {"POST": self._answer_withdraw},
             "/api/answers/export": {"GET": self._answer_export},
+            # Answered 404 not_configured when the server was started without --probes.
+            "/api/probes": {"GET": self._probes},
+            "/api/probe-results/draft": {"POST": self._probe_draft},
+            "/api/observations": {"POST": self._observation_post},
+            "/api/observations/withdraw": {"POST": self._observation_withdraw},
             # Answered 404 not_configured when the server was started without --ask.
             "/api/ask/status": {"GET": self._ask_status},
             "/api/ask": {"POST": self._ask},
@@ -564,11 +616,13 @@ class CatalogHandler(BaseHTTPRequestHandler):
         configured = self.server.state.pending_path is not None
         asking = self.server.ask is not None
         answering = self.server.state.answers_path is not None
+        probing = self.server.state.probes is not None
         listing = [
-            {key: value for key, value in item.items() if key not in ("pending", "ask", "answers")}
+            {key: value for key, value in item.items()
+             if key not in ("pending", "ask", "answers", "probes")}
             for item in ENDPOINTS
             if (configured or not item.get("pending")) and (asking or not item.get("ask"))
-            and (answering or not item.get("answers"))
+            and (answering or not item.get("answers")) and (probing or not item.get("probes"))
         ]
         if answering:
             for item in listing:
@@ -771,8 +825,14 @@ class CatalogHandler(BaseHTTPRequestHandler):
     def _answer_post(self, query: str) -> None:
         _Params(query, set())
         self._answers_writable()
-        payload = self._answer_payload(ANSWER_FIELDS)
+        probing = self.server.state.probes is not None
+        payload = self._answer_payload(ANSWER_FIELDS | ({"probe_result"} if probing else set()))
         request = _answer_request(payload)
+        if payload.get("probe_result") is not None:
+            if request.get("target") is not None:
+                raise _bad("a structured answer rests on no query result: confirm the result "
+                           "as an observation")
+            request["probe_result"] = _probe_paste(payload["probe_result"])
         record = self.server.state.save_answer(request)
         self._send_json(201, {"record": record})
 
@@ -795,6 +855,51 @@ class CatalogHandler(BaseHTTPRequestHandler):
         body = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         self._send(200, body, "application/json; charset=utf-8",
                    {"Content-Disposition": f'attachment; filename="{EXPORT_NAME}"'})
+
+    # ------------------------------------------------------------------ platform results
+
+    def _probes(self, query: str) -> None:
+        params = _Params(query, {"table", "question"})
+        params.json_only()
+        if self.server.state.probes is None:
+            raise ProbesNotConfigured()
+        table = params.one("table", required=True)
+        self._send_json(200, self.server.state.probes_for(table, params.one("question")))
+
+    def _probe_draft(self, query: str) -> None:
+        _Params(query, set())
+        if self.server.state.probes is None:
+            raise ProbesNotConfigured()
+        paste = _probe_paste(self._answer_payload({"probe", "pasted"}))
+        self._send_json(200, self.server.state.probe_draft(paste["probe"], paste["pasted"]))
+
+    def _observation_post(self, query: str) -> None:
+        _Params(query, set())
+        if self.server.state.probes is None:
+            raise ProbesNotConfigured()
+        self._answers_writable()
+        payload = self._answer_payload({"probe", "pasted", "by", "seen"})
+        request = _probe_paste(payload)
+        if not isinstance(payload.get("seen"), dict):
+            raise _bad("seen is the draft as the page showed it, with pasted_sha256")
+        try:
+            request["by"] = records_file.clean_text(payload.get("by"), "by", records_file.MAX_NAME)
+        except records_file.TextRefused as error:
+            raise _bad(str(error)) from None
+        request["seen"] = payload["seen"]
+        record = self.server.state.confirm_observation(request)
+        self._send_json(201, {"observation": record})
+
+    def _observation_withdraw(self, query: str) -> None:
+        _Params(query, set())
+        if self.server.state.probes is None:
+            raise ProbesNotConfigured()
+        self._answers_writable()
+        payload = self._answer_payload({"seen"})
+        if not isinstance(payload.get("seen"), dict):
+            raise _bad("seen is the observation record as the page showed it")
+        record = self.server.state.withdraw_observation(payload["seen"])
+        self._send_json(200, {"withdrawn": record})
 
     def _answer_payload(self, fields: set) -> dict:
         body, content_type = self._read_body()
@@ -1024,6 +1129,21 @@ def _answer_request(payload: dict) -> dict:
             raise _bad(f"choice is yes or no, on {' or '.join(records_file.CHOICE_KINDS)} only")
         request["choice"] = choice
     return request
+
+
+def _probe_paste(payload) -> dict:
+    """``{probe, pasted}`` of a request: a probe id and the pasted result text, at most
+    ``MAX_PASTE`` characters (``_bad`` otherwise)."""
+    if not isinstance(payload, dict):
+        raise _bad("probe_result is {probe, pasted}")
+    probe, pasted = payload.get("probe"), payload.get("pasted")
+    if not isinstance(probe, str) or not probe.strip():
+        raise _bad("probe is required (a probe id)")
+    if not isinstance(pasted, str) or not pasted.strip():
+        raise _bad("pasted is required (the result as the query run handed it back)")
+    if len(pasted) > MAX_PASTE:
+        raise _bad(f"pasted is {len(pasted)} characters; at most {MAX_PASTE}")
+    return {"probe": probe.strip(), "pasted": pasted}
 
 
 def _reachable_from_elsewhere(host: str, allow_hosts) -> bool:
