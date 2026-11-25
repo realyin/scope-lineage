@@ -1,4 +1,4 @@
-"""The two packaged JSON Schemas of this package, and violations as ``{at, message}``."""
+"""The packaged JSON Schemas of this package, and violations as ``{at, message}``."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ from importlib import resources
 
 DOC_FORMAT = "table-semantics/1"
 CONFIRMATIONS_FORMAT = "semantic-confirmations/1"
+PROBES_FORMAT = "question-probes/1"
 
 _SCHEMA_FILES = {
     DOC_FORMAT: "table-semantics.schema.json",
     CONFIRMATIONS_FORMAT: "semantic-confirmations.schema.json",
+    PROBES_FORMAT: "question-probes.schema.json",
 }
 _loaded: dict[str, dict] = {}
 

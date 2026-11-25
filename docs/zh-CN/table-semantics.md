@@ -12,7 +12,7 @@
 - `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验，外加只看文字的第 14 项）检查写好的
   `table-semantics/1` 文档，逐条列出要重写的地方；
 - `scope-lineage semantic confirm` 把人的回答写回文档，每次写作之后都可以重放；`scope-lineage semantic facts`
-  把这些回答逐条打印出来，交给写作者；
+  把这些回答逐条打印出来，交给写作者；`scope-lineage semantic probes check` 不执行地检查为待确认问题写的平台查询；
 - `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接；
 - `scope-lineage semantic status` 读回一个运行目录，报告每张表走到哪一步，并把下一步要处理的表分好批；
   `scope-lineage semantic fixed` 记录一次修订已经做完。
@@ -822,6 +822,133 @@ scope-lineage semantic facts --confirmations <file or dir> --table <db.table> [-
 | --- | --- |
 | 0 | 已打印（含没有确认事实的表） |
 | 2 | `--confirmations` 或 `--documents` 不存在，确认文件读不了或不合 Schema，或没有 `--table` |
+
+## `semantic probes check`
+
+```bash
+scope-lineage semantic probes check <question-probes.json> --packets <packet dir> \
+  [--docs <documents>] [--sensitive <file>] [--json]
+```
+
+很多待确认问题由数据就能定：某个键在一个分区内是否唯一、某列有哪些取值。`question-probes/1` 文件按表的每个待确认问题
+列出子问题，数据能答的子问题各带一条 SELECT，由人到平台上执行。**工具从不执行查询，也不连接任何平台**：`probes check`
+只读每条查询的语法树（sqlglot，Spark 方言），对照材料包、给了 `--docs` 时再对照文档检查。执行查询、把结果带回成观测
+（见 `semantic confirm` 下的「观测事实」）是人的事。
+
+### `question-probes/1` 文件
+
+```json
+{
+  "doc_format": "question-probes/1",
+  "placeholders": {"${bizdate}": "20260101"},
+  "items": [
+    {
+      "id": "p1",
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "question": "q1",
+      "asked": "性别码值除了 F、M、U 以外，还会不会出现其他值？",
+      "part": 1,
+      "ask": "Which values does gender_cd hold in one partition?",
+      "class": "data",
+      "shape": "value_set",
+      "sql": "SELECT gender_cd AS value, COUNT(*) AS cnt FROM demo_dwd.dwd_party_customer_info_df WHERE dt = '${bizdate}' GROUP BY gender_cd ORDER BY cnt DESC LIMIT 51",
+      "partitions": [{"table": "demo_dwd.dwd_party_customer_info_df", "column": "dt", "want": "${bizdate}", "fallback": "latest_available"}],
+      "engine": "spark",
+      "lands": "column:gender_cd.observed_values",
+      "how_to_read": "51 rows back: the list is not complete"
+    },
+    {
+      "id": "p2",
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "question": "q1",
+      "asked": "性别码值除了 F、M、U 以外，还会不会出现其他值？",
+      "part": 2,
+      "ask": "What does a value outside F, M, U mean?",
+      "class": "human",
+      "note": "only the table's owner knows"
+    }
+  ]
+}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `id` | 文件内唯一；观测的 `query` 指的就是它 |
+| `table`、`question`、`asked` | 表、问题在文档里的 id、写这一项时问题的原文 |
+| `part`、`ask` | 子问题的序号（从 1 起）与子问题本身 |
+| `class` | `data`（查询能答）、`human`（人答）、`corpus`（任务 SQL 或文档里已经写了） |
+| `shape` | `uniqueness` 与 `value_set` 有固定的输出列；其他词（如 `conditional_count`）只作回答的依据 |
+| `sql` | 一条 SELECT，占位符写成 `${name}`，每个占位符在 `placeholders` 里给一个示例值 |
+| `partitions` | 读到的每张分区表一项：`table`、`column`、想要的值（`want`）、该分区还没有时怎么办（`fallback`：`latest_available` 或 `none`） |
+| `full_scan` | 不带分区条件读分区表的原因 |
+| `engine` | 在哪个引擎上执行（平台可能把查询路由到别的引擎） |
+| `lands` | 结果可能成为的观测目标：`summary.row.observed`、`column:<c>.observed_values` 或 `input:<db.table>`；不落槽位时不写或为 null |
+| `how_to_read`、`note` | 结果怎么读（data 项）；谁来答、怎么答（human 与 corpus 项） |
+
+### 检查
+
+| 检查 | 失败条件 |
+| --- | --- |
+| C1 | 查询解析不了，或用了没有示例值的占位符 |
+| C2 | 不是恰好一条只读 SELECT（或 SELECT 的集合运算）：任何位置出现 DML、DDL 或命令都失败 |
+| C3 | 读了既不是本项的表、也不是材料包里它的输入表的表（忽略 catalog 前缀），或有列对不上这些表 |
+| C4 | 分区表在读它的 SELECT 里（WHERE 或关联的 ON）没有分区列条件，且 `full_scan` 没写原因；带了条件的分区表没写进 `partitions`；`partitions` 里的表没被读到，或列不是分区列。写了 `full_scan` 而每张表都带了条件时警告 |
+| C5 | 顶层输出列露出了敏感列（见下）的取值，穿过派生表与 CTE 追溯；输出里有 `SELECT *` |
+| C6 | 返回不止一行（分组、`DISTINCT` 或明细行）而没有 `LIMIT`，或 `LIMIT` 超过 50——`value_set` 是 51，第 51 行说明没列全 |
+| C7 | 给了 `--docs`：表没有文档、文档里没有这个问题，或问题原文已不是 `asked`（按 NFKC 与空白折叠比较，与 `semantic confirm` 相同）；问题已回答时警告 |
+| C8 | 两项同一个 id；data 项缺 `sql`、`shape` 或 `how_to_read`；human 或 corpus 项缺 `note`，或带了 `sql` 或 `lands` |
+| C9 | 带 `lands` 的项：输出列或它们的表达式不是该形状的固定写法（见下） |
+
+data 项没写 `engine` 时警告。在 `COUNT` / `COUNT_IF`、比较式或窗口的 `PARTITION BY` / `ORDER BY` 里的列不露出取值，
+所以对标识列计数能过 C5。
+
+### 固定输出列（C9）
+
+结果只能经固定输出列落进槽位，而且光看名字什么也证明不了：每个表达式按写法归类，所以 `COUNT(DISTINCT k) AS rows`
+会失败。
+
+- `uniqueness`（`summary.row.observed` 数本项的表，`input:<db.table>` 数材料包里那张输入表）：恰好
+  `rows, keys, duplicate_keys`，返回一行，三列都数那张表，`keys` 与 `duplicate_keys` 按同一组键列。
+  - `rows`：对表的行 `COUNT(*)`（或 `COUNT(1)`），或对按键分组、`n = COUNT(*)` 的子查询 `SUM(n)`；
+  - `keys`：对表的行 `COUNT(DISTINCT k, ...)`，或对按键分组的子查询 `COUNT(*)`；
+  - `duplicate_keys`（行数多于一的键数）：对按键分组的子查询写 `SUM(CASE WHEN n > 1 THEN 1 ELSE 0 END)`、
+    `SUM(IF(n > 1, 1, 0))`、`COUNT(CASE WHEN n > 1 THEN 1 END)`、`COUNT_IF(n > 1)` 或
+    `COUNT(*) FILTER (WHERE n > 1)`（`n >= 2` 同义）；或对按键分组且 `HAVING COUNT(*) > 1` 的子查询 `COUNT(*)`。
+    `COUNT(*) - COUNT(DISTINCT k)` 数的是多出来的行，不是键，失败。
+  - 单行派生表的列（`SELECT a.rows, b.duplicate_keys FROM (...) a CROSS JOIN (...) b`）与标量子查询，追到算出它的
+    表达式再判。只做过滤或投影的派生表算作表的行。各部分是否读同样的分区不比较。
+- `value_set`（`column:<c>.observed_values`）：恰好 `value, cnt`；`value` 是唯一的 `GROUP BY` 列——目标列 `c`，
+  或文档里 `c` 的 `source_columns` 之一的输入表列（没给 `--docs` 时警告）；`cnt` 是 `COUNT(*)`；不许 `HAVING`；
+  `LIMIT 51`。
+
+目标要对得上形状和材料包：`value_set` 写了 `uniqueness` 的目标、表里没有的列、材料包里没有的输入表，都失败。
+
+### 敏感列名单
+
+工具不带任何敏感列名：名单由运行自己提供，每行一个，列名（任意表）或 `db.table.column`（忽略 catalog 前缀），`#` 起
+注释。用 `--sensitive <file>` 指定；不给时，运行目录（`--packets` 旁边）里有 `sensitive-columns.txt` 就读它。读到的
+名单在标准错误里报出。文档里的标识类列（`identifier`、`foreign_identifier`）及其来源列总是拦下；没有名单时只拦它们，
+并有一条警告说明（连 `--docs` 也没给时什么都不拦）。
+
+```text
+# sensitive-columns.txt
+contact_no
+demo_ods.ods_core_customer_df.verified_no
+```
+
+### 报告
+
+文本报告每条发现一行 `FAIL|WARN <id> (<table> <question> part <n>) <check>: <message>`，最后一行
+`RESULT: PASS|FAIL (<n> failure(s), <n> warning(s))`。`--json` 输出 `question-probes-check/1`：`summary`（按类计的
+项数、失败数、警告数、标了全表扫描的数、跑了哪些检查——C7 只在给了 `--docs` 时跑）、`warnings`（文件级的那条敏感列
+名单警告）、`schema_errors`（`{at, message}`；不合 Schema 的文件不再往下查）、`items`（每项的 `id`、`table`、
+`question`、`part`、`class` 与 `findings`，`{check, level, message}`）。
+
+| 退出码 | 条件 |
+| --- | --- |
+| 0 | 没有检查失败（允许有警告） |
+| 1 | 有检查失败，或文件不合 `question-probes/1` |
+| 2 | 查询文件读不了，`--packets` 或 `--docs` 不存在，或敏感列名单读不了、有一行不是列名 |
 
 ## `semantic render`
 

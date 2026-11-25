@@ -1,5 +1,6 @@
 """The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``, ``facts``,
-``render``, and ``status`` / ``fixed`` / ``digest`` (in :mod:`scope_lineage.cli_semantic_status`).
+``render``, ``status`` / ``fixed`` / ``digest`` (in :mod:`scope_lineage.cli_semantic_status`)
+and ``probes check`` (in :mod:`scope_lineage.cli_semantic_probes`).
 
 Kept out of ``cli.py`` like ``tables`` and ``catalog``. This module is where the inputs
 are loaded -- the lineage walk ``describe`` uses, the task JSON reader ``parse`` uses,
@@ -18,6 +19,7 @@ import sys
 from pathlib import Path
 
 from .cli_only import add_directory, add_only, take_back_directory
+from .cli_semantic_probes import add_probes_parser, run_probes
 from .cli_semantic_status import add_status_parsers, run_digest, run_fixed, run_status
 from .domain_profile import (
     DOMAIN_PROFILE_ENV,
@@ -148,6 +150,7 @@ def add_semantic_parser(subcommands) -> None:
     _add_facts_parser(actions)
     _add_render_parser(actions)
     add_status_parsers(actions)
+    add_probes_parser(actions)
 
 
 def _add_facts_parser(actions) -> None:
@@ -334,6 +337,8 @@ def run_semantic(args: argparse.Namespace) -> int:
         return run_digest(args)
     if args.semantic_command == "facts":
         return _run_facts(args)
+    if args.semantic_command == "probes":
+        return run_probes(args)
     return _run_confirm(args)
 
 
