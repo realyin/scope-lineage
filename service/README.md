@@ -30,7 +30,8 @@ pip install -e . -e service
 - The servers read only the files named when they start; no request names a path.
 - The files written are the pending file given with `--pending`, appended to the way
   `catalog pending add` appends (existing lines are never rewritten), and, with `http --answers FILE`, the
-  answers file the browse page keeps its answers in (below). Without `--pending` the pending endpoints and
+  answers file the browse page keeps its answers in (below), and, with `http --ask-trace DIR`, the ask
+  panel's run records under DIR (below). Without `--pending` the pending endpoints and
   tools are not offered; without `--answers` the answer endpoints are not. The table-semantics directory is
   never written.
 - The opt-in ask panel (`--ask`, below) keeps all of this: the model it calls gets only the catalog tools,
@@ -478,6 +479,7 @@ refused on an address other than loopback (it spends money and the server has no
 | `--ask-max-conversations` | 20 | conversations kept in memory (the least recently used idle one goes first) |
 | `--ask-idle-minutes` | 60 | an idle conversation is dropped after this |
 | `--ask-dev-fake-model` | off | **development aid**, see below |
+| `--ask-trace DIR` | off | append a record of every question run to `DIR/<conversation id>.jsonl`, see below |
 
 How it runs:
 
@@ -601,6 +603,43 @@ scope-lineage-service http out/ontology.json --semantics semantics/ --pending pe
 With `--ask-models FILE` as well, every model in the file is played by the fake (each named after its id,
 none called), so the picker can be reviewed with the real file and no key.
 
+### Recording runs (`--ask-trace DIR`)
+
+Off unless given, and there is no default place: `--ask-trace DIR` (with `--ask`) appends one JSON line per
+event of interest to `DIR/<conversation id>.jsonl` (DIR is created if missing; each file is created with mode
+0600, and each line is one append, so a crash leaves whole lines). It only records: the questions, the
+events, the answers and every response are the same with or without it. **It stores the asker's question
+text and the answer text** (needed to score a run later), so keep DIR out of a repository or shared drive;
+it never stores the catalog text the tools return, the system prompt, a key or a header. The conversation id
+in the file name is the one in the page's address. Every line has `schema: "ask-trace/1"`, `kind`, `at`
+(UTC), `conversation` and `run`; a failed write is logged as a warning and the question goes on.
+
+| `kind` | When | Fields |
+| --- | --- | --- |
+| `turn` | each model turn | `turn`, `model_id` (the server's id), `model` (what the provider reported), `elapsed` (seconds of that request), `stop_reason`, `usage` (input, output, cache write and cache read tokens), `usage_estimated`, `request_chars` (characters of the message list sent, as JSON), `largest_tool_result_chars`, `tool_results` (tool results in that list) |
+| `tool` | each tool call | `turn`, `id`, `name`, `input` (the arguments), `ok`, `result_chars` (the size of the text sent back, not the text) |
+| `run` | the run finished | `model_id`, `question`, `follow_up`, `status`, `reason`, `error_kind` and `error_message` (first 300 characters of the provider's message; errors only, so a context overflow can be recognised), `answer` (the text, or null), `has_sql`, `has_brief`, `brief_missing`, `elapsed`, `turns`, `tool_calls`, `usage`, `usage_estimated` |
+
+### Driving a scenario (`service/tools/ask_driver.py`)
+
+A developer tool, not part of either package: it drives a running server's ask endpoints turn by turn the
+way the page does, so an evaluator (a person, or an agent playing the asker) can run a multi-turn scenario
+and read each answer as JSON. Standard library only; run it from a checkout.
+
+```bash
+scope-lineage-service http out/ontology.json --semantics semantics/ --ask --ask-trace /path/to/trace-dir
+python service/tools/ask_driver.py send "a question"                        # a new conversation
+python service/tools/ask_driver.py send --conversation ID "a follow-up"     # the same conversation
+echo "a long question" | python service/tools/ask_driver.py send -          # the question on stdin
+python service/tools/ask_driver.py show ID                                  # its runs and outcomes
+```
+
+`send` waits until the run finishes and prints `conversation`, `run`, `follow_up`, `model`, `status`,
+`reason`, `detail`, `elapsed`, `answer`, `sql`, `brief`, `brief_missing` and `usage`; it exits 0 when the
+status is `done`, 1 for any other end, 2 when the server refused the request (its error on stderr).
+`--server URL` (default `http://127.0.0.1:8765`), `--model ID` and `--timeout SECONDS` (stop waiting and
+cancel the run) are optional.
+
 ## MCP
 
 ```bash
@@ -660,7 +699,9 @@ placeholder reading, brief parsing and event view model) are checked by running 
 own tests: the record file, every rule of the judgement and the deletes (`test_service_answers.py`) and the
 endpoints, the outputs and the export through `semantic confirm` (`test_service_answers_http.py`); the
 structured answers theirs (`test_service_structured_answers.py`); pasted platform results, drafts,
-observations, evidence and the `--probes` guards theirs (`test_service_probe_results.py`).
+observations, evidence and the `--probes` guards theirs (`test_service_probe_results.py`). The run
+records (`test_ask_trace.py`, including that every response is byte for byte the same without them) and the
+scenario driver against the fake model (`test_ask_driver.py`) have theirs.
 
 The ask panel's tests never call a model or need the SDK: the loop runs against a scripted model behind
 its one seam (`test_ask_loop.py`), the endpoints against the development fake (`test_ask_http.py`), and the
