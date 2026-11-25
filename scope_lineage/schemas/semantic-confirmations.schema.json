@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "semantic-confirmations/1",
-  "description": "A person's answers to table-semantics documents, applied by `semantic confirm`. Each entry names one table and one target; the value's shape depends on the target and is checked when it is applied. A question entry may carry `asked`, the question's text as the person saw it: it is then applied only while the question still reads so (NFKC and whitespace folded, letter case kept), skipped when the question already holds that very answer, and refused when the question holds another answer unless `replace` is true. Without `asked` an entry is applied as it always was, and `replace` is ignored. Three targets carry an observation -- what a platform query found, not a definition: `summary.row.observed`, `column:<c>.observed_values` and `input:<db.table>` (an input table the entry's table reads, a catalog prefix ignored); their value is the matching `observed_grain`, `observed_values` or `observed_input` shape of table-semantics/1 (without `table`), at least 1 row, counts and at most 50 values, never detail rows.",
+  "description": "A person's answers to table-semantics documents, applied by `semantic confirm`. Each entry names one table and one target; the value's shape depends on the target and is checked when it is applied. A question entry may carry `asked`, the question's text as the person saw it: it is then applied only while the question still reads so (NFKC and whitespace folded, letter case kept), skipped when the question already holds that very answer, and refused when the question holds another answer unless `replace` is true. Without `asked` an entry is applied as it always was, and `replace` is ignored. Three targets carry an observation -- what a platform query found, not a definition: `summary.row.observed`, `column:<c>.observed_values` and `input:<db.table>` (an input table the entry's table reads, a catalog prefix ignored); their value is the matching `observed_grain`, `observed_values` or `observed_input` shape of table-semantics/1 (without `table`), at least 1 row, counts and at most 50 values, never detail rows. Any entry may carry `evidence`, a reference to the platform query it rests on (never its rows).",
   "type": "object",
   "required": ["doc_format", "confirmations"],
   "additionalProperties": false,
@@ -23,7 +23,27 @@
           "by": {"type": "string", "minLength": 1},
           "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
           "asked": {"type": "string", "minLength": 1},
-          "replace": {"type": "boolean"}
+          "replace": {"type": "boolean"},
+          "evidence": {
+            "description": "Optional: the platform query the entry rests on, by reference -- the probe item's id in the question-probes/1 file, the partition its result read, the date it ran and the sha256 of the probes file. Never the result's rows. `semantic confirm` keeps it in this file and judges nothing by it.",
+            "type": "object",
+            "required": ["probe", "partition", "on", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "probe": {"type": "string", "pattern": "^[A-Za-z0-9_]+$"},
+              "partition": {
+                "type": "object",
+                "required": ["column"],
+                "additionalProperties": false,
+                "properties": {
+                  "column": {"type": ["string", "null"], "minLength": 1},
+                  "values": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                }
+              },
+              "on": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
         }
       }
     }

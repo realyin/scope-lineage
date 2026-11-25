@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+- **Added: `semantic-confirmations/1` entries take an optional `evidence`, a reference to the platform
+  query they rest on** -- `{probe, partition, on, sha256}`: the `question-probes/1` item's id, the partition
+  its result read, the date it ran and the probes file's sha256; never the result's rows. `semantic
+  confirm` keeps it in the confirmations file and judges nothing by it; the documents gain no key, and an
+  entry without it applies exactly as before. New `scope_lineage.semantics.probe_results`: from one pasted
+  result JSON (`sql_id, status, run_on, bizdate, sql_executed, columns, rows, note`, cells as the platform
+  prints them) `draft_observation` drafts the observation confirmation for the item's `lands` target --
+  only when `sql_id` is the item's, `status` is `ok`, `sql_executed` is the item's SQL with its placeholders
+  filled in (whitespace aside), the columns are exactly the query's own top-level output columns and the
+  fixed columns of its shape, the counts are non-negative integers that agree (`rows` at least 1,
+  `duplicate_keys <= keys <= rows`, no duplicates exactly when `rows == keys`; a null count, as an empty
+  table returns, is refused), a value set has at most 51 rows and no value twice, and no non-integer cell
+  has a contact shape. The partition comes from the item's `partitions` with the values the query ran with
+  (`requested` when the result's `bizdate` says it fell back); the item's `filter` and `engine` are carried.
+  `evidence_reference` gives only the reference for a result of an item that lands nothing.
+
 ## 0.17.0
 - **Changed: `semantic probes check` C9 holds a landing query to what it can stand for.** A value set read
   on an input column lands only when the packet's lineage passes that one column through to the target

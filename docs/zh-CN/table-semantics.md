@@ -779,6 +779,14 @@ scope-lineage semantic confirm <documents> --confirmations <file or dir> [--out 
 `semantic confirm` 写。`table-semantics/1` 与 `semantic-confirmations/1` 是扩展、不升版本：没有观测的文档和确认文件照旧可读，
 带观测的需要认识它们的工具版本。
 
+任何确认条目都可以带 `evidence`，只按引用写它依据的平台查询：`{"probe": "<question-probes/1 里的条目 id>",
+"partition": {"column": "dt", "values": ["20261122"]}, "on": "2026-11-25", "sha256": "<查询文件的 sha256>"}`。
+结果的行从不进它，也不进文档和运行目录：浏览页把人确认过的内容留在它的回答文件里。`semantic confirm` 把 `evidence`
+留在确认文件里、不凭它判定任何事；文档不因它多出任何键，不带它的条目照旧生效。浏览页（服务的 `--probes`）从贴回的结果
+起草观测条目、或人用某条查询结果给回答作依据时写它。起草由 `scope_lineage.semantics.probe_results` 完成：只读查询执行
+交回的结果 JSON（`sql_id, status, run_on, bizdate, sql_executed, columns, rows, note`），只解析两种固定形状，结果的列必须
+恰好是查询自己的输出列，`sql_executed` 必须是条目的 SQL 只填了占位符；其余一律拒收并说明原因。
+
 ## `semantic facts`
 
 ```bash
