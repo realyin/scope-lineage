@@ -568,3 +568,143 @@ def test_the_documented_example_passes(tmp_path: Path, run_dir: Path) -> None:
     code, report, _ = _check(tmp_path, run_dir, document)
     assert _findings(report) == []
     assert code == 0
+
+
+# ------------------------------------------------------------------ C9: what a landing query may stand for
+#
+# A value set read on an input column lands on the target column only when the target
+# passes that one column through (one producer, that source alone, no CASE output, nothing
+# computed, every step a direct projection) -- the rule check 3 compares observed values
+# by. A column that only feeds a condition, or is recoded or computed, holds other values.
+
+SOURCE_VALUES = (f"SELECT gender AS value, COUNT(*) AS cnt FROM {INPUT} WHERE dt = '${{bizdate}}' "
+                 "GROUP BY gender LIMIT 51")
+
+
+def _run_copy(tmp_path: Path, run_dir: Path, packet_edit=None, doc_edit=None) -> Path:
+    """A copy of the run directory with the demo table's packet or document edited."""
+    import shutil
+
+    root = tmp_path / "edited-run"
+    shutil.copytree(run_dir, root)
+    for edit, path in ((packet_edit, root / "packets" / DEMO_TABLE / "packet.json"),
+                       (doc_edit, root / "docs" / f"{DEMO_TABLE}.json")):
+        if edit is not None:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            edit(data)
+            write_json(path, data)
+    return root
+
+
+def _producers(packet: dict, column: str) -> list[dict]:
+    return next(entry["producers"] for entry in packet["lineage"]["columns"] if entry["column"] == column)
+
+
+def _value_set_on(tmp_path: Path, run_dir: Path, sql: str, **edits):
+    root = _run_copy(tmp_path, run_dir, **edits) if edits else run_dir
+    return _check(tmp_path, root, _with("p3", sql=sql, partitions=_part(INPUT)))
+
+
+def test_c9_a_direct_pass_through_source_still_lands(tmp_path: Path, run_dir: Path) -> None:
+    code, report, _ = _value_set_on(tmp_path, run_dir, SOURCE_VALUES)
+    assert _findings(report) == []
+    assert code == 0
+
+
+def test_c9_a_value_set_needs_no_docs_to_check_its_source(tmp_path: Path, run_dir: Path) -> None:
+    item = _with("p3", sql=SOURCE_VALUES, partitions=_part(INPUT))
+    code, report, _ = _check(tmp_path, run_dir, item, docs=False)
+    assert _checks(report, "p3") == set() and _checks(report, "p3", "WARN") == set()
+
+
+def test_c9_a_condition_column_listed_as_a_source_does_not_land(tmp_path: Path, run_dir: Path) -> None:
+    def also_condition(document: dict) -> None:
+        column = next(c for c in document["columns"] if c["column"] == "gender_cd")
+        column["source_columns"] = [*column["source_columns"], f"{INPUT}.verify_flag"]
+
+    sql = SOURCE_VALUES.replace("gender", "verify_flag")
+    code, report, _ = _value_set_on(tmp_path, run_dir, sql, doc_edit=also_condition)
+    assert _checks(report, "p3") == {"C9"}
+    assert "condition column or a computed source" in _findings(report)[0][2]
+    assert code == 1
+
+
+def _second_producer(packet: dict) -> None:
+    producers = _producers(packet, "gender_cd")
+    producers.append(copy.deepcopy(producers[0]))
+
+
+def _case_output(packet: dict) -> None:
+    _producers(packet, "gender_cd")[0]["case_outputs"] = ["'U'"]
+
+
+def _computed(packet: dict) -> None:
+    _producers(packet, "gender_cd")[0]["computed_by"] = ["expression"]
+
+
+@pytest.mark.parametrize("edit", [_second_producer, _case_output, _computed])
+def test_c9_a_source_the_column_recodes_or_shares_does_not_land(
+    tmp_path: Path, run_dir: Path, edit,
+) -> None:
+    code, report, _ = _value_set_on(tmp_path, run_dir, SOURCE_VALUES, packet_edit=edit)
+    assert _checks(report, "p3") == {"C9"}
+    assert "condition column or a computed source" in _findings(report)[0][2]
+
+
+def test_check_3_and_c9_share_one_pass_through_rule() -> None:
+    from scope_lineage.semantics import checks_observed, probes
+
+    assert probes.passes_through is checks_observed.passes_through
+
+
+# ------------------------------------------------------------------ C9: the task's own read conditions
+
+
+DEDUP = ("SELECT SUM(n) AS rows, COUNT(*) AS keys, SUM(CASE WHEN n > 1 THEN 1 ELSE 0 END) AS duplicate_keys "
+         "FROM (SELECT customer_id, COUNT(*) AS n FROM (SELECT customer_id, ROW_NUMBER() OVER "
+         f"(PARTITION BY customer_id ORDER BY register_time DESC) AS rn FROM {DEMO_TABLE} "
+         "WHERE dt = '${bizdate}') r WHERE rn = 1 GROUP BY customer_id) g")
+
+
+@pytest.mark.parametrize("sql", [
+    ROW_UNIQUE.replace("WHERE dt = '${bizdate}'", "WHERE dt = '${bizdate}' AND customer_id IS NOT NULL"),
+    DEDUP,
+])
+def test_c9_a_landing_query_with_its_own_read_conditions_names_them_in_filter(
+    tmp_path: Path, run_dir: Path, sql: str,
+) -> None:
+    code, report, _ = _check(tmp_path, run_dir, _with("p1", sql=sql))
+    assert _checks(report, "p1") == {"C9"}
+    assert "filter" in _findings(report)[0][2]
+    code, report, _ = _check(tmp_path, run_dir, _with("p1", sql=sql, filter="customer_id IS NOT NULL"))
+    assert _checks(report, "p1") == set()
+    assert code == 0
+
+
+def test_c9_a_conditioned_query_that_lands_nowhere_needs_no_filter(tmp_path: Path, run_dir: Path) -> None:
+    sql = BLANKS.replace("WHERE dt", "WHERE gender_cd = 'F' AND dt")
+    code, report, _ = _check(tmp_path, run_dir, _with("p4", sql=sql))
+    assert _checks(report, "p4") == set()
+
+
+def test_filter_is_one_line(tmp_path: Path, run_dir: Path) -> None:
+    code, report, _ = _check(tmp_path, run_dir, _with("p1", filter="a IS NOT NULL\nAND b = 1"))
+    assert report["schema_errors"] and code == 1
+
+
+# ------------------------------------------------------------------ C9: fewer columns than the grain
+
+
+def test_c9_counting_fewer_columns_than_the_grain_warns(tmp_path: Path, run_dir: Path) -> None:
+    def wider_grain(document: dict) -> None:
+        document["summary"]["row"]["grain_columns"] = ["customer_id", "gender_cd"]
+
+    root = _run_copy(tmp_path, run_dir, doc_edit=wider_grain)
+    code, report, _ = _check(tmp_path, root, _good())
+    assert _checks(report, "p1") == set()
+    warnings = [message for id_, check, message in _findings(report, "WARN") if id_ == "p1"]
+    assert len(warnings) == 1 and "customer_id, gender_cd" in warnings[0]
+    assert "says nothing" in warnings[0]
+    assert code == 0
+    code, report, _ = _check(tmp_path, run_dir, _good())
+    assert _findings(report, "WARN") == []

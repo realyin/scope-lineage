@@ -33,7 +33,11 @@ documents.
   ``rows, keys, duplicate_keys`` counted over the table the target names (the item's
   table for ``summary.row.observed``, the input for ``input:<db.table>``);
   ``value_set`` -> exactly ``value`` (the one ``GROUP BY`` column: the target column, or
-  one of its source columns) and ``cnt`` (``COUNT(*)``), no ``HAVING``, ``LIMIT 51``.
+  the single source column the packet's lineage passes through to it,
+  :func:`.checks_observed.passes_through`) and ``cnt`` (``COUNT(*)``), no ``HAVING``,
+  ``LIMIT 51``. A landing query that keeps only some rows of a partition (a predicate on a
+  non-partition column, a dedup) says so in ``filter``; an own-row count over fewer columns
+  than the document's grain warns.
 
 A data item without ``engine`` warns: a platform may route a query to another engine.
 """
@@ -49,6 +53,7 @@ from sqlglot.errors import OptimizeError, SqlglotError
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, build_scope
 
+from .checks_observed import passes_through
 from .names import bare_column, bare_table, folded_text
 from .observed import IDENTIFIER_CATEGORIES, INPUT, OBSERVED_ROW
 from .probe_forms import (
@@ -536,7 +541,8 @@ def _lands(item: _Item, root: Scope, packet: dict, documents) -> None:
         if shape != "value_set":
             item.fail("C9", f"{lands} takes a value_set, not {shape}")
             return
-        _value_set(item, root, table, match["column"].lower(), packet, documents)
+        _read_conditions(item, root, packet)
+        _value_set(item, root, table, match["column"].lower(), packet)
         return
     if shape != "uniqueness":
         item.fail("C9", f"{lands} takes a uniqueness count, not {shape}")
@@ -549,7 +555,47 @@ def _lands(item: _Item, root: Scope, packet: dict, documents) -> None:
         if counted not in inputs:
             item.fail("C9", f"{counted} is not an input of {table} in the packet")
             return
-    _uniqueness(item, root, counted)
+    _read_conditions(item, root, packet)
+    keys = _uniqueness(item, root, counted)
+    if lands == OBSERVED_ROW and keys is not None and documents is not None:
+        _narrower_than_grain(item, keys, documents.get(table) or {})
+
+
+def _read_conditions(item: _Item, root: Scope, packet: dict) -> None:
+    """C9: a landing query that keeps only some rows of a partition -- a predicate on a
+    column that is not a partition column, or a QUALIFY (a row-number dedup reads as a
+    window column filtered in an outer WHERE) -- says so in ``filter``; the observation
+    drafted from it carries that condition."""
+    if item.data.get("filter"):
+        return
+    tables = _packet_tables(packet)
+    found, window = set(), False
+    for scope in root.traverse():
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            continue
+        window = window or any(True for _ in select.find_all(exp.Window))
+        if select.args.get("qualify") is not None:
+            found.add("QUALIFY")
+        where = select.args.get("where")
+        for column in where.find_all(exp.Column) if where is not None else ():
+            base = base_column(column, scope)
+            if base is None or base[1] not in tables.get(base[0], ({}, frozenset()))[1]:
+                found.add(column.name.lower())
+    if found:
+        dedup = " (a window column filtered: a dedup)" if window else ""
+        item.fail("C9", f"the query keeps only some rows of a partition{dedup}, on "
+                        f"{', '.join(sorted(found))}: write those read conditions of the task in "
+                        "filter (one line), so the observation carries them")
+
+
+def _narrower_than_grain(item: _Item, keys: tuple[str, ...], document: dict) -> None:
+    grain = [str(c).lower() for c in ((document.get("summary") or {}).get("row") or {}).get(
+        "grain_columns") or []]
+    if grain and len(set(keys)) < len(set(grain)):
+        item.warn("C9", f"counts ({', '.join(keys)}), fewer columns than the document's grain "
+                        f"({', '.join(grain)}): duplicate_keys 0 proves the grain unique, a "
+                        "positive count says nothing about it")
 
 
 def _names(item: _Item, select: exp.Select, wanted: tuple[str, ...]) -> bool:
@@ -561,13 +607,14 @@ def _names(item: _Item, select: exp.Select, wanted: tuple[str, ...]) -> bool:
     return True
 
 
-def _uniqueness(item: _Item, root: Scope, counted: str) -> None:
+def _uniqueness(item: _Item, root: Scope, counted: str) -> tuple[str, ...] | None:
+    """The key columns counted, or None when the forms do not hold."""
     select = root.expression
     if not _names(item, select, UNIQUENESS):
-        return
+        return None
     if not single_row(root):
         item.fail("C9", "a uniqueness count returns one row")
-        return
+        return None
     forms = {}
     for name in UNIQUENESS:
         form = classify(projection(select, name), root)
@@ -584,10 +631,13 @@ def _uniqueness(item: _Item, root: Scope, counted: str) -> None:
             forms["keys"].keys != forms["duplicate_keys"].keys:
         item.fail("C9", f"keys counts ({', '.join(forms['keys'].keys)}) but duplicate_keys "
                         f"({', '.join(forms['duplicate_keys'].keys)}): one set of key columns")
+        return None
+    if set(forms) != set(UNIQUENESS):
+        return None
+    return forms["keys"].keys
 
 
-def _value_set(item: _Item, root: Scope, table: str, column: str, packet: dict,
-               documents) -> None:
+def _value_set(item: _Item, root: Scope, table: str, column: str, packet: dict) -> None:
     select = root.expression
     target_columns = {str(c["name"]).lower() for c in (packet.get("target") or {}).get(
         "columns") or []}
@@ -620,13 +670,10 @@ def _value_set(item: _Item, root: Scope, table: str, column: str, packet: dict,
         if source_column != column:
             item.fail("C9", f"value is {table}.{source_column}, not the target column {column}")
         return
-    if documents is None:
-        item.warn("C9", f"value is {source_table}.{source_column}; pass --docs to check it is "
-                        f"a source column of {column}")
-        return
-    document = documents.get(table) or {}
-    sources = next((c.get("source_columns") or [] for c in document.get("columns") or []
-                    if isinstance(c, dict) and str(c.get("column")).lower() == column), [])
-    if f"{source_table}.{source_column}" not in {bare_column(s) for s in sources}:
-        item.fail("C9", f"value is {source_table}.{source_column}, which is not a source column "
-                        f"of {column} in the document")
+    name = next((str(c["name"]) for c in (packet.get("target") or {}).get("columns") or []
+                 if str(c["name"]).lower() == column), column)
+    if not passes_through(packet, name, f"{source_table}.{source_column}"):
+        item.fail("C9", f"value is {source_table}.{source_column}, a condition column or a computed "
+                        f"source, not this column's values: {column} lands a value set only of "
+                        "itself or of its single direct pass-through source column (one producer, "
+                        "that column alone, no CASE output, nothing computed)")

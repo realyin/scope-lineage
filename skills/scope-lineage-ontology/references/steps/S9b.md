@@ -56,6 +56,10 @@ fill probes "$SCRATCH/prompts/T-probes-r2.md" MODE=返工 REWORK=@"$RUN/probes/c
    `sql_id, status, run_on, bizdate, sql_executed, columns, rows, note`：`status` 为 `ok` 或失败原因，`run_on` 是执行日期 `YYYY-MM-DD`，
    `bizdate` 是实际读的分区值，`sql_executed` 是替换后的 SQL，`columns` 是输出列名，`rows` 是行的数组（每行一个数组）。
 3. 不交明细、不交结果以外的数据。
+4. **只换占位符**：除了把 `${…}` 换成真实值（和按 `fallback` 换分区值），不改写、不放宽任何查询——不删条件、不加大 `LIMIT`、不换表或列。
+   查询跑不通就照第 5 条交回，由写作者改，不要自己改了再跑。
+5. **报错原文照录**：执行失败时 `status` 写失败，`note` 原样贴平台的报错，不改写查询重跑。
+6. **表名照文件写**：查询里的表名按 `question-probes.json` 里的写法用，不换库名、不加别名前缀；平台上确实叫别的名字时记进 `note`，不改 `sql_executed` 以外的东西。
 
 结果回来后：带 `lands` 的项（唯一性、取值清单）按 S12「观测条目」那张表手写成观测确认条目（目前没有解析命令，页面贴回以后再做）；
 其余项的结果只作一句话回答的依据，由 owner 在 S12 回答问题时引用。`status` 不是 `ok` 或 0 行的结果不写条目。

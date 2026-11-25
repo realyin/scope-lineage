@@ -58,18 +58,29 @@ def comparable_values(packet: dict, column: dict, confirmed) -> dict | None:
     observed_on = value.get("observed_on")
     if observed_on is None:
         return value
-    producers = [producer for entry in packet["lineage"]["columns"]
-                 if entry["column"] == column["column"] for producer in entry["producers"]]
+    return value if passes_through(packet, column["column"], observed_on) else None
+
+
+def passes_through(packet: dict, column: str, source: str) -> bool:
+    """Whether the packet's lineage writes ``column`` as ``source`` passed through: a single
+    producer reading that one source column by direct projections, with no CASE outputs and
+    nothing computed. A column that only feeds a condition, or is recoded, derived or written
+    by more than one producer, holds other values than the column. Check 3 compares observed
+    values by this rule, and ``semantic probes check`` (C9) lands a value set read on an
+    input column by it. Source references compare without a catalog prefix, in lower case.
+    """
+    producers = [producer for entry in (packet.get("lineage") or {}).get("columns") or []
+                 if entry["column"] == column
+                 for producer in entry["producers"]]
     if len(producers) != 1:
-        return None
+        return False
     (producer,) = producers
     prefixes = tuple(PASS_THROUGH_TEXT_PREFIXES.values())
-    passed_through = (
-        [bare_column(source) for source in producer["sources"]] == [bare_column(observed_on)]
+    return (
+        [bare_column(item) for item in producer["sources"]] == [bare_column(source)]
         and not producer.get("case_outputs") and not producer.get("computed_by")
         and all(str(step).startswith(prefixes) for step in producer["steps"])
     )
-    return value if passed_through else None
 
 
 def seen_value(observation: dict | None, value: str) -> bool:

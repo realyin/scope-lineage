@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- **Changed: `semantic probes check` C9 holds a landing query to what it can stand for.** A value set read
+  on an input column lands only when the packet's lineage passes that one column through to the target
+  (one producer, `sources` exactly that column, no `case_outputs`, nothing `computed_by`, every step a
+  direct projection) -- the rule check 3 compares observed values by, now one shared function; a
+  condition column or a computed source fails, and the check no longer needs `--docs` for it (it used to
+  accept any of the document's `source_columns`). `question-probes/1` items take an optional one-line
+  `filter` (the task's own read conditions beyond partitions); a landing query that keeps only some rows of
+  a partition -- a predicate on a non-partition column, or a dedup on a window column -- fails without it.
+  An own-row uniqueness count over fewer columns than the document's grain warns: a zero proves the grain
+  unique, a positive count says nothing about it. T-probes says the same, adds the partition rule for
+  questions that read across partitions, and S9b gives the person running the queries three rules (replace
+  only placeholders, record errors verbatim, table names as written).
 - **Added (runbook): optional step S9b -- platform queries for the open questions.** After S9 an agent (new
   template T-probes, `fill probes … MODE=首写|返工`) splits each open question into sub-questions classed
   `data` / `human` / `corpus` and writes `$RUN/probes/question-probes.json` (`question-probes/1`): aggregates

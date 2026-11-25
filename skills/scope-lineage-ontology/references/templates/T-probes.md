@@ -54,12 +54,17 @@ for p in sys.argv[1:]:
 4. **分区**：读到的每张分区表都在读它的那个 SELECT 里（WHERE 或关联的 ON）带分区条件，并在 `partitions` 里写一项：`table`、`column`、
    `want`（想要的值，用占位符如 `${bizdate}`）、`fallback`（`latest_available`：那个分区还没有时用最近可用的；`none`：没有就不执行）。
    真要不带条件读分区表（例如问题本身问的是跨分区），`full_scan` 写原因。
+   带 `lands` 的项每张表只读**一个**分区值。问题问的是跨分区（例如任务按多天的窗口读）时，另加一个**不带** `lands` 的子问题，
+   按任务自己的范围读，并在单分区那一项的 `how_to_read` 里写明它只答了一半（只说明这一个分区）。
 5. **不露敏感列**：输出列不能是敏感列或标识类列的取值（文档里 `identifier`、`foreign_identifier` 类列和它们的来源列，以及
    `{RUN}/sensitive-columns.txt` 里的列名，有这个文件时读它）。对它们计数可以（`COUNT(DISTINCT 列)`、分组后数行数）。
 6. **`engine`**：每条 data 项都写，缺省 `spark`（平台默认路由可能换到别的引擎而失败）。
 7. **`placeholders`**：查询里用到的每个占位符（`${bizdate}` 这种写法）都在文件顶层 `placeholders` 给一个示例值（如 `"${bizdate}": "20260101"`）。
 8. **`shape`、`how_to_read`**：`shape` 用小写英文词（`uniqueness`、`value_set`、`conditional_count` 等）；`how_to_read` 写结果怎么读才答得了子问题。
 9. **`id`**：文件内唯一，只用字母、数字、下划线（如 `<表的简称>_q3_p1`）；执行人按它交回结果。
+10. **`filter`**：带 `lands` 的查询除了分区条件还套了任务自己的读取条件（对非分区列的条件，例如 `unique_id IS NOT NULL`；
+    或按行号去重），就在 `filter` 里用一行写出这些条件（照任务 SQL 的意思写，不换行）；以后落成的观测带着它。只有分区条件时不写。
+    检查对没写 `filter` 而带了这类条件的落槽查询报 FAIL。
 
 **能落成观测的两种形状（固定输出列）**
 
@@ -71,8 +76,11 @@ for p in sys.argv[1:]:
   `duplicate_keys` 是行数多于一的键数（分组子查询上 `SUM(CASE WHEN n > 1 THEN 1 ELSE 0 END)`，或对 `HAVING COUNT(*) > 1` 的子查询 `COUNT(*)`）。
   `COUNT(*) - COUNT(DISTINCT k)` 数的是多出来的行，不是键，不能用。
 - **取值清单**（`shape: value_set`）：某列有哪些取值 → `lands: "column:<列>.observed_values"`。输出恰好两列 `value, cnt`：`value` 是唯一的
-  `GROUP BY` 列（本表这一列，或文档里它的 `source_columns` 之一的输入表列），`cnt` 是 `COUNT(*)`；不写 `HAVING`；`LIMIT 51`。
-  标识类列不做取值清单。
+  `GROUP BY` 列：本表这一列，或它唯一的直接透传来源列（材料包血缘里这一列只有一个生产者、来源恰好是那个输入表列、没有 CASE、
+  没有计算、每一步都是直接投影）；条件列和计算来源不写 `lands`（它们的取值不是这一列的取值，可以写成不落槽位的子问题）。
+  `cnt` 是 `COUNT(*)`；不写 `HAVING`；`LIMIT 51`。标识类列不做取值清单。
+- 本表行的唯一性，计数的列要与文档 `summary.row.grain_columns` 一致；只数其中几列时，`duplicate_keys` 为 0 能证明粒度唯一，大于 0 说明不了粒度，
+  `how_to_read` 照这样写（检查会给警告）。
 
 例子（虚构表，照形状写，表名列名换成材料包里的）：
 

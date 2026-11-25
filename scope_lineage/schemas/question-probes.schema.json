@@ -60,6 +60,10 @@
           "type": ["string", "null"], "minLength": 1
         },
         "engine": {"description": "The engine to run the query on (such as `spark`).", "$ref": "#/definitions/text"},
+        "filter": {
+          "description": "The task's own read conditions the query applies beyond its partitions, one line (such as `unique_id IS NOT NULL`, or a row-number dedup). A query with `lands` that keeps only some rows of a partition must say so here; the observation drafted from it carries it.",
+          "type": "string", "minLength": 1, "pattern": "^[^\\r\\n]+$"
+        },
         "lands": {
           "description": "The observation target the result may become, or null: `summary.row.observed`, `column:<c>.observed_values` or `input:<db.table>`.",
           "anyOf": [

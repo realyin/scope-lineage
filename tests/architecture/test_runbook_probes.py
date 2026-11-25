@@ -116,6 +116,9 @@ def test_s9b_checks_the_queries_and_never_runs_them():
     assert "sensitive-columns.txt" in s9b and "MODE=返工" in s9b and "最多两轮" in s9b
     assert "sql_id, status, run_on, bizdate, sql_executed, columns, rows, note" in s9b
     assert "S12" in s9b[s9b.index("**下一步**"):]
+    handover = s9b[s9b.index("**交给执行查询的人**"):s9b.index("**常见失败与处理**")]
+    for rule in ("只换占位符", "不放宽", "报错原文照录", "不改写查询重跑", "表名照文件写"):
+        assert rule in handover, rule
     assert PROBES_CHECK in _prompt("templates/T-probes.md")
 
 
@@ -125,7 +128,9 @@ def test_the_probes_writer_is_given_the_fixed_output_columns():
     the worked examples must be of those forms and fill every field a query item needs."""
     body = _prompt("templates/T-probes.md")
     for rule in ("一字不改", "LIMIT 51", "`rows` 是行数（**一定要输出**", "latest_available", "`full_scan`",
-                 "`engine`", "`placeholders`", "`data`", "`human`", "`corpus`", "标识类列不做取值清单"):
+                 "`engine`", "`placeholders`", "`data`", "`human`", "`corpus`", "标识类列不做取值清单",
+                 "**`filter`**", "唯一的直接透传来源列", "条件列和计算来源不写 `lands`", "只读**一个**分区值",
+                 "只答了一半", "大于 0 说明不了粒度"):
         assert rule in body, rule
     example = json.loads(re.search(r"```json\n(.*?)```", body, re.S).group(1))
     assert example["doc_format"] == "question-probes/1"

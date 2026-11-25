@@ -882,6 +882,7 @@ scope-lineage semantic probes check <question-probes.json> --packets <packet dir
 | `partitions` | 读到的每张分区表一项：`table`、`column`、想要的值（`want`）、该分区还没有时怎么办（`fallback`：`latest_available` 或 `none`） |
 | `full_scan` | 不带分区条件读分区表的原因 |
 | `engine` | 在哪个引擎上执行（平台可能把查询路由到别的引擎） |
+| `filter` | 一行：查询在分区之外套用的任务自己的读取条件（如 `unique_id IS NOT NULL`、按行号去重）；带 `lands` 的项落成观测时带上它 |
 | `lands` | 结果可能成为的观测目标：`summary.row.observed`、`column:<c>.observed_values` 或 `input:<db.table>`；不落槽位时不写或为 null |
 | `how_to_read`、`note` | 结果怎么读（data 项）；谁来答、怎么答（human 与 corpus 项） |
 
@@ -897,7 +898,7 @@ scope-lineage semantic probes check <question-probes.json> --packets <packet dir
 | C6 | 返回不止一行（分组、`DISTINCT` 或明细行）而没有 `LIMIT`，或 `LIMIT` 超过 50——`value_set` 是 51，第 51 行说明没列全 |
 | C7 | 给了 `--docs`：表没有文档、文档里没有这个问题，或问题原文已不是 `asked`（按 NFKC 与空白折叠比较，与 `semantic confirm` 相同）；问题已回答时警告 |
 | C8 | 两项同一个 id；data 项缺 `sql`、`shape` 或 `how_to_read`；human 或 corpus 项缺 `note`，或带了 `sql` 或 `lands` |
-| C9 | 带 `lands` 的项：输出列或它们的表达式不是该形状的固定写法（见下） |
+| C9 | 带 `lands` 的项：输出列或它们的表达式不是该形状的固定写法（见下）；查询只留一个分区里的部分行——对非分区列的条件，或去重（对窗口列过滤）——而 `filter` 没写。本表行的唯一性计数的列少于文档粒度列时警告：`duplicate_keys` 为 0 证明粒度唯一，大于 0 说明不了粒度 |
 
 data 项没写 `engine` 时警告。在 `COUNT` / `COUNT_IF`、比较式或窗口的 `PARTITION BY` / `ORDER BY` 里的列不露出取值，
 所以对标识列计数能过 C5。
@@ -918,8 +919,9 @@ data 项没写 `engine` 时警告。在 `COUNT` / `COUNT_IF`、比较式或窗�
   - 单行派生表的列（`SELECT a.rows, b.duplicate_keys FROM (...) a CROSS JOIN (...) b`）与标量子查询，追到算出它的
     表达式再判。只做过滤或投影的派生表算作表的行。各部分是否读同样的分区不比较。
 - `value_set`（`column:<c>.observed_values`）：恰好 `value, cnt`；`value` 是唯一的 `GROUP BY` 列——目标列 `c`，
-  或文档里 `c` 的 `source_columns` 之一的输入表列（没给 `--docs` 时警告）；`cnt` 是 `COUNT(*)`；不许 `HAVING`；
-  `LIMIT 51`。
+  或它唯一的直接透传来源列：材料包的血缘里 `c` 只有一个生产者，`sources` 恰好是那个输入表列，没有 `case_outputs`、
+  没有 `computed_by`，每一步都是直接投影（与第 3 项比较观测取值的规则相同）。条件列、计算来源的取值不是这一列的取值，失败。
+  `cnt` 是 `COUNT(*)`；不许 `HAVING`；`LIMIT 51`。
 
 目标要对得上形状和材料包：`value_set` 写了 `uniqueness` 的目标、表里没有的列、材料包里没有的输入表，都失败。
 
