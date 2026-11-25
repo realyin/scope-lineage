@@ -176,6 +176,16 @@ def test_the_width_rules_of_the_wide_lists_are_in_the_stylesheet() -> None:
     assert "TABLE_LIST_CLASSES.concat(columns.map(() => \"short\"))" in views
 
 
+def test_a_hidden_group_of_the_answer_form_stays_hidden() -> None:
+    """The answer form toggles its field groups with ``hidden``; a group that is also an
+    ``.answer-actions`` flex row must not be shown by that class's ``display: flex``."""
+    css = re.sub(r"\s+", " ", (_static_dir() / "app.css").read_text(encoding="utf-8"))
+    assert ".answer-form [hidden] { display: none !important; }" in css
+    views = (_static_dir() / "views.js").read_text(encoding="utf-8")
+    for group in ("rowPart.hidden", "columnPart.hidden", "meaning.hidden", "codesPart.hidden"):
+        assert group in views
+
+
 # ------------------------------------------------------------------ endpoints
 
 

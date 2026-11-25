@@ -737,7 +737,8 @@ def test_the_overlay_touches_only_the_answered_tables(paths, monkeypatch) -> Non
     calls = []
     real = core.overlay_answers
     monkeypatch.setattr(core, "overlay_answers",
-                        lambda semantics, entries: calls.append(list(entries)) or real(semantics, entries))
+                        lambda semantics, entries, **options: calls.append(list(entries))
+                        or real(semantics, entries, **options))
     post(state, CUSTOMER, "q1", "不会。")
     post(state, CUSTOMER, "q2", "暂缓", kind="deferred")
 

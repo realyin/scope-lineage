@@ -111,7 +111,7 @@ ASK_NOT_CONFIGURED = (
 )
 ASK_FIELDS = {"question": str, "conversation": str, "model": str}
 ANSWER_FIELDS = {"table", "question", "asked", "seen", "kind", "answer", "reason", "choice",
-                 "to", "by"}
+                 "to", "by", "target", "value"}
 ANSWERS_REMOTE_REFUSED = (
     "this server can be reached from other machines (a non-loopback --host, or --allow-host): "
     "it takes no answers, whose text reaches the context pack, the ask panel's model and MCP; "
@@ -284,7 +284,9 @@ ENDPOINTS = [
                 "others), choice (yes/no; answer and partial only), to (redirect: who to ask), "
                 "by (who answers), asked (the question's text as shown), seen ({disk: the "
                 "document's answer {answer, answered_by, answered_on} or null, record: the "
-                "page record shown or null})"
+                "page record shown or null}); a structured answer adds target (summary.row, "
+                "column:<c>.meaning, column:<c>.code_values) and value, its answer is an "
+                "optional note, and seen gains slot (the slot as shown)"
             ),
         },
     },
@@ -978,16 +980,37 @@ def _answer_request(payload: dict) -> dict:
     for name in ("table", "question", "asked"):
         if not isinstance(payload.get(name), str) or not payload[name].strip():
             raise _bad(f"{name} is required")
+    target = payload.get("target")
     seen = payload.get("seen")
-    if not isinstance(seen, dict) or set(seen) != {"disk", "record"} or not all(
-        value is None or isinstance(value, dict) for value in seen.values()
-    ):
-        raise _bad("seen is {disk, record}: what the page showed, each an object or null")
+    if target is None:
+        if payload.get("value") is not None:
+            raise _bad("value comes with a target")
+        if not isinstance(seen, dict) or set(seen) != {"disk", "record"} or not all(
+            value is None or isinstance(value, dict) for value in seen.values()
+        ):
+            raise _bad("seen is {disk, record}: what the page showed, each an object or null")
+    else:
+        if kind != records_file.ANSWER:
+            raise _bad("only an answer carries a target")
+        if payload.get("choice") is not None:
+            raise _bad("a structured answer has no choice (its value says it)")
+        problem = records_file.value_problem(target, payload.get("value"))
+        if problem:
+            raise _bad(problem)
+        if not isinstance(seen, dict) or set(seen) != {"disk", "record", "slot"} or not all(
+            seen[key] is None or isinstance(seen[key], dict) for key in ("disk", "record")
+        ):
+            raise _bad("seen is {disk, record, slot}: what the page showed of the question and "
+                       "of the answered slot")
     request = {"table": payload["table"].strip(), "question": payload["question"].strip(),
                "asked": payload["asked"], "seen": seen, "kind": kind}
+    if target is not None:
+        request.update(target=target, value=payload["value"])
     try:
-        request[text_key] = records_file.clean_text(payload.get(text_key), text_key,
-                                                    records_file.MAX_TEXT)
+        # a structured answer's sentence is generated; a note after it is optional
+        if target is None or (payload.get(text_key) is not None and str(payload[text_key]).strip()):
+            request[text_key] = records_file.clean_text(payload.get(text_key), text_key,
+                                                        records_file.MAX_TEXT)
         request["by"] = records_file.clean_text(payload.get("by"), "by", records_file.MAX_NAME)
         if kind == "redirect":
             request["to"] = records_file.clean_text(payload.get("to"), "to", records_file.MAX_NAME)
