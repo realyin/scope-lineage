@@ -14,7 +14,7 @@ OpenAI-compatible endpoints.
 
 ## Install
 
-From a checkout of this repository (the page's answers need the core's additions in the release after 0.16.0 -- answers
+From a checkout of this repository (the page's answers need the core's additions first shipped in 0.17.0 -- answers
 overlaid on the documents and marked in the context pack and the board, and the structured answers' overlay
 and slot marks; installing the core from the same
 checkout keeps the two in step):
