@@ -17,7 +17,8 @@ the catalog tools; it costs money and sends catalog text to the model provider, 
 never on by default and only on a loopback address). ``--ask-model`` names the one model;
 ``--ask-models FILE`` lists several (the page lets the asker pick one per question; see
 ``ask/models.py`` for the file). ``--ask-dev-fake-model`` is a development aid that walks
-the same panel through scripted tool calls with no model.
+the same panel through scripted tool calls with no model. ``--ask-trace DIR`` records every
+question run as JSON lines under DIR (``ask/trace.py``); off unless given.
 """
 
 from __future__ import annotations
@@ -195,13 +196,18 @@ def _ask_options(mode: argparse.ArgumentParser) -> None:
         "--ask-dev-fake-model", action="store_true",
         help="DEVELOPMENT AID: answer from a scripted sequence of real tool calls, no model and "
              "no network (implies --ask; the page says so on every answer)")
+    ask.add_argument(
+        "--ask-trace", metavar="DIR",
+        help="Append a JSON-lines record of every question run to DIR/<conversation id>.jsonl "
+             "(created if missing; files mode 0600): per model turn the time, tokens and how much "
+             "was sent, per tool call its name, arguments and result size, per run the outcome, "
+             "the question and the answer text. Never the catalog text the tools return. Off "
+             "unless given; no default place")
 
 
 def _ask_service(args, state: CatalogState):
     """The ask service the options ask for, and the sentence to print at start."""
-    from .ask.anthropic_model import DEFAULT_EFFORT, DEFAULT_MODEL, load_model
     from .ask.loop import Limits
-    from .ask.service import AskService
     from .ask.tools import ToolBox
 
     values = [args.ask_max_turns, args.ask_max_tool_calls, args.ask_max_output_tokens,
@@ -215,6 +221,24 @@ def _ask_service(args, state: CatalogState):
     tools = ToolBox(state, max_sql=args.max_body)
     options = dict(limits=limits, max_conversations=args.ask_max_conversations,
                    max_idle_seconds=args.ask_idle_minutes * 60.0)
+    service, notice = _ask_service_for(args, state, tools, options)
+    if args.ask_trace:
+        from .ask.trace import Tracer
+
+        try:
+            service.trace = Tracer(args.ask_trace)
+        except OSError as error:
+            raise CatalogAnswerError(2, f"--ask-trace {args.ask_trace}: {error.strerror or error}") from None
+        notice += (f"\nask trace: every question run is appended to {args.ask_trace}/<conversation "
+                   "id>.jsonl, with the question and the answer text (not the catalog text)")
+    return service, notice
+
+
+def _ask_service_for(args, state: CatalogState, tools, options: dict):
+    """``_ask_service`` from the limits on: the models the options name."""
+    from .ask.anthropic_model import DEFAULT_EFFORT, DEFAULT_MODEL, load_model
+    from .ask.service import AskService
+
     if args.ask_models:
         models, notice = _models(args, state)
         return AskService(tools, models=models, **options), notice
@@ -346,6 +370,10 @@ def main(argv: list[str] | None = None) -> int:
     asking = args.ask or args.ask_dev_fake_model
     if args.ask_models and not asking:
         print("--ask-models lists the models of the ask panel: add --ask to enable it",
+              file=sys.stderr)
+        return 2
+    if args.ask_trace and not asking:
+        print("--ask-trace records the ask panel's questions: add --ask to enable it",
               file=sys.stderr)
         return 2
     if asking and not _is_loopback(args.host):

@@ -12,6 +12,9 @@ The service holds a set of models (``models.ModelSet``): one from ``--ask-model`
 list from ``--ask-models``. A question names the model by id (none: the default); a
 follow-up may name another one. A model whose provider refuses its credentials is taken
 out of the set for the rest of the process; the others keep answering.
+
+With ``trace`` (``--ask-trace DIR``, a ``trace.Tracer``) every run is recorded as it goes,
+read-only: the run, its events and its answer are the same with or without it.
 """
 
 from __future__ import annotations
@@ -69,6 +72,7 @@ class AskService:
         max_conversations: int = 20,
         max_idle_seconds: float = 3600.0,
         clock: Callable[[], float] = time.monotonic,
+        trace=None,
     ) -> None:
         self.tools = tools
         self.models = models if models is not None else ModelSet.single(model, reason)
@@ -76,6 +80,7 @@ class AskService:
         self.max_conversations = max_conversations
         self.max_idle_seconds = max_idle_seconds
         self.clock = clock
+        self.trace = trace
         self.system = system_blocks(tools.pending)
         self._lock = threading.Lock()
         self._conversations: dict[str, Conversation] = {}
@@ -142,6 +147,8 @@ class AskService:
                                             "wait for it or cancel it")
             run = Run(secrets.token_urlsafe(12), question, conversation.brief,
                       model_id=entry.id, model_label=entry.label, clock=self.clock)
+            if self.trace is not None:
+                run.observer = self.trace.observer(conversation.id, run)
             conversation.runs.append(run)
             del conversation.runs[:-MAX_RUNS_KEPT]
             conversation.used = self.clock()

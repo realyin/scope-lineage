@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+- **Added (service): `http --ask --ask-trace DIR` records every ask-panel run, read-only.** Each
+  conversation appends JSON lines (`schema: "ask-trace/1"`) to `DIR/<conversation id>.jsonl` (mode 0600,
+  one append per line): per model turn its time, stop reason, token usage (and whether estimated), the
+  characters of the message list sent, the largest tool result in it and how many there are; per tool call
+  its name, arguments, outcome and result size (never the catalog text); per run its status, the error kind
+  and the first 300 characters of a provider error, the question and answer text, whether SQL and a brief
+  came back, the elapsed time, turns, tool calls and token totals. Off unless given, with no default place;
+  a failed write is logged and the run goes on. Without it every response, event and output is byte for
+  byte as before. A developer tool outside both packages, `service/tools/ask_driver.py` (standard library
+  only), drives a running server's ask endpoints turn by turn (`send`, `show`) for multi-turn evaluation
+  scenarios.
+
 ## 0.18.0
 - **Added: `semantic-confirmations/1` entries take an optional `evidence`, a reference to the platform
   query they rest on** -- `{probe, partition, on, sha256}`: the `question-probes/1` item's id, the partition

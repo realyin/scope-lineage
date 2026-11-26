@@ -32,6 +32,7 @@ which also keeps every replayed thinking block inside the conversation that prod
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
@@ -39,6 +40,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
 from .tools import ToolBox, placeholders_of
+
+LOG = logging.getLogger(__name__)
 
 MIN_TURN_TOKENS = 1024
 MAX_BRIEF_CHARS = 16_000
@@ -100,6 +103,9 @@ class Run:
     events: list = field(default_factory=list)
     status: str = "running"
     answer: dict | None = None
+    # Optional: called with every event, and with the notes the events leave out (``note``);
+    # what --ask-trace records (``trace.py``). It never changes the events or the run.
+    observer: Callable[[dict], None] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self.started = self.clock()
@@ -112,7 +118,21 @@ class Run:
                      "t": round(self.clock() - self.started, 1), **data}
             self.events.append(event)
             self._changed.notify_all()
+        self._observe(event)
         return event
+
+    def note(self, kind: str, **data) -> None:
+        """Tell the observer something the page's events do not carry; no event is added."""
+        if self.observer is not None:
+            self._observe({"type": kind, **data})
+
+    def _observe(self, item: dict) -> None:
+        if self.observer is None:
+            return
+        try:
+            self.observer(item)
+        except Exception as error:  # noqa: BLE001 -- recording never stops the run
+            LOG.warning("ask trace: observer failed on %s: %s", item.get("type"), error)
 
     def finish(self, status: str, **data) -> None:
         self.status = status
@@ -241,6 +261,7 @@ class _Question:
             "system": self.system, "tools": self.definitions, "messages": self.messages,
             "max_tokens": cap,
         }
+        self.run.note("request", messages=self.messages)
         try:
             result = self.model.turn(request, self.should_stop)
         except Cancelled:
@@ -290,6 +311,7 @@ class _Question:
                 refused = True
                 message = (f"本题的工具调用已到上限（{self.limits.max_tool_calls} 次），这次没有执行；"
                            "用已有的材料作答。")
+                self.run.note("tool_output", id=block["id"], chars=len(message))
                 self.run.emit("tool_result", id=block["id"], name=block["name"], ok=False,
                               exit_code=None, data={}, error=message)
                 results.append({"type": "tool_result", "tool_use_id": block["id"],
@@ -297,6 +319,7 @@ class _Question:
                 continue
             self.tool_calls += 1
             outcome = self.tools.call(block["name"], block.get("input"))
+            self.run.note("tool_output", id=block["id"], chars=len(outcome.text))
             self.run.emit("tool_result", id=block["id"], name=block["name"], ok=outcome.ok,
                           exit_code=outcome.exit_code, data=outcome.data,
                           error=None if outcome.ok else outcome.text)
