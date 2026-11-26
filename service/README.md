@@ -575,7 +575,11 @@ from one question to the next, all kept by the service's code -- no extra model 
   number the answer's SQL blocks, a cited turn that does not exist) leaves every model field as it was; two
   in a row and the answer says the model may not suit multi-turn use. Not invalid: a missing topic line (the
   turn stays in the current topic), `SQL角色：无` beside a SQL block (no new version), a role note holding `；`
-  (roles are split at each `段N=`), `新 #3 名称` for a new topic. A statement is a business rule, definition or
+  (roles are split at each `段N=`), `新 #3 名称` for a new topic, and a topic number the card does not have: with
+  a name (`#2 借据` on the first turn, or after a turn without a block) it makes that topic with the next free
+  number and remembers the model's number for it; without a name the turn stays in the current topic. A turn
+  without a block records no new SQL version, and the next card asks for the block. An unreadable `SQL角色`
+  is recorded (trace `problems`) with the whole line. A statement is a business rule, definition or
   correction the asker states (the walk gives examples); a quoted question is not kept.
 - **The guard.** A statement has a scope (a topic and tables). It is checked when a question produced a new
   current SQL and stays in the statement's topic, or that SQL reads a table in scope; never for a 待定说法, a

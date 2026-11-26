@@ -206,15 +206,16 @@ def parse_roles(value: str | None, problems: list) -> list | None:
     if value is None:
         return None
     roles: list = []
-    if not _present(value):
-        return roles
+    if not _present(value) or re.match(r"^\s*无\s*($|[（(，,；;。:：])", value):
+        return roles  # 无, or 无（本轮未改动 SQL）
     for item in _ROLE_START.split(value.strip()):
         item = item.strip().rstrip("；;，,。 ")
         if not item:
             continue
         match = _ROLE.match(item)
         if not match:
-            problems.append(f"SQL角色看不懂：{item[:80]}")
+            # the whole line, so a trace shows the shape the model wrote
+            problems.append(f"SQL角色看不懂：{item[:80]}（整行：{value.strip()[:300]}）")
             continue
         note = (match.group(3) or "").strip()
         note = re.sub(r"[）)]\s*$", "", note).strip()
@@ -269,10 +270,6 @@ def check_block(block: dict, state: dict, turn: int, segments: int) -> list[str]
     back to a 待定说法), a missing topic line (the turn stays in the current topic) and
     ``SQL角色：无`` beside a SQL block (shown SQL that is not a new version)."""
     problems = list(block.get("problems") or [])
-    topic = block.get("topic")
-    known = {item["id"] for item in state["topics"]}
-    if topic is not None and not topic.get("new") and topic["id"] not in known:
-        problems.append(f"话题 #{topic['id']} 不存在")
     roles = block.get("roles")
     if roles:
         numbers = [role["segment"] for role in roles]
@@ -299,7 +296,7 @@ def new_state() -> dict:
         "catalog": None, "catalog_changed": None, "turn": 0, "current_topic": None,
         "topics": [], "statements": [], "withdrawn": [], "mappings": [], "preferences": [],
         "open_question": None, "missing_streak": 0, "last_block": None, "last_problems": [],
-        "compact": False,
+        "compact": False, "topic_aliases": {},
     }
 
 
@@ -313,6 +310,8 @@ def _new_topic(state: dict, name: str, turn: int) -> dict:
              "sql": None, "tables": [], "joins": [], "conditions": [], "params": [],
              "archived": False}
     state["topics"].append(topic)
+    # an id the model used for another topic now exists on the card: it means this one
+    state.get("topic_aliases", {}).pop(str(topic["id"]), None)
     return topic
 
 
@@ -386,19 +385,10 @@ def apply_turn(
     valid = status == "ok"
 
     # the topic of this question
-    topic = None
-    if valid and block["topic"] is None:
-        problems = problems + ["没有话题行：这一轮归当前话题"]
     if valid and block["roles"] == [] and segments:
         problems = problems + [f"SQL角色写了无，答案里有 {len(segments)} 段 SQL：都不算新版"]
-    if valid and block["topic"] and block["topic"].get("new"):
-        topic = _new_topic(state, block["topic"]["name"], turn)
-    elif valid and block["topic"]:
-        topic = _topic(state, block["topic"]["id"])
-        if block["topic"].get("name") and not topic.get("name"):
-            topic["name"] = block["topic"]["name"]
-    else:
-        topic = _topic(state, state["current_topic"]) or _new_topic(state, question.strip()[:20], turn)
+    topic, notes = _resolve_topic(state, block if valid else None, question, turn)
+    problems = problems + notes
     topic["last"] = turn
     topic["archived"] = False
     state["current_topic"] = topic["id"]
@@ -492,6 +482,42 @@ def apply_turn(
         "guard": guard_lines, "statements_over": over, "new_statements": added,
         "gaps": block["gaps"] if valid else [],
     }
+
+
+def _resolve_topic(state: dict, block: dict | None, question: str, turn: int) -> tuple[dict, list]:
+    """This question's topic, and notes on how it was found. ``新：名称`` makes a topic. A
+    ``#n`` the conversation knows (directly, or as the id the model used for a topic code
+    made: ``topic_aliases``) is that topic. An unknown ``#n 名称`` makes a topic with the next
+    free id and remembers ``n`` for it (the model numbered a topic code never saw, after a
+    turn without a block or on the first turn). An unknown ``#n`` without a name, no topic
+    line, or no valid block: the current topic (a new one named after the question when
+    there is none)."""
+    aliases = state.setdefault("topic_aliases", {})
+    named = (block or {}).get("topic")
+
+    def current() -> dict:
+        return _topic(state, state["current_topic"]) or _new_topic(state, question.strip()[:20], turn)
+
+    if block is None:
+        return current(), []
+    if named is None:
+        return current(), ["没有话题行：这一轮归当前话题"]
+    if named.get("new"):
+        return _new_topic(state, named["name"], turn), []
+    given = named["id"]
+    found = _topic(state, aliases.get(str(given), given))
+    if found is not None:
+        if named.get("name") and not found.get("name"):
+            found["name"] = named["name"]
+        return found, []
+    if named.get("name"):
+        made = _new_topic(state, named["name"], turn)
+        if made["id"] != given:
+            aliases[str(given)] = made["id"]
+        note = f"话题 #{given} 不存在：按名称「{named['name']}」新建为 #{made['id']}"
+        return made, [note + ("" if made["id"] == given else f"，之后的 #{given} 都指它")]
+    topic = current()
+    return topic, [f"话题 #{given} 不存在、也没写名称：这一轮归当前话题 #{topic['id']}"]
 
 
 def _read_statements(state: dict, block: dict, turn: int, topic: int, user_messages: dict,
@@ -672,7 +698,8 @@ def render_card(state: dict, *, turn: int, catalog: str | None = None,
     if state.get("last_block") in ("missing", "invalid"):
         why = "；".join(state.get("last_problems") or [])[:300]
         lines.append(f"上一轮的增量块：{'缺失' if state['last_block'] == 'missing' else '没通过校验'}（{why}）；"
-                     "没变的字段沿用更早的。")
+                     "没变的字段沿用更早的，那一轮的 SQL 没有记成新版。这轮答案末尾务必附增量块（```text 代码块，"
+                     "第一行「话题：」；上一轮若开了新话题，这轮写「新：<名称>」或卡里已有的话题号）。")
     return "\n".join(lines)
 
 

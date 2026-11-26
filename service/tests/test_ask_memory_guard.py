@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 from service_paths import CUSTOMER
-from test_ask_memory import SQL1, SQL2, SQL_ALT, _with_statement, answer, apply, block
+from test_ask_memory import LOAN_SQL, SQL1, SQL2, SQL_ALT, _with_statement, answer, apply, block
 
 from scope_lineage_service.ask import memory
 
@@ -126,3 +126,49 @@ def test_pending_statements_never_guard_and_never_hit_the_budget() -> None:
     third = apply(pending["state"], 3, "按月分", answer(block("#1", "SQL角色：段1=当前版"), SQL_ALT),
                   {1: "客户数", 2: long_message})
     assert third["guard"] == []
+
+
+# ---------------------------------------------------------------------- topics the model numbered itself
+
+
+def test_a_first_turn_naming_topic_1_creates_it() -> None:
+    out = apply(memory.new_state(), 1, "客户数", answer(block("#1 客户数", "SQL角色：段1=当前版"), SQL1))
+    assert out["block_status"] == "ok" and out["topic"] == 1 and out["version"] == 1
+    assert out["state"]["topics"][0]["name"] == "客户数" and "话题 #1 不存在" in out["problems"][0]
+
+
+def test_after_a_turn_without_a_block_a_new_number_with_a_name_creates_the_topic() -> None:
+    first = apply(memory.new_state(), 1, "客户数", answer(block("新：客户数", "SQL角色：段1=当前版"), SQL1))
+    second = apply(first["state"], 2, "这张表一行是什么", answer(None))  # no block, no SQL
+    assert second["block_status"] == "missing" and second["topic"] == 1
+    assert "上一轮的增量块：缺失" in memory.render_card(second["state"], turn=3)
+    assert "务必附增量块" in memory.render_card(second["state"], turn=3)
+    third = apply(second["state"], 3, "看借据", answer(block("#2 借据", "SQL角色：段1=当前版"), LOAN_SQL))
+    assert third["block_status"] == "ok" and third["topic"] == 2 and third["version"] == 1
+    assert third["state"]["topics"][0]["sql"]["text"] == SQL1  # topic #1 untouched
+
+
+def test_a_model_number_that_differs_is_mapped_for_the_rest_of_the_conversation() -> None:
+    first = apply(memory.new_state(), 1, "客户数", answer(block("新：客户数", "SQL角色：段1=当前版"), SQL1))
+    jumped = apply(first["state"], 2, "看借据", answer(block("#3 借据", "SQL角色：段1=当前版"), LOAN_SQL))
+    assert jumped["topic"] == 2 and "之后的 #3 都指它" in jumped["problems"][0]
+    back = apply(jumped["state"], 3, "回到客户数", answer(block("#1", "SQL角色：段1=当前版"), SQL2))
+    again = apply(back["state"], 4, "借据再按月", answer(block("#3", "SQL角色：段1=当前版"), LOAN_SQL + " AND 1 = 1"))
+    assert back["topic"] == 1 and again["topic"] == 2 and again["version"] == 2 and again["problems"] == []
+    # once a real #3 exists the model's #3 means it
+    made = apply(again["state"], 5, "新问题", answer(block("新：第三个", "SQL角色：无")))
+    assert made["topic"] == 3 and "3" not in made["state"]["topic_aliases"]
+
+
+def test_an_unknown_number_without_a_name_stays_in_the_current_topic() -> None:
+    first = apply(memory.new_state(), 1, "客户数", answer(block("新：客户数", "SQL角色：段1=当前版"), SQL1))
+    out = apply(first["state"], 2, "按性别分", answer(block("#9", "SQL角色：段1=当前版"), SQL2))
+    assert out["block_status"] == "ok" and out["topic"] == 1 and out["version"] == 2
+    assert "话题 #9 不存在、也没写名称" in out["problems"][0]
+
+
+def test_sql_roles_none_with_a_note_and_unparsable_roles_keep_the_whole_line() -> None:
+    assert memory.parse_roles("无（本轮未改动 SQL，仍为 #1 v5）", []) == []
+    problems: list = []
+    memory.parse_roles("当前版就是上面那段；段2=诊断", problems)
+    assert problems == ["SQL角色看不懂：当前版就是上面那段（整行：当前版就是上面那段；段2=诊断）"]

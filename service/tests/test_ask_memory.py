@@ -123,11 +123,10 @@ def test_versions_are_assigned_by_code_and_unmarked_sql_keeps_the_previous_one()
     assert "v2（第 3 轮，按性别分）" in memory.render_card(unmarked["state"], turn=5)
 
 
-def test_a_wrong_segment_count_or_unknown_topic_invalidates_the_block() -> None:
+def test_a_wrong_segment_count_or_cited_turn_invalidates_the_block() -> None:
     first = apply(memory.new_state(), 1, "客户数",
                   answer(block("新：客户数", "SQL角色：段1=当前版", "条件：c.dt — 本体"), SQL1))
     for bad in (block("#1", "SQL角色：段2=当前版", "条件：x — 本体"),
-                block("#9", "SQL角色：段1=当前版", "条件：x — 本体"),
                 block("#1", "SQL角色：段1=当前版", "条件：x — 提问者第 7 轮")):
         out = apply(first["state"], 2, "再算", answer(bad, SQL2))
         topic = out["state"]["topics"][0]

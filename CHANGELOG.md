@@ -23,7 +23,9 @@
   conditions and assumptions (replaced as a group from the block), the asker's statements copied word for
   word from the asker's message (a quote that is not word for word, or a correction with no statement
   marked, keeps the whole message as a 待定说法), withdrawn statements, name mappings, preferences and the one
-  open question. A missing or invalid block leaves the model's fields as they were. The system prompt is
+  open question. A missing or invalid block leaves the model's fields as they were (the next card asks for
+  the block); a topic number the card lacks makes that topic when the line names it (the model's number is
+  remembered) and otherwise keeps the current topic, without invalidating the block. The system prompt is
   unchanged between requests; its preamble now explains the card and a new panel-only, read-only tool,
   `recall(turn | topic, version)`, which returns an earlier turn's question, answer and SQL from the record
   of this conversation only (bound by the service). A **guard** adds 「这次没有沿用你第 N 轮说的「X」，要不要
