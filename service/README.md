@@ -64,7 +64,7 @@ command line keeps full paths.
 | GET | `/api/query` | `kind`, `term` (both required) | `catalog query --json` |
 | POST | `/api/check-sql` | body: the SQL as `text/plain`, or `application/json` `{"sql": "..."}` | `catalog check-sql --json` |
 | GET | `/api/pending` | none | `catalog pending list --ontology --semantics --json` |
-| POST | `/api/pending` | body (`application/json`): `question`, and `missing` or `sql`; `term`, `tables`, `columns`, `proposed`, `sql_name`, `date` | `catalog pending add` |
+| POST | `/api/pending` | body (`application/json`): `question`, and `missing` or `sql`; `term`, `tables`, `columns`, `proposed`, `sql_name`, `date`; `unless_recorded` (true/false, default false: see below) | `catalog pending add` |
 | GET | `/` | none | the browse page (see below) |
 | GET | `/api/browse` | none | none |
 | GET | `/api/list` | `kind` (required: `concepts`, `tables`, `metrics`), `domain`, `concept`, `text`, `offset`, `limit` | none |
@@ -85,7 +85,7 @@ byte for byte what the command prints with `--json`. The command's exit code is 
 
 | Exit code | Meaning | Status |
 | --- | --- | --- |
-| 0 | found | 200 (201 for a pending add) |
+| 0 | found | 200 (201 for a pending add; 200 with `appended: 0` when `unless_recorded` found the item already there) |
 | 1 | nothing found (search, context, query) | 404, with the answer as body |
 | 1 | an error or a warning (check-sql), a line that is not an entry (pending list) | 200 |
 | 1 | the SQL holds no placeholder (pending add; nothing written) | 422 |
@@ -193,7 +193,7 @@ sends the whole catalog. An empty page or board is 200; a concept with no match,
 semantics document, is 404 with the answer as body.
 
 Read-only: the browse views only send GET requests and write nothing; no SQL is run. (The ask panel,
-below, posts questions and, when the reader submits one, a 待确认 definition to the pending file; with
+below, posts questions and, when the reader clicks 「记入待确认」 beside a placeholder, that gap to the pending file; with
 `--answers`, the questions board posts answers to the answers file.) Its files
 (`index.html`, `app.css`, `app.js`, `dom.js`, `views.js`, `graph.js`, and the ask panel's `ask.js` and
 `askview.js`) are packaged with this module and served from a fixed
@@ -435,12 +435,20 @@ answers file without `observations` reads and writes byte for byte as before.
 
 The page's **问数** view takes a data question and has a model answer it -- on the server, never in the
 browser -- by the skill's own walk (`skills/scope-lineage/workflows/catalog-answers.md`): search the catalog,
-take one context pack, write the SQL, check it, record what the catalog lacks. The page shows each step as it
+take one context pack, write the SQL, check it, list what the catalog lacks. The page shows each step as it
 happens: the candidates the search found, the tables and columns taken into the pack, every `check-sql` round
 with its findings, the final SQL, the basis given for each condition, and each `/* 待确认：… */` placeholder
 with what is missing. The newest question is on top; once a question has an answer its steps fold into
-one line that opens on a click. Beside a placeholder the reader can type the definition; submitting it appends one line
-to the pending file through `POST /api/pending` (only with `--pending`). **It never runs SQL** and never
+one line that opens on a click. **A gap is recorded only when the asker agrees:** the model has no tool that
+writes the pending file and its answer says each gap is 未记入 (not recorded); beside each placeholder the page
+offers 「记入待确认」, one click records the gap (a definition typed in the box beside it is recorded as the
+proposed one; it may be left empty), appending one line to the pending file through `POST /api/pending` (only
+with `--pending`). The click sends `unless_recorded: true`: when the pending file already holds an item naming
+the same missing thing (the grouping `catalog pending list` uses: NFKC, case folding, whitespace collapsed;
+closed items included), nothing is appended and the page says 「已有人记过」 with that item's count, last date,
+reply status and proposed definitions. A duplicate is reported rather than appended so one asker clicking
+twice, or a second asker hitting the same gap, does not inflate the item's count; other clients of
+`POST /api/pending` (without the field) append as `catalog pending add` does. **It never runs SQL** and never
 changes the catalog.
 
 **It costs money and sends catalog text to the model provider.** Every question calls the model through the
@@ -488,9 +496,10 @@ How it runs:
   end with the walk's brief) -- followed by `catalog-answers.md` and the reference it cites, word for word.
   The package carries exact copies of the two skill files (`scope_lineage_service/ask/*.md`);
   `tests/test_ask_walk.py` fails when a copy differs from the skill, so the skill stays the one source.
-- **The tools are the catalog answers.** `search_catalog`, `catalog_context`, `query_catalog`, `check_sql`, and
-  `add_pending` when the server has a pending file: the same functions, parameters and descriptions as the MCP
-  tools. A result is the command's text form (what it prints without `--json`), two to four times shorter than
+- **The tools are the catalog answers.** `search_catalog`, `catalog_context`, `query_catalog`, `check_sql` --
+  all read-only, with or without a pending file: the same functions, parameters and descriptions as the MCP
+  tools. The walk's `catalog pending add` maps to no tool here; the preamble tells the model that the asker
+  records a gap with the page's button and that it must not claim it recorded anything. A result is the command's text form (what it prints without `--json`), two to four times shorter than
   the JSON; the page gets a small structured summary of the same answer. Every input is checked against its
   tool's schema first, and a refused input comes back as a tool error with the command's sentence. Model
   output never becomes a path or a command.
@@ -511,8 +520,8 @@ How it runs:
 
 | Method | Path | Parameters |
 | --- | --- | --- |
-| GET | `/api/ask/status` | none: whether asking works now (or why not), the default model, caps, and `models`: each model's `id`, `label`, `provider`, `available`, `reason`, `default` (never a URL, a variable name or a key) |
-| POST | `/api/ask` | `application/json`: `question`, `conversation` for a follow-up, `model` (an id from the status; default the server's default; a follow-up may name another); 202 with the conversation and run ids and the model, 400 for an unknown model, 409 for one that cannot answer now or while that conversation is still answering |
+| GET | `/api/ask/status` | none: whether asking works now (or why not), the default model, caps, `max_question_chars`, and `models`: each model's `id`, `label`, `provider`, `available`, `reason`, `default` (never a URL, a variable name or a key) |
+| POST | `/api/ask` | `application/json`: `question` (at most 20,000 characters after trimming, enough for a pasted SQL; longer is 400 `bad_input`, and the page, which shows the limit from the status's `max_question_chars`, asks for the paste in parts before sending), `conversation` for a follow-up, `model` (an id from the status; default the server's default; a follow-up may name another); 202 with the conversation and run ids and the model, 400 for an unknown model, 409 for one that cannot answer now or while that conversation is still answering |
 | GET | `/api/ask/events` | `conversation`, `run`, `after` (last event number seen), `wait` (0-25 s, default 20) |
 | POST | `/api/ask/cancel` | `application/json`: `conversation` |
 | GET | `/api/ask/conversation` | `conversation`: its questions and the brief the next one carries |
@@ -592,8 +601,8 @@ brief format gives worse answers -- compare on your own questions before relying
 `--ask-dev-fake-model` is a development aid, off by default: no model is called and nothing leaves the
 machine. It answers through the same loop and endpoints with a fixed sequence of real tool calls against the
 loaded catalog (a search, then the best table's column list beside a metric search, a context pack, a check of
-an assembled SQL with placeholders) and an answer in the walk's format. It never calls `add_pending`; the
-page's fill-in still writes when the reader submits a definition. The page shows a banner and a 假模型 badge on
+an assembled SQL with placeholders) and an answer in the walk's format. Like a real model it has no tool that
+writes the pending file; the page's 「记入待确认」 still writes when the reader clicks it. The page shows a banner and a 假模型 badge on
 every answer, and every answer starts by saying it is not one.
 
 ```bash
@@ -656,7 +665,7 @@ marked as not written back; the MCP server never writes or prunes the file and h
 | `query_catalog` | `kind`, `term`, `format` | `catalog query` |
 | `check_sql` | `sql`, `format` | `catalog check-sql` |
 | `list_pending` | `format` | `catalog pending list` (with `--pending`) |
-| `add_pending` | `question`, `missing` or `sql`, `sql_name`, `term`, `tables`, `columns`, `proposed`, `date`, `format` | `catalog pending add` (with `--pending`) |
+| `add_pending` | `question`, `missing` or `sql`, `sql_name`, `term`, `tables`, `columns`, `proposed`, `date`, `format` | `catalog pending add` (with `--pending`; its description tells the client to call it only after the asker agrees to record the gap) |
 
 Each tool returns one text item: the readable answer by default, or with `"format": "json"` exactly what
 the command prints with `--json`. A nothing-found answer is an ordinary result that says so; an input the

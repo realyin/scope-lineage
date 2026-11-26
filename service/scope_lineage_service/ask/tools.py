@@ -1,4 +1,6 @@
-"""The tools the model is offered: the catalog answers the walk uses, nothing else.
+"""The tools the model is offered: the catalog answers the walk uses, nothing else -- all
+read-only (the model has no tool that writes the pending file; the asker records a gap with
+the page's button).
 
 Each tool calls one ``CatalogState`` answer -- the function the HTTP endpoint and the MCP
 tool of the same name call -- with the parameters that endpoint accepts. The descriptions
@@ -111,29 +113,6 @@ CHECK_SQL = {
         "sql": {"type": "string", "description": "One or more SELECT statements, as text"},
     }, ("sql",)),
 }
-ADD_PENDING = {
-    "name": "add_pending",
-    "description": (
-        "Record a definition the catalog lacks in this server's pending file for the "
-        "catalog's owner: give missing (one line) or sql (one line a 待确认 placeholder). Lines "
-        "are only ever appended. Same as `scope-lineage catalog pending add`."
-    ),
-    "input_schema": _schema({
-        "question": {"type": "string", "description": "The question as the asker put it"},
-        "missing": {"type": "string", "description": (
-            "What definition is missing, in the asker's words (or give sql)")},
-        "sql": {"type": "string", "description": (
-            "SQL text: one line is recorded per /* 待确认：… */ placeholder in it (instead of missing)")},
-        "sql_name": {"type": "string", "description": "With sql: the name the lines record for it"},
-        "term": {"type": "string", "description": (
-            "With missing: the business word itself, when missing is a sentence")},
-        "tables": {**_STRINGS, "description": "With missing: tables it concerns, as db.table"},
-        "columns": {**_STRINGS, "description": "With missing: columns it concerns, as db.table.column"},
-        "proposed": {"type": "string", "description": "With missing: a definition the asker proposes"},
-    }, ("question",)),
-}
-
-
 @dataclass
 class ToolOutcome:
     """One tool call's result: ``text`` goes to the model, ``data`` to the page."""
@@ -188,7 +167,9 @@ def _check_value(name: str, spec: dict, value) -> str | None:
 
 
 class ToolBox:
-    """The tools over one ``CatalogState``; ``add_pending`` only with a pending file."""
+    """The tools over one ``CatalogState``: all read-only. There is no ``add_pending``: a gap
+    is recorded only when the asker agrees, by the page's button (``POST /api/pending``), never
+    by the model. ``pending`` says whether the server has a pending file the page can write."""
 
     def __init__(
         self, state: CatalogState, *, max_sql: int, max_result_chars: int = DEFAULT_MAX_RESULT_CHARS
@@ -197,7 +178,7 @@ class ToolBox:
         self.max_sql = max_sql
         self.max_result_chars = max_result_chars
         self.pending = state.pending_path is not None
-        offered = [SEARCH, CONTEXT, QUERY, CHECK_SQL] + ([ADD_PENDING] if self.pending else [])
+        offered = [SEARCH, CONTEXT, QUERY, CHECK_SQL]
         self._tools = {tool["name"]: tool for tool in offered}
 
     def definitions(self) -> list[dict]:
@@ -209,7 +190,7 @@ class ToolBox:
         if tool is None:
             return ToolOutcome(False, f"no tool named {name!r}")
         problem = check_input(tool["input_schema"], args)
-        if problem is None and name in ("check_sql", "add_pending") and \
+        if problem is None and name == "check_sql" and \
                 len(args.get("sql") or "") > self.max_sql:
             problem = f"sql is longer than this server takes ({self.max_sql} characters)"
         if problem:
@@ -269,16 +250,6 @@ class ToolBox:
             "placeholders": placeholders_of(result),
         }
         return self._outcome(answer, data)
-
-    def _add_pending(self, question: str, sql_name: str | None = None, **request) -> ToolOutcome:
-        lines = self.state.pending_add(question=question, sql_name=sql_name or "ask", **request)
-        data = {
-            "appended": len(lines),
-            "lines": [{"missing": line.get("missing"), "columns": line.get("columns", [])}
-                      for line in lines[:SUMMARY_ITEMS]],
-        }
-        return ToolOutcome(True, f"Appended {len(lines)} missing definition(s) to the pending file\n",
-                           data, 0)
 
     def _outcome(self, answer: CatalogAnswer, data: dict) -> ToolOutcome:
         text = answer.text()

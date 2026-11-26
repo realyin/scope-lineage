@@ -13,6 +13,7 @@ import time
 from urllib.parse import urlencode
 
 import pytest
+from service_paths import CUSTOMER
 
 from scope_lineage_service.ask.fake_model import FakeModel
 from scope_lineage_service.ask.loop import Limits
@@ -256,13 +257,35 @@ def test_posts_from_another_origin_are_refused(server, inputs) -> None:
         (b'{"question": 3}', "application/json", 400),
         (b'{"conversation": "x"}', "application/json", 400),
         (b'{"question": "   "}', "application/json", 400),
-        (json.dumps({"question": "x" * 4001}).encode(), "application/json", 400),
     ],
 )
 def test_ask_takes_only_a_json_question(server, body, content_type, status) -> None:
     got, _, _ = _request(server, "POST", "/api/ask", body, {"Content-Type": content_type})
 
     assert got == status
+
+
+def test_a_question_may_be_a_long_paste_up_to_the_limit(pending_state) -> None:
+    # the default body cap (1 MiB), not the small one the other tests' server takes
+    httpd = make_server(pending_state, host="127.0.0.1", port=0, quiet=True,
+                        ask=_service(pending_state))
+    threading.Thread(target=httpd.serve_forever, args=(0.05,), daemon=True).start()
+    try:
+        status, body = _get(httpd, "/api/ask/status")
+        assert status == 200 and body["max_question_chars"] == 20_000
+
+        sql = f"SELECT COUNT(*) FROM {CUSTOMER} c WHERE c.dt = '2024-01-31'\n"
+        paste = "审查这段 SQL：\n" + sql * (19_000 // len(sql))
+        assert 4000 < len(paste) <= 20_000
+        started = _ask(httpd, paste)
+        assert _until_done(httpd, started["conversation"], started["run"])[-1]["status"] == "done"
+
+        status, body = _post(httpd, "/api/ask", {"question": "字" * 20_001})
+        assert status == 400 and body["error"]["kind"] == "bad_input"
+        assert "20000" in body["error"]["message"] and "请分段贴" in body["error"]["message"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
 
 
 @pytest.mark.parametrize(
@@ -336,6 +359,51 @@ def test_a_placeholder_definition_is_appended_through_pending_add(server, inputs
     assert status == 201 and body["appended"] == 1
     line = json.loads(inputs["pending"].read_text("utf-8"))
     assert line["missing"] == placeholder["text"] and line["proposed"] == "只算 F 和 M"
+
+
+def test_the_answer_records_nothing_until_the_asker_clicks(server, inputs) -> None:
+    started = _ask(server, "客户数")
+    events = _until_done(server, started["conversation"], started["run"])
+    answer = next(e for e in events if e["type"] == "answer")
+
+    assert answer["placeholders"] and "未记入" in answer["text"]
+    assert "add_pending" not in {e["name"] for e in events if e["type"] == "tool_call"}
+    assert not inputs["pending"].exists()
+
+
+def test_one_click_records_a_gap_once_and_a_second_click_says_it_is_recorded(server, inputs) -> None:
+    same = {"Origin": f"http://{_origin(server)}", "Sec-Fetch-Site": "same-origin"}
+    started = _ask(server, "客户数")
+    events = _until_done(server, started["conversation"], started["run"])
+    placeholder = next(e for e in events if e["type"] == "answer")["placeholders"][0]
+    # what the page sends for a click with no definition typed
+    click = {"question": "客户数", "missing": placeholder["text"], "unless_recorded": True,
+             "tables": [placeholder["table"]]}
+
+    status, body = _post(server, "/api/pending", click, **same)
+    assert status == 201 and body["appended"] == 1
+    assert "proposed" not in json.loads(inputs["pending"].read_text("utf-8"))
+
+    # the same missing thing again (another asker, other spacing and case): reported, not appended
+    again = dict(click, question="上月客户数", missing=f"  {placeholder['text'].upper()} ",
+                 proposed="只算 F 和 M")
+    status, body = _post(server, "/api/pending", again, **same)
+    assert status == 200 and body["appended"] == 0 and body["lines"] == []
+    assert body["recorded"]["missing"] == placeholder["text"] and body["recorded"]["hits"] == 1
+    assert body["recorded"]["questions"] == ["客户数"]
+    assert len(inputs["pending"].read_text("utf-8").splitlines()) == 1
+
+    # without unless_recorded the endpoint appends as `catalog pending add` does
+    status, body = _post(server, "/api/pending", dict(again, unless_recorded=False), **same)
+    assert status == 201 and len(inputs["pending"].read_text("utf-8").splitlines()) == 2
+
+
+def test_unless_recorded_takes_only_true_or_false(server, inputs) -> None:
+    status, body = _post(server, "/api/pending",
+                         {"question": "q", "missing": "m", "unless_recorded": "yes"})
+
+    assert status == 400 and "unless_recorded" in body["error"]["message"]
+    assert not inputs["pending"].exists()
 
 
 def test_without_pending_the_fill_in_is_not_configured(no_pending_server) -> None:

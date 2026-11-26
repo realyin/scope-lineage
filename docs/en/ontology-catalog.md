@@ -1506,8 +1506,10 @@ export are described in [service/README.md](../../service/README.md).
 
 Started with `--ask`, the page also gets an ask panel: a model on the server answers a data question by the
 skill's `catalog-answers.md` walk, with the answers above as its only tools, and the page shows the steps, the
-SQL, the basis of each condition and each 待确认 placeholder (a definition typed beside one is appended to the
-pending file). It never runs SQL; it costs money and sends catalog text to the model provider, so it is off
+SQL, the basis of each condition and each 待确认 placeholder. A gap is recorded only when the asker agrees:
+the model has no tool that writes the pending file, and 「记入待确认」 beside a placeholder appends a line only
+when the asker clicks it (a definition is optional; a gap the file already holds is not appended again, the
+page says 「已有人记过」). It never runs SQL; it costs money and sends catalog text to the model provider, so it is off
 by default. `--ask-models FILE` lists several models -- Anthropic, or any endpoint speaking the OpenAI Chat
 Completions API, such as a privately hosted model -- and the asker picks one per question; keys come from
 environment variables the file names. See [service/README.md](../../service/README.md).

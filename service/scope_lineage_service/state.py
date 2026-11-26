@@ -633,6 +633,21 @@ class CatalogState:
         with self._pending_lock:
             return answers.pending_add(str(path), **request)
 
+    def pending_add_unless_recorded(self, **request) -> tuple[list[dict], dict | None]:
+        """``(lines, None)`` after appending as ``pending_add`` does, or ``([], item)``
+        without writing when ``request["missing"]`` names something the pending file
+        already holds (``item`` as ``catalog pending list`` groups it). The check and the
+        append happen under one lock, so two clicks cannot both write. A request by
+        ``sql`` is appended as ``pending_add`` appends it."""
+        path = self._require_pending()
+        with self._pending_lock:
+            missing = request.get("missing")
+            if isinstance(missing, str) and missing.strip():
+                item = answers.pending_recorded(str(path), missing)
+                if item is not None:
+                    return [], item
+            return answers.pending_add(str(path), **request), None
+
     # ------------------------------------------------------------------ browsing
 
     def browse_index(self) -> answers.CatalogAnswer:

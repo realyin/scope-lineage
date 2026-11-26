@@ -149,7 +149,7 @@ def _pending(statement: Mapping) -> list[dict]:
             "text": placeholder["text"],
             "message": (
                 f"待确认的定义：{placeholder['text'] or '（占位没有写缺什么）'}{where}。"
-                "目录没有给出它，查询里留了占位；用 catalog pending add --from-sql 记下来交给目录负责人。"
+                "目录没有给出它，查询里留了占位；提问者同意后用 catalog pending add --from-sql 记下来交给目录负责人。"
             ),
         })
     return found

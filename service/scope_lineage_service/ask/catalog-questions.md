@@ -5,7 +5,7 @@
 不要从 SQL 重新推一遍。格式说明见 `docs/zh-CN/ontology-catalog.md`。
 
 本文件管"是什么"类的查找。要写 SQL 回答一个数据问题（统计、取数、某个数怎么算）时，照
-`workflows/catalog-answers.md` 的 1–7 步做（`search` → `context` → 写 SQL → `check-sql` → `pending`），下面的七条照样带上。
+`workflows/catalog-answers.md` 的 1–7 步做（`search` → `context` → 写 SQL → `check-sql` → 问提问者记不记 `pending`），下面的七条照样带上。
 
 ## 准备：build 一次
 

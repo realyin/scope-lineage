@@ -155,6 +155,7 @@ def test_tools_describe_themselves(state, inputs) -> None:
     assert "table" in json.dumps(kinds)
     assert tools["check_sql"].annotations.read_only_hint is True
     assert tools["add_pending"].annotations.read_only_hint is False
+    assert "only after the asker agrees" in " ".join(tools["add_pending"].description.split())
 
     bare = _tools(build_server(CatalogState(str(inputs["ontology"]))))
     assert "add_pending" not in bare and "list_pending" not in bare
