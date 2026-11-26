@@ -71,7 +71,10 @@ export function pendingResult(status, body) {
   return { done: false, text: null };
 }
 
-const BRIEF_KEYS = ["问题", "结论", "SQL", "表", "关联", "条件", "假设", "待确认", "check-sql"];
+// The walk's brief (the increment block): the keys the page draws and the ones it only
+// recognises, so a line of one never runs on into the line before it.
+const BRIEF_KEYS = ["话题", "问题", "结论", "SQL角色", "SQL", "表", "关联", "条件", "假设", "说法", "提议缺口",
+  "待确认", "check-sql", "撤销说法", "名字映射", "偏好", "未决问题"];
 const BRIEF_LINE = new RegExp(`^(${BRIEF_KEYS.join("|")})[：:](.*)$`);
 
 /**
@@ -235,6 +238,7 @@ export function viewModel(events) {
         placeholders: fromServer ? event.placeholders
           : extractPlaceholders(event.sql).map((p) => ({ text: p.text, table: null, column: null })),
         parsed: parseBrief(event.brief),
+        memory: memoryView(event.memory),
       };
     } else if (event.type === "finished") {
       vm.status = event.status;
@@ -244,4 +248,31 @@ export function viewModel(events) {
     }
   }
   return vm;
+}
+
+/**
+ * What the page shows of a turn's memory (the answer event's memory, read from the state
+ * card): {tag, notices, statements, assumptions, problem}. tag names the topic and the SQL
+ * version of this answer; notices are the lines the server added to the answer (guard,
+ * archive, budget); statements and assumptions are what is in effect after the turn; problem
+ * says when the model's increment block was missing or did not check out. null without
+ * memory (an older server).
+ */
+export function memoryView(memory) {
+  if (!memory) return null;
+  const view = memory.view || {};
+  const topic = memory.topic ? `话题 #${memory.topic}${memory.topic_name ? ` ${memory.topic_name}` : ""}` : null;
+  const version = memory.version ? `SQL v${memory.version}${memory.new_version ? "（新版）" : ""}` : null;
+  const statements = (view.statements || []).map((item) =>
+    `${item.pending ? "待定 " : ""}第 ${item.turn} 轮「${item.text}」`);
+  const assumptions = [...(view.params || []), ...(view.conditions || [])];
+  let problem = null;
+  if (memory.block === "missing") problem = "模型没有交回增量块：状态卡里由模型给的字段沿用上一版。";
+  else if (memory.block === "invalid") {
+    problem = `增量块没通过校验（${(memory.problems || []).join("；")}）：状态卡里由模型给的字段沿用上一版。`;
+  } else if (memory.sql_missing) problem = "答案里的 SQL 没标哪一段是当前版：当前 SQL 没有更新。";
+  return {
+    tag: [topic, version].filter(Boolean).join(" · ") || null, notices: memory.notices || [],
+    statements, assumptions, problem,
+  };
 }

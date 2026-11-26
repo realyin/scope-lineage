@@ -198,7 +198,7 @@ def test_a_follow_up_carries_the_brief(server) -> None:
     assert second["follow_up"] is True and events[0]["follow_up"] is True
     status, conversation = _get(server, "/api/ask/conversation", conversation=first["conversation"])
     assert status == 200 and [r["question"] for r in conversation["runs"]] == ["客户数", "换成按性别分"]
-    assert conversation["brief"].startswith("问题：换成按性别分")
+    assert conversation["brief"].startswith("话题：#1\n问题：换成按性别分")
 
 
 def test_one_question_at_a_time_and_cancel(pending_state) -> None:

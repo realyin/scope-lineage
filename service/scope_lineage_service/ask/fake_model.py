@@ -16,6 +16,7 @@ runs in this mode.
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Callable
 
@@ -43,6 +44,7 @@ class FakeModel:
         step = sum(1 for message in messages if message["role"] == "assistant")
         question = _question(messages[0])
         plan = self._plan(question)
+        plan["topic"] = _topic_line(messages[0], question)
         content = self._step(step, question, plan)
         stop = "tool_use" if any(block["type"] == "tool_use" for block in content) else "end_turn"
         prefix = len(json.dumps([request["system"], request["tools"]], ensure_ascii=False)) // 3
@@ -105,7 +107,7 @@ class FakeModel:
     def _answer(self, question: str, plan: dict) -> str:
         table, columns, sql = plan["table"], plan["columns"], plan["sql"]
         if table is None:
-            brief = f"问题：{question}\n结论：（假模型）目录里没有找到对得上的表\nSQL：无\n表：无\n关联：无\n条件：无\n假设：无\n待确认：无\ncheck-sql：未跑"
+            brief = f"{plan['topic']}\n问题：{question}\nSQL角色：无\n结论：（假模型）目录里没有找到对得上的表\nSQL：无\n表：无\n关联：无\n条件：无\n假设：无\n待确认：无\ncheck-sql：未跑"
             return f"{NOTICE}\n\n定不了：假模型在检索结果里没有找到一张目录里的表。\n\n```text\n{brief}\n```\n"
         check = self.state.check_sql(sql).result
         errors = sum(1 for f in check["findings"] if f["severity"] == "error")
@@ -115,7 +117,7 @@ class FakeModel:
         pending = [f"{text} — {column}；无；未记入（要记请点页面上的「记入待确认」）"
                    for text, column in zip(holes, columns[:1] + ["无"] * len(holes))] or ["无"]
         brief = "\n".join([
-            f"问题：{question}", "结论：（假模型）没有结论", f"SQL：{sql}",
+            plan["topic"], f"问题：{question}", "结论：（假模型）没有结论", "SQL角色：段1=当前版", f"SQL：{sql}",
             f"表：{table} — 一行是（假模型没有读）", "关联：无",
             *[f"条件：{line}" for line in conditions], "假设：无",
             *[f"待确认：{line}" for line in pending],
@@ -139,6 +141,16 @@ def _sql(question: str, table: str | None, columns: list) -> str:
     words = " ".join(question.split())[:40] or "问题"
     lines.append(f"  AND /* 待确认：「{words}」的口径（假模型占位） */ 1 = 1")
     return "\n".join(lines)
+
+
+def _topic_line(message: dict, question: str) -> str:
+    """The block's topic line: the card's current topic when the message carries one (a
+    follow-up on the panel), else a new topic named after the question."""
+    content = message["content"]
+    text = content if isinstance(content, str) else "".join(
+        block.get("text", "") for block in content if block.get("type") == "text")
+    found = re.search(r"^当前话题：#(\d+)", text, flags=re.M)
+    return f"话题：#{found.group(1)}" if found else f"话题：新：{' '.join(question.split())[:20] or '问题'}"
 
 
 def _question(message: dict) -> str:

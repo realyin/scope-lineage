@@ -135,8 +135,10 @@ class Panel {
       h("p", { class: "muted" },
         "模型按目录工具（检索、取数包、查询、SQL 检查）写 SQL；不执行 SQL，也不改目录。",
         info.pending ? "模型不会替你记待确认：要记就在答案的「待确认」下点「记入待确认」。" : "",
-        "追问带上一题的简报，不带全部记录。",
-        `对话只存在服务内存里：服务重启或闲置超过 ${Math.round(info.conversations.max_idle_seconds / 60)} 分钟就没了。`,
+        "追问带对话状态卡（话题、当前 SQL 及版本、你给过的说法），模型可以按轮号取回更早的回答；每题开头告诉模型今天的日期。",
+        info.conversations.stored
+          ? "对话的完整记录（含你的问题和贴进来的 SQL）存在服务器磁盘上，服务重启后还能接着问。"
+          : `对话只存在服务内存里：服务重启或闲置超过 ${Math.round(info.conversations.max_idle_seconds / 60)} 分钟就没了。`,
         `每题上限：${info.limits.max_turns} 轮、${info.limits.max_tool_calls} 次工具调用、`,
         `${info.limits.max_output_tokens} 个输出 token、${info.limits.max_seconds} 秒。`),
       form, this.runs);
@@ -171,6 +173,13 @@ class Panel {
       return;
     }
     this.conversation = conversation;
+    // A conversation read back from the store (after a restart) has turns but no runs: its
+    // earlier answers are drawn from the record, as text.
+    const older = (body.turns || []).slice(0, Math.max(0, (body.turns || []).length - (body.runs || []).length));
+    for (const turn of older) this.runs.prepend(drawTurn(turn));
+    if (body.read_only) {
+      this.runs.prepend(h("p", { class: "error" }, "这个对话的记录是旧格式：只能看，不能接着问。可以开始新对话。"));
+    }
     for (const run of body.runs) this.follow(run.run, run.question);
   }
 
@@ -330,7 +339,13 @@ function line(label, items) {
 function drawAnswer(vm, panel) {
   const answer = vm.answer;
   const parsed = answer.parsed;
-  const parts = [h("h3", {}, "答案")];
+  const memory = answer.memory;
+  const parts = [h("h3", {}, "答案", memory && memory.tag ? badge(memory.tag) : null)];
+  if (memory && memory.notices.length) {
+    parts.push(h("ul", { class: "plain ask-notices", role: "note" },
+      memory.notices.map((line) => h("li", {}, badge("提醒", "warn"), " ", text(line)))));
+  }
+  if (memory && memory.problem) parts.push(h("p", { class: "muted" }, memory.problem));
   if (parsed.conclusion) parts.push(h("p", {}, h("strong", {}, "结论："), parsed.conclusion));
   if (answer.sql) parts.push(h("pre", { class: "sql" }, answer.sql));
   else parts.push(h("p", { class: "muted" }, "这题没有写 SQL。"));
@@ -345,10 +360,17 @@ function drawAnswer(vm, panel) {
   if (parsed.assumptions.length) {
     parts.push(h("h3", {}, "假设"), h("ul", { class: "plain" }, parsed.assumptions.map((item) => h("li", {}, item))));
   }
+  if (memory && (memory.statements.length || memory.assumptions.length)) {
+    parts.push(fold("现在生效的假设和你给过的说法", true, h("div", {},
+      memory.statements.length ? [h("p", {}, h("strong", {}, "你的说法（逐字记下，同话题后面的题沿用）")),
+        h("ul", { class: "plain" }, memory.statements.map((line) => h("li", {}, text(line))))] : null,
+      memory.assumptions.length ? [h("p", {}, h("strong", {}, "当前话题的条件与假设")),
+        h("ul", { class: "plain" }, memory.assumptions.map((line) => h("li", {}, text(line))))] : null)));
+  }
   parts.push(drawPlaceholders(vm, panel));
-  if (answer.briefMissing) parts.push(h("p", { class: "error" }, "模型没有交回简报：追问会带上答案的开头。"));
+  if (answer.briefMissing && !memory) parts.push(h("p", { class: "error" }, "模型没有交回简报：追问会带上答案的开头。"));
   parts.push(fold("答案全文", false, h("div", { class: "ask-note" }, answer.text)));
-  parts.push(fold("带给下一题的简报", false, h("pre", {}, answer.brief)));
+  parts.push(fold("这一轮的增量块（服务据此更新对话状态卡）", false, h("pre", {}, answer.brief)));
   return h("div", { class: "ask-answer" }, parts);
 }
 
@@ -403,4 +425,17 @@ function drawEnd(vm) {
     h("p", {}, parts, detail ? ["（", detail, "）"] : null,
       vm.status === "max_tokens" && vm.detail ? h("span", { class: "ask-note" }, vm.detail) : null),
     vm.usage ? h("p", { class: "muted" }, usageText(vm.usage), ` · ${vm.elapsed} 秒`) : null);
+}
+
+// A turn read back from the server's record (a conversation reloaded after a restart): the
+// question, how it ended, its topic and SQL version, the answer text and the lines added to it.
+function drawTurn(turn) {
+  const tag = [turn.topic ? `话题 #${turn.topic}` : null, turn.version ? `SQL v${turn.version}` : null]
+    .filter(Boolean).join(" · ");
+  return h("section", { class: "ask-run" },
+    h("h2", {}, text(turn.question), badge(`第 ${turn.turn} 轮`), tag ? badge(tag) : null,
+      badge(STATUS_TEXT[turn.status] || (turn.status === "interrupted" ? "中断（服务重启）" : text(turn.status)),
+        turn.status === "done" ? "ok" : "warn")),
+    turn.answer ? h("div", { class: "ask-note" }, turn.answer)
+      : h("p", { class: "muted" }, "这一轮没有回答。"));
 }

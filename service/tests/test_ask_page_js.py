@@ -200,3 +200,34 @@ def test_the_view_model_names_the_model_that_answered() -> None:
 
     assert vm["modelId"] == "second" and vm["modelLabel"] == "Second" and vm["model"] == "example-model"
     assert _call("usageText", vm["usage"]).endswith("（估算）")
+
+
+def test_the_answer_shows_its_topic_version_notices_and_what_is_in_effect() -> None:
+    memory = {
+        "turn": 3, "topic": 1, "topic_name": "客户数", "version": 3, "new_version": 3, "block": "ok",
+        "problems": [], "sql_missing": False,
+        "notices": ["这次没有沿用你第 2 轮说的「只算有效客户」，要不要加上？"],
+        "view": {"statements": [{"turn": 2, "text": "只算有效客户", "topic": 1, "pending": False},
+                                {"turn": 3, "text": "整句", "topic": 1, "pending": True}],
+                 "params": ["期间 = 2026-10"], "conditions": ["c.dt — 本体"]},
+    }
+    shown = _call("memoryView", memory)
+
+    assert shown == {"tag": "话题 #1 客户数 · SQL v3（新版）", "notices": memory["notices"],
+                     "statements": ["第 2 轮「只算有效客户」", "待定 第 3 轮「整句」"],
+                     "assumptions": ["期间 = 2026-10", "c.dt — 本体"], "problem": None}
+    missing = _call("memoryView", {**memory, "block": "missing"})
+    assert "没有交回增量块" in missing["problem"]
+    assert _call("memoryView", None) is None
+    events = [{"seq": 1, "type": "started", "question": "q", "t": 0},
+              {"seq": 2, "type": "answer", "text": "x", "sql": None, "brief": "话题：#1\n问题：q",
+               "brief_missing": False, "placeholders": [], "memory": memory, "t": 1}]
+    assert _call("viewModel", events)["answer"]["memory"]["tag"] == shown["tag"]
+
+
+def test_the_increment_blocks_new_lines_do_not_run_into_the_conclusion() -> None:
+    parsed = _call("parseBrief", "话题：#1 客户数\n问题：q\n结论：见 SQL\nSQL角色：段1=当前版\n"
+                                 "说法：第 2 轮「只算有效客户」— 范围：#1\n条件：c.dt — 本体")
+
+    assert parsed["question"] == "q" and parsed["conclusion"] == "见 SQL" and parsed["sql"] is None
+    assert parsed["conditions"] == [{"text": "c.dt", "basis": "本体"}]
