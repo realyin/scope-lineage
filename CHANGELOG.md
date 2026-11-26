@@ -1,6 +1,57 @@
 # Changelog
 
 ## Unreleased
+- **Changed (skill walk, behaviour change of the published skill): relative time is resolved against
+  today's date, and the multi-turn brief is the increment block.** `workflows/catalog-answers.md` step 3
+  item 4 now says to turn relative time (今年、上个月、最近 7 天) into concrete dates in the parameter comment
+  (`-- 参数 期间 = 2026-10-01 ~ 2026-10-31（上个月，按今天 2026-11-25 解析）`), with today taken from the
+  message's leading `今天：YYYY-MM-DD` line, or, with no such line (Claude Code), from what the model knows,
+  saying the date is assumed; dates in the catalog's examples are not "the latest". The multi-turn brief
+  gains `话题` (first line: `#n 名称`, or `新：名称`), `SQL角色` (`段1=当前版（改了什么）；段2=备选…；段3=诊断`,
+  numbering the answer's SQL blocks), `说法` (`第 N 轮「原话」— 范围：#n；表 …[；SQL：<表达式>]`, only a business
+  rule, definition or correction the asker states -- not the question, not this turn's choice of table, column
+  or dimension, not a reply to a reminder; with two positive and three negative examples), `提议缺口` (gaps that are not
+  SQL placeholders), `条件` bases written as `本体 · 出处 / 提问者第 N 轮 / 假设`, and four optional lines
+  (`撤销说法`, `名字映射`, `偏好`, `未决问题`); its other lines and rules are unchanged. One format for both
+  paths.
+- **Added (service): the ask panel remembers a conversation.** Every question's message now starts with
+  `今天：YYYY-MM-DD（时区 ±HH:MM）` from the server clock (read for each question) followed by a **state card**
+  that replaces the previous question's brief: the turn number, the catalog version (first 12 hex digits of
+  the ontology file's sha256), the topic index with each topic's turn range and SQL versions, the current SQL
+  (only the segment the block marks 当前版; versions assigned by code; the answer's `sql` is now that segment
+  instead of always the first), its check-sql result run again by code, the topic's tables, joins,
+  conditions and assumptions (replaced as a group from the block), the asker's statements copied word for
+  word from the asker's message (a quote that is not word for word, or a correction with no statement
+  marked, keeps the whole message as a 待定说法), withdrawn statements, name mappings, preferences and the one
+  open question. A missing or invalid block leaves the model's fields as they were (the next card asks for
+  the block); a topic number the card lacks makes that topic when the line names it (the model's number is
+  remembered) and otherwise keeps the current topic, without invalidating the block. The system prompt is
+  unchanged between requests; its preamble now explains the card and a new panel-only, read-only tool,
+  `recall(turn | topic, version)`, which returns an earlier turn's question, answer and SQL from the record
+  of this conversation only (bound by the service). A **guard** adds 「这次没有沿用你第 N 轮说的「X」，要不要
+  加上？」 to the answer, once per statement, when a question with a new current SQL in a statement's topic
+  (or reading a table in its scope) does not keep it -- kept means its turn is cited in a 条件, 关联 or 表 line,
+  or the SQL contains the expression its 说法 line tied to it; 待定说法 and same-turn statements never prompt.
+  The next card says the reminder was shown; the model reports the asker's reply as `提醒答复：第 N 轮 加上 /
+  不加` (不加 marks the statement 不适用 in that topic; 加上 while still not kept gives one more line), and a
+  reply is never recorded as a statement. The card has a budget (`--ask-card-budget N`, default 6,000
+  characters): older topics are archived to one index line, then older SQL versions are listed by number and
+  note; statements are never archived and past 1,500 characters (待定说法 not counted) the answer asks which
+  to drop. Each conversation keeps a full
+  record (at most 200 questions); **`--ask-store DIR`** (off unless given, no default place; directory 0700,
+  files 0600, atomic rewrites, `schema: "ask-store/1"`, older versions read-only) keeps it on disk with the
+  question text (pasted SQL and data included), the answer, every SQL with its role and version, the parsed
+  block, the card after the turn and the tool calls' names and arguments (never their results), so a
+  conversation continues after a restart; a question running at the restart is marked `interrupted`.
+  `--ask-today YYYY-MM-DD` fixes the date for tests. `GET /api/ask/conversation` adds `turns`, `memory`,
+  `read_only` and `stored`; the answer event adds `memory` (topic, version, block status, the added lines,
+  what is in effect); `POST /api/ask` answers 409 `conversation_full` and `read_only`; `--ask-trace` run
+  lines add `memory` (block present / valid, card sizes, archive events, guard lines). The page shows each
+  answer's topic and SQL version, the added lines and the statements and assumptions in effect, and draws a
+  conversation read back from the store. **Without the new options every other behaviour is as before,
+  except that each question now carries the date line and the state card instead of the previous brief,
+  the model is offered `recall`, and the answer may end with the guard's or the budget's lines.**
+  `service/tools/ask_driver.py send` prints the answer's `memory`.
 - **Changed (skill walk, behaviour change of the published skill): gaps are no longer recorded
   automatically.** `workflows/catalog-answers.md` step 6 used to run `catalog pending add` for every
   `/* 待确认：… */` placeholder; it now lists the gaps in the answer's 待确认 part and asks the asker whether

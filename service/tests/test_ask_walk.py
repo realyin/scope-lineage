@@ -9,7 +9,7 @@ import pytest
 from service_paths import REPO
 
 from scope_lineage_service.ask import walk
-from scope_lineage_service.ask.tools import CHECK_SQL, CONTEXT, QUERY, SEARCH
+from scope_lineage_service.ask.tools import CHECK_SQL, CONTEXT, QUERY, RECALL, SEARCH
 
 SOURCES = {
     "catalog-answers.md": REPO / "skills" / "scope-lineage" / "workflows" / "catalog-answers.md",
@@ -46,7 +46,7 @@ def test_the_preamble_maps_commands_and_states_limits_without_restating_steps() 
     for limit in ("不执行 SQL", "读不到任何文件", "提问者的语言"):
         assert limit in text
     named = set(re.findall(r"`([a-z_]+)\(", text))
-    offered = {tool["name"] for tool in (SEARCH, CONTEXT, QUERY, CHECK_SQL)}
+    offered = {tool["name"] for tool in (SEARCH, CONTEXT, QUERY, CHECK_SQL, RECALL)}
     assert named == offered
 
 
@@ -86,3 +86,42 @@ def test_the_prompt_has_nothing_that_varies_between_requests() -> None:
         preamble = walk.preamble(pending)
         assert not re.search(r"\d{4}-\d{2}-\d{2}|\d{2}:\d{2}", preamble)
         assert "/" + "Users" + "/" not in preamble and "/home/" not in preamble
+
+
+def test_the_walk_resolves_relative_time_against_todays_date() -> None:
+    answers = walk.walk_text("catalog-answers.md")
+
+    assert "今天的日期以消息开头的「今天：YYYY-MM-DD」为准" in answers
+    assert "今天的日期是假设" in answers  # no date given (Claude Code): say it is assumed
+    assert "（上个月，按今天 2026-11-25 解析）" in answers
+    assert "不是「最新」「上个月」" in answers
+
+
+def test_the_walk_brief_is_the_increment_block_of_both_paths() -> None:
+    answers = walk.walk_text("catalog-answers.md")
+    brief = answers.split("## 多轮问数", 1)[1].split("```text\n", 1)[1].split("```", 1)[0]
+    keys = [line.split("：", 1)[0] for line in brief.splitlines()]
+
+    assert keys == ["话题", "问题", "结论", "SQL角色", "SQL", "表", "关联", "条件", "假设", "说法",
+                    "提议缺口", "待确认", "check-sql"]
+    for optional in ("撤销说法：", "名字映射：", "偏好：", "未决问题："):
+        assert optional in answers
+
+
+def test_the_preamble_explains_the_card_and_recall() -> None:
+    text = walk.preamble(pending=True)
+
+    assert "【对话状态卡】" in text and "今天：YYYY-MM-DD" in text
+    assert "`recall(turn, topic, version)`" in text and "没调 `recall` 之前" in text
+    assert "第一行以\"话题：\"开头" in text
+    assert "上一轮提醒过" in text and "`提醒答复：第 N 轮 加上`" in text and "`提醒答复：第 N 轮 不加`" in text
+
+
+def test_the_walk_defines_a_statement_narrowly_with_examples() -> None:
+    answers = walk.walk_text("catalog-answers.md")
+    rule = answers.split("- 说法只记", 1)[1].split("\n- ", 1)[0]
+
+    assert "业务规则、定义或纠正" in rule and rule.count("」「") >= 1  # two positive examples
+    for not_one in ("问题本身", "选哪张表、哪一列、按什么维度拆", "对服务提醒「要不要加上」的答复"):
+        assert not_one in rule
+    assert "`；SQL：<表达式>`" in answers

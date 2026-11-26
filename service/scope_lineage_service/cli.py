@@ -18,7 +18,10 @@ never on by default and only on a loopback address). ``--ask-model`` names the o
 ``--ask-models FILE`` lists several (the page lets the asker pick one per question; see
 ``ask/models.py`` for the file). ``--ask-dev-fake-model`` is a development aid that walks
 the same panel through scripted tool calls with no model. ``--ask-trace DIR`` records every
-question run as JSON lines under DIR (``ask/trace.py``); off unless given.
+question run as JSON lines under DIR (``ask/trace.py``); off unless given. ``--ask-store
+DIR`` keeps every conversation's full record on disk (``ask/store.py``), so it survives a
+restart; off unless given. ``--ask-card-budget N`` sets the state card's budget and
+``--ask-today YYYY-MM-DD`` fixes today's date (for tests and evaluation runs).
 """
 
 from __future__ import annotations
@@ -203,6 +206,20 @@ def _ask_options(mode: argparse.ArgumentParser) -> None:
              "was sent, per tool call its name, arguments and result size, per run the outcome, "
              "the question and the answer text. Never the catalog text the tools return. Off "
              "unless given; no default place")
+    ask.add_argument(
+        "--ask-store", metavar="DIR",
+        help="Keep every conversation's full record in DIR/<conversation id>.json (directory "
+             "created mode 0700, files 0600, written atomically), so a conversation survives a "
+             "restart and its earlier turns can be recalled: per question the asker's text "
+             "(pasted SQL and results included), the answer, every SQL with its version, the "
+             "state card and the tool calls' names and arguments (never their results). Off "
+             "unless given (conversations then live in memory only); no default place")
+    ask.add_argument("--ask-card-budget", type=int, default=None, metavar="N",
+                     help="Characters the conversation state card may take in each question's "
+                          "message before older topics are archived (default 6000)")
+    ask.add_argument("--ask-today", metavar="YYYY-MM-DD", default=None,
+                     help="Use this date as today in every question's date line instead of the "
+                          "server clock (for tests and evaluation runs)")
 
 
 def _ask_service(args, state: CatalogState):
@@ -231,7 +248,37 @@ def _ask_service(args, state: CatalogState):
             raise CatalogAnswerError(2, f"--ask-trace {args.ask_trace}: {error.strerror or error}") from None
         notice += (f"\nask trace: every question run is appended to {args.ask_trace}/<conversation "
                    "id>.jsonl, with the question and the answer text (not the catalog text)")
+    notice += _ask_memory(args, service)
     return service, notice
+
+
+def _ask_memory(args, service) -> str:
+    """Apply --ask-today, --ask-card-budget and --ask-store; the start-message lines."""
+    from datetime import date, datetime
+
+    notice = ""
+    if args.ask_today:
+        try:
+            fixed = date.fromisoformat(args.ask_today)
+        except ValueError:
+            raise CatalogAnswerError(2, f"--ask-today takes YYYY-MM-DD, not {args.ask_today!r}") from None
+        service.now = lambda: datetime.now().astimezone().replace(
+            year=fixed.year, month=fixed.month, day=fixed.day)
+        notice += f"\nask today: every question is told today is {fixed.isoformat()} (fixed by --ask-today)"
+    if args.ask_card_budget is not None:
+        if args.ask_card_budget < 500:
+            raise CatalogAnswerError(2, "--ask-card-budget takes an integer >= 500")
+        service.card_budget = args.ask_card_budget
+    if args.ask_store:
+        from .ask.store import Store
+
+        try:
+            service.store = Store(args.ask_store)
+        except OSError as error:
+            raise CatalogAnswerError(2, f"--ask-store {args.ask_store}: {error.strerror or error}") from None
+        notice += (f"\nask store: every conversation's full record is kept in {args.ask_store}/<conversation "
+                   "id>.json, with the question text, pasted SQL and the answers")
+    return notice
 
 
 def _ask_service_for(args, state: CatalogState, tools, options: dict):
@@ -374,6 +421,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.ask_trace and not asking:
         print("--ask-trace records the ask panel's questions: add --ask to enable it",
+              file=sys.stderr)
+        return 2
+    memory_options = [name for name, value in (("--ask-store", args.ask_store),
+                                               ("--ask-card-budget", args.ask_card_budget),
+                                               ("--ask-today", args.ask_today)) if value is not None]
+    if memory_options and not asking:
+        print(f"{', '.join(memory_options)} belong to the ask panel: add --ask to enable it",
               file=sys.stderr)
         return 2
     if asking and not _is_loopback(args.host):

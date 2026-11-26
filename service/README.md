@@ -488,6 +488,9 @@ refused on an address other than loopback (it spends money and the server has no
 | `--ask-idle-minutes` | 60 | an idle conversation is dropped after this |
 | `--ask-dev-fake-model` | off | **development aid**, see below |
 | `--ask-trace DIR` | off | append a record of every question run to `DIR/<conversation id>.jsonl`, see below |
+| `--ask-store DIR` | off | keep every conversation's full record in `DIR/<conversation id>.json`, so it survives a restart, see [Conversation memory](#conversation-memory) |
+| `--ask-card-budget N` | 6000 | characters the conversation state card may take before older topics are archived (at least 500) |
+| `--ask-today YYYY-MM-DD` | the server clock | the date every question is told is today (for tests and evaluation runs) |
 
 How it runs:
 
@@ -508,10 +511,11 @@ How it runs:
   message; `refusal` and `max_tokens` stop the question without running that turn's calls; `pause_turn` is
   continued. The tools and system prompt are one stable, cached prefix; the page shows the token usage of
   each question (input, cache reads and writes, output).
-- **Follow-ups** carry the previous question's brief, not the transcript, as the walk's multi-turn section
-  says. Conversations live in server memory only, under an unguessable id: a restart loses them, and the page
-  says so. One question runs at a time per conversation; **停止** cancels it (at the next model event or tool
-  call).
+- **Follow-ups** carry the conversation's state card, not the transcript: every question's message starts
+  with today's date and the card (see [Conversation memory](#conversation-memory)), and the model can fetch
+  an earlier turn with `recall`. Conversations live in server memory under an unguessable id; without
+  `--ask-store` a restart loses them, and the page says so. One question runs at a time per conversation;
+  **停止** cancels it (at the next model event or tool call).
 - **Safety.** Every POST must be JSON from this page's own origin (`Origin` exactly this host and port,
   `Sec-Fetch-Site: same-origin`, on top of the Host check), so no other site open in the browser can spend
   money or write the pending file; the page polls `GET /api/ask/events` (long polling, plain JSON responses
@@ -521,10 +525,99 @@ How it runs:
 | Method | Path | Parameters |
 | --- | --- | --- |
 | GET | `/api/ask/status` | none: whether asking works now (or why not), the default model, caps, `max_question_chars`, and `models`: each model's `id`, `label`, `provider`, `available`, `reason`, `default` (never a URL, a variable name or a key) |
-| POST | `/api/ask` | `application/json`: `question` (at most 20,000 characters after trimming, enough for a pasted SQL; longer is 400 `bad_input`, and the page, which shows the limit from the status's `max_question_chars`, asks for the paste in parts before sending), `conversation` for a follow-up, `model` (an id from the status; default the server's default; a follow-up may name another); 202 with the conversation and run ids and the model, 400 for an unknown model, 409 for one that cannot answer now or while that conversation is still answering |
+| POST | `/api/ask` | `application/json`: `question` (at most 20,000 characters after trimming, enough for a pasted SQL; longer is 400 `bad_input`, and the page, which shows the limit from the status's `max_question_chars`, asks for the paste in parts before sending), `conversation` for a follow-up, `model` (an id from the status; default the server's default; a follow-up may name another); 202 with the conversation and run ids and the model, 400 for an unknown model, 409 for one that cannot answer now, while that conversation is still answering (`busy`), when it holds its 200 questions (`conversation_full`) or when its stored record has an older format (`read_only`) |
 | GET | `/api/ask/events` | `conversation`, `run`, `after` (last event number seen), `wait` (0-25 s, default 20) |
 | POST | `/api/ask/cancel` | `application/json`: `conversation` |
-| GET | `/api/ask/conversation` | `conversation`: its questions and the brief the next one carries |
+| GET | `/api/ask/conversation` | `conversation`: its runs still in memory, `turns` (every question of its record: `turn`, `question`, `status`, `topic`, `version`, `answer`, `notices`), the last `brief`, `memory` (the state card as the page shows it: current topic and SQL version, conditions, assumptions, statements, withdrawn statements, topic index, open question), `read_only` and `stored` |
+
+### Conversation memory
+
+A conversation is a sequence of numbered turns (the asker's Nth message is turn N). Three things carry it
+from one question to the next, all kept by the service's code -- no extra model call:
+
+- **Today's date.** Every question's message starts with `今天：YYYY-MM-DD（时区 ±HH:MM）` from the server
+  clock, read again for each question (a conversation may cross midnight); `--ask-today` fixes the date. The
+  walk says to resolve relative time ("上个月") against it and write the concrete dates into the SQL's
+  parameter comment, and that dates in catalog examples are not "the latest".
+- **The state card**, right after the date line, in the user message (never the system prompt, which stays
+  byte-identical on every request so it caches). It replaces the previous question's brief:
+
+  ~~~text
+  今天：2026-11-25（时区 +08:00）
+  【对话状态卡】服务维护；本轮是第 4 轮；目录版本：sha256:1a2b3c4d5e6f
+  话题索引（回到旧话题、要旧版 SQL 时用 recall 按轮号或话题与版本取回）：
+  - #1 客户数（当前） — 第 1–3 轮；SQL v1（第 1 轮）、v2（第 2 轮，按性别分）、v3（第 3 轮，只算有效客户）
+  - #2 借据余额 — 第 4–4 轮；最终 v1（已归档，详情用 recall）
+  当前话题：#1 客户数
+  当前 SQL（#1 v3，第 3 轮）：
+  ```sql
+  SELECT …
+  ```
+  check-sql（服务对 #1 v3 重跑）：错误 0，警告 1，提示 2
+  表：demo_dwd.dwd_party_customer_info_df — 一行是一个客户（某天的快照）
+  条件：c.status_cd = 'A' — 提问者第 3 轮
+  假设：期间 = 2026-01-01 ~ 2026-11-25
+  提问者的说法（逐字；落在范围内的题要沿用，条件的依据写「提问者第 N 轮」）：
+  - 第 3 轮「只算有效客户」— 范围：#1；表 demo_dwd.dwd_party_customer_info_df
+  未决问题（上一轮问的；这轮没回答就按默认做法并说明）：…
+  ~~~
+
+  The catalog version is the first 12 hex digits of the sha256 of `ontology.json` (the file carries no build
+  time); when it changes between questions the card says so. Code keeps the turn number, the topic index
+  (turn range, SQL versions), the current SQL -- only the segment the answer's increment block marks
+  `当前版`, versioned v1, v2, … by code; a segment left unmarked keeps the previous version and the turn is
+  counted as 缺失 -- its check-sql result (run again by code), its placeholders, the asker's statements word for
+  word (code copies them out of the asker's message; the model only points at the sentence -- a quote that is
+  not word for word, or a correction with no statement marked, stores the whole message as a 待定说法 scoped to
+  the current topic), withdrawn statements and the open question (cleared after the next question). The
+  model's increment block replaces the topic's 表 / 关联 / 条件 / 假设 as a whole group when it marks a new 当前版,
+  and adds name mappings and preferences. A missing or invalid block (unknown topic, SQL roles that do not
+  number the answer's SQL blocks, a cited turn that does not exist) leaves every model field as it was; two
+  in a row and the answer says the model may not suit multi-turn use. Not invalid: a missing topic line (the
+  turn stays in the current topic), `SQL角色：无` beside a SQL block (no new version), a role note holding `；`
+  (roles are split at each `段N=`), `新 #3 名称` for a new topic, and a topic number the card does not have: with
+  a name (`#2 借据` on the first turn, or after a turn without a block) it makes that topic with the next free
+  number and remembers the model's number for it; without a name the turn stays in the current topic. A turn
+  without a block records no new SQL version, and the next card asks for the block. An unreadable `SQL角色`
+  is recorded (trace `problems`) with the whole line. A statement is a business rule, definition or
+  correction the asker states (the walk gives examples); a quoted question is not kept.
+- **The guard.** A statement has a scope (a topic and tables). It is checked when a question produced a new
+  current SQL and stays in the statement's topic, or that SQL reads a table in scope; never for a 待定说法, a
+  statement of the same turn, or a topic the asker said it does not apply to. It counts as kept when its turn
+  is cited (`提问者第 N 轮`) in any 条件, 关联 or 表 line of the block, or when the current SQL contains the
+  expression its 说法 line tied to it (`；SQL：<表达式>`, compared without whitespace or case). Not kept: the
+  answer shown gets 「这次没有沿用你第 N 轮说的「X」，要不要加上？」 -- **once per statement**. The next card
+  says 「上一轮提醒过：第 N 轮「…」是否加上」 and asks the model to read the asker's message as the reply and
+  report it as `提醒答复：第 N 轮 加上` (and add the rule) or `提醒答复：第 N 轮 不加`. 「不加」 marks the
+  statement 不适用 in that topic (no more prompts there); 「加上」 while the new SQL still does not keep it gives
+  one more line; nothing else prompts again. A message answering a guard question is never recorded as a
+  statement.
+- **Budget.** Over `--ask-card-budget` characters (6,000), the least recently used topics other than the
+  current one are archived to one index line each, then the current topic's SQL versions are listed by number
+  and change note only; a line in the answer says what was archived. Statements are never archived: when a
+  turn adds one and the statements other than 待定说法 pass their 1,500-character reserve, the answer lists them
+  and asks which to drop.
+- **`recall`.** A fifth tool, panel only and read-only: `recall(turn)` or `recall(topic, version)` returns
+  that turn's question, the answer shown and every SQL block with its role and version. The conversation is
+  bound by the service, never a parameter, so no other conversation is reachable. The preamble tells the
+  model to use the card's index and `recall` for "回到第一个问题" or "第一版 SQL", and never to say a turn cannot
+  be retrieved without calling it.
+
+The page shows each answer's topic and SQL version, the lines the guard and the budget added, and (folded)
+the statements and assumptions in effect after it.
+
+**`--ask-store DIR`** keeps each conversation's full record on disk, off unless given and with no default
+place. The directory is created with mode 0700; each conversation is `DIR/<conversation id>.json`, mode 0600,
+rewritten whole through a temporary file and a rename after every change. Per question it holds the asker's
+text, the answer shown, every SQL block with its role and version, the parsed increment block, the card after
+the turn, and each tool call's name and arguments -- never a tool's result (catalog text), the system prompt or
+a key. **It stores the question text, including any SQL or result data pasted into it**, so name a place
+outside any repository or shared drive; delete a file to forget a conversation. The record format is
+versioned (`schema: "ask-store/1"`); a file of another version is shown and recalled but never continued or
+rewritten. After a restart a conversation is read back when its id is next used; a question that was running
+is marked `interrupted` and never updated the card. At most 200 questions a conversation (409
+`conversation_full`). Without `--ask-store` the same record lives in memory, and the card, the date, the
+guard and `recall` work the same until the conversation is dropped.
 
 ### Several models (`--ask-models`)
 
@@ -627,7 +720,7 @@ in the file name is the one in the page's address. Every line has `schema: "ask-
 | --- | --- | --- |
 | `turn` | each model turn | `turn`, `model_id` (the server's id), `model` (what the provider reported), `elapsed` (seconds of that request), `stop_reason`, `usage` (input, output, cache write and cache read tokens), `usage_estimated`, `request_chars` (characters of the message list sent, as JSON), `largest_tool_result_chars`, `tool_results` (tool results in that list) |
 | `tool` | each tool call | `turn`, `id`, `name`, `input` (the arguments), `ok`, `result_chars` (the size of the text sent back, not the text) |
-| `run` | the run finished | `model_id`, `question`, `follow_up`, `status`, `reason`, `error_kind` and `error_message` (first 300 characters of the provider's message; errors only, so a context overflow can be recognised), `answer` (the text, or null), `has_sql`, `has_brief`, `brief_missing`, `elapsed`, `turns`, `tool_calls`, `usage`, `usage_estimated` |
+| `run` | the run finished | `model_id`, `question`, `follow_up`, `status`, `reason`, `error_kind` and `error_message` (first 300 characters of the provider's message; errors only, so a context overflow can be recognised), `answer` (the text, or null), `has_sql`, `has_brief`, `brief_missing`, `elapsed`, `turns`, `tool_calls`, `usage`, `usage_estimated`, `memory` (null without an answer: `turn`, `block` -- the increment block `ok` / `missing` / `invalid` --, `problems`, `sql_missing`, `card_chars` (the card this question carried), `card_chars_next`, `archived` (topics archived now), `guard` (the guard's lines), `statements_over`, `notices`) |
 
 ### Driving a scenario (`service/tools/ask_driver.py`)
 
@@ -644,7 +737,8 @@ python service/tools/ask_driver.py show ID                                  # it
 ```
 
 `send` waits until the run finishes and prints `conversation`, `run`, `follow_up`, `model`, `status`,
-`reason`, `detail`, `elapsed`, `answer`, `sql`, `brief`, `brief_missing` and `usage`; it exits 0 when the
+`reason`, `detail`, `elapsed`, `answer`, `sql`, `brief`, `brief_missing`, `memory` (the answer event's topic,
+SQL version, block status and added lines) and `usage`; it exits 0 when the
 status is `done`, 1 for any other end, 2 when the server refused the request (its error on stderr).
 `--server URL` (default `http://127.0.0.1:8765`), `--model ID` and `--timeout SECONDS` (stop waiting and
 cancel the run) are optional.

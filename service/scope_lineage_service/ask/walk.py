@@ -11,8 +11,13 @@ service cannot do; it does not restate or change a step. ``catalog pending add``
 tool: on this service the asker records a gap with the page's button (``POST /api/pending``),
 so the model never writes the pending file and is told not to claim it recorded anything.
 
+The preamble (panel-only text, not the shared walk) also explains the conversation memory:
+the date line and the state card at the start of each question's message, and the
+``recall`` tool for earlier turns.
+
 The prompt has nothing that varies between requests (no date, path, id or catalog name),
-so the model provider can cache it with the tool definitions as one stable prefix.
+so the model provider can cache it with the tool definitions as one stable prefix: today's
+date and the card are in the user message.
 """
 
 from __future__ import annotations
@@ -52,9 +57,24 @@ _LIMITS = """\
 - 不执行 SQL，连不到任何数据库：不要说查到了什么数。
 - 读不到任何文件：`catalog render`、页面、`index.md`、`workflows/` 与 `docs/` 下的其他文件在这里都没有，需要它们的那一试算作找不到。
 - 一个问题一次运行：你既做第 1–6 步（第 6 步按上面那条），也写给提问者的答案。回复先按第 7 步写（不写 SQL 的题按「先分题」那段），用提问者的语言；\
-SQL 放在一个 ```sql 代码块里；最后附「多轮问数」那节格式的简报，放在一个 ```text 代码块里，第一行以"问题："开头。\
-追问时服务把上一题的简报和新问题一起给你。
+每段 SQL 各放一个 ```sql 代码块（段号按出现顺序从 1 起）；最后附「多轮问数」那节格式的简报（下称增量块），放在一个 ```text \
+代码块里，第一行以"话题："开头。
 - 每题的模型轮数、工具调用次数、输出 token 和时长有上限；工具说已到上限时，用手里的材料作答。
+
+对话记忆（本服务）：
+- 每个问题的消息开头是「今天：YYYY-MM-DD（时区 ±HH:MM）」，相对时间按这个日期解析；接着是【对话状态卡】，由服务按本对话的记录维护：\
+本轮是第几轮、目录版本、话题索引（每个话题的轮次范围和各版 SQL 号）、当前 SQL 及其版本号、服务重跑的 check-sql 结果、当前话题的表 / 关联 / \
+条件 / 假设、提问者的说法（逐字）、已撤销的说法、名字映射、偏好、未决问题。追问时服务给的是这张卡，不是上一题的简报。
+- 轮号就是提问者的第几条消息。改 SQL 以卡里的当前 SQL 为底；版本号由服务分配，你只在增量块的 SQL角色 里标哪一段是当前版。\
+卡里的说法落在它的范围内时要沿用，在用到它的条件、关联或表那一行的依据里写「提问者第 N 轮」；服务会核对，漏了会在答案末尾提醒\
+提问者一次。增量块的「说法」只记业务规则、定义或纠正（见步骤里「说法」那条），不记问题本身、这一轮选的表 / 列 / 维度，也不记\
+对提醒的答复。
+- 卡里写着「上一轮提醒过：第 N 轮「…」是否加上」时，提问者这轮的话先当作对那个提醒的答复读：要加就把那条说法写进 SQL 并引用\
+「提问者第 N 轮」，增量块写 `提醒答复：第 N 轮 加上`；不加就照原样答，写 `提醒答复：第 N 轮 不加`。只答"要 / 好 / 不用"时\
+不要改动别的东西（期间、口径都不变）。
+- 指到更早的轮（「回到第一个问题」「第 2 轮那个」「第一版 SQL」）：先在卡的话题索引里找到轮号，或话题号与版本号，再用 \
+`recall(turn, topic, version)` 取回那一轮的问题、回答和 SQL，从它出发。没调 `recall` 之前，不要说那一轮或那一版取不回来。\
+`recall` 只读，只取本对话的记录，看不到别的对话。
 """
 
 

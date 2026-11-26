@@ -19,7 +19,12 @@ tool result's text). Three kinds of line, each with ``schema: "ask-trace/1"``, `
 - ``run`` (when it finishes): ``model_id``, ``question``, ``follow_up``, ``status``,
   ``reason``, ``error_kind`` and ``error_message`` (the first 300 characters; errors only),
   ``answer`` (its text, or null), ``has_sql``, ``has_brief``, ``brief_missing``, ``elapsed``,
-  ``turns``, ``tool_calls``, ``usage`` and ``usage_estimated``.
+  ``turns``, ``tool_calls``, ``usage`` and ``usage_estimated``, and ``memory`` (null when the run
+  carried no state card, or ended without an answer): ``turn``, ``block`` (the increment block
+  ok / missing / invalid), ``problems``, ``sql_missing`` (SQL shown but no segment marked
+  当前版), ``card_chars`` (the card this question carried), ``card_chars_next`` (the card the
+  next one carries), ``archived`` (topics archived now), ``guard`` (the guard's lines),
+  ``statements_over`` and ``notices`` (every line added to the answer).
 
 No key, header, system prompt or tool result text is written. Writing never raises into
 the run: a failure is logged as a warning and the question goes on.
@@ -94,6 +99,7 @@ class RunTrace:
         self.outputs: dict = {}
         self.question: dict = {}
         self.answer: dict | None = None
+        self.memory: dict | None = None
 
     def __call__(self, item: dict) -> None:
         handler = getattr(self, "_on_" + str(item.get("type")), None)
@@ -151,6 +157,9 @@ class RunTrace:
                     input=call.get("input"), ok=bool(event.get("ok")),
                     result_chars=self.outputs.pop(event.get("id"), None))
 
+    def _on_memory(self, note: dict) -> None:
+        self.memory = {key: value for key, value in note.items() if key != "type"}
+
     def _on_answer(self, event: dict) -> None:
         self.answer = event
 
@@ -171,4 +180,5 @@ class RunTrace:
             turns=usage.get("turns", self.turns), tool_calls=usage.get("tool_calls", self.tool_calls),
             usage={name: usage.get(name, 0) for name in USAGE_FIELDS},
             usage_estimated=bool(usage.get("estimated")),
+            memory=self.memory,
         )

@@ -255,7 +255,8 @@ ENDPOINTS = [
             "(search, context, query, check-sql; none writes), following the skill's walk. 202 "
             "with the conversation and run ids; poll /api/ask/events. Never runs SQL. Costs "
             "money and sends catalog text to the model provider. 409 while the conversation "
-            "is still answering."
+            "is still answering, when it holds its 200 questions, or when its stored record "
+            "has an older format."
         ),
         "params": {
             "body": "application/json: question (required); conversation (an id from an "
@@ -281,7 +282,10 @@ ENDPOINTS = [
     },
     {
         "method": "GET", "path": "/api/ask/conversation", "ask": True,
-        "description": "A conversation's questions and the brief the next one carries. JSON only.",
+        "description": ("A conversation's questions (runs still in memory, and turns: every "
+                        "question of its record with status, topic, SQL version and answer), the "
+                        "brief, the state card as the page shows it (memory), read_only (an older "
+                        "record format: shown, not continued) and stored (--ask-store). JSON only."),
         "params": {"conversation": "required: the conversation id"},
     },
     {

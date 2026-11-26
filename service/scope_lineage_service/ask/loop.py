@@ -28,6 +28,11 @@ running that turn's calls (a cut-off input may still parse).
 A follow-up question starts a fresh message list holding the previous question's brief
 and the new question -- the walk's multi-turn rule (carry the brief, not the transcript),
 which also keeps every replayed thinking block inside the conversation that produced it.
+On the service a run carries a ``prelude`` instead of the brief: today's date and the state
+card (``memory.py``), so each question's message starts with ``今天：…``. Its ``on_answer``
+hook turns the finished answer into the card's next state: it picks the SQL segment marked
+当前版 (not simply the first), runs its check and returns the guard's lines, which are added
+to the answer shown. Without a prelude and a hook the run is what it always was.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from .memory import block_text, sql_segments
 from .tools import ToolBox, placeholders_of
 
 LOG = logging.getLogger(__name__)
@@ -106,6 +112,11 @@ class Run:
     # Optional: called with every event, and with the notes the events leave out (``note``);
     # what --ask-trace records (``trace.py``). It never changes the events or the run.
     observer: Callable[[dict], None] | None = field(default=None, repr=False, compare=False)
+    # Optional, set by the service: the text before the question (today's date and the state
+    # card), and the hook that reads the finished answer into the conversation's memory.
+    prelude: str | None = field(default=None, repr=False)
+    on_answer: Callable[[str, list], dict | None] | None = field(default=None, repr=False, compare=False)
+    memory: dict | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self.started = self.clock()
@@ -157,7 +168,9 @@ class Run:
             return list(self.events[after:]), self.done
 
 
-def question_text(question: str, brief: str | None) -> str:
+def question_text(question: str, brief: str | None, prelude: str | None = None) -> str:
+    if prelude:
+        return f"{prelude}\n\n问题：{question}"
     if not brief:
         return f"问题：{question}"
     return f"上一题的简报：\n```text\n{brief}\n```\n\n问题：{question}"
@@ -198,9 +211,10 @@ def final_sql(answer: str) -> str | None:
 
 
 def final_brief(answer: str) -> str | None:
-    briefs = [block.strip() for block in _TEXT_BLOCK.findall(answer)
-              if block.strip().startswith("问题")]
-    return briefs[-1][:MAX_BRIEF_CHARS] if briefs else None
+    """The answer's last ```text block that starts with 话题 or 问题 (the brief, or the
+    increment block it now is), cut to ``MAX_BRIEF_CHARS``."""
+    brief = block_text(answer)
+    return brief[:MAX_BRIEF_CHARS] if brief else None
 
 
 class _Question:
@@ -210,7 +224,7 @@ class _Question:
         self.run, self.model, self.tools, self.system, self.limits = run, model, tools, system, limits
         self.definitions = tools.definitions()
         self.messages: list = [{"role": "user", "content": [
-            {"type": "text", "text": question_text(run.question, run.brief)}]}]
+            {"type": "text", "text": question_text(run.question, run.brief, run.prelude)}]}]
         self.usage = dict.fromkeys(USAGE_FIELDS, 0)
         self.estimated = False
         self.turns = self.tool_calls = self.json_retries = self.strikes = 0
@@ -331,21 +345,39 @@ class _Question:
         return results
 
     def answer(self, text: str) -> None:
-        sql = final_sql(text)
+        segments = sql_segments(text)
         brief = final_brief(text)
         missing = brief is None
         if missing:
             brief = (f"问题：{self.run.question}\n结论：（模型没有交回简报；下面是答案的开头）\n"
                      + text[:4000])
-        placeholders, problem = [], None
-        if sql:
+        memory = None
+        if self.run.on_answer is not None:
             try:
-                placeholders = placeholders_of(self.tools.state.check_sql(sql).result)
-            except Exception as error:  # noqa: BLE001 -- any refusal only hides the list
-                problem = str(getattr(error, "message", error))
-        self.run.answer = {"text": text, "sql": sql, "brief": brief}
-        self.run.emit("answer", text=text, sql=sql, brief=brief, brief_missing=missing,
-                      placeholders=placeholders, placeholder_check_error=problem)
+                memory = self.run.on_answer(text, segments)
+            except Exception as error:  # noqa: BLE001 -- memory never loses the answer
+                LOG.warning("ask memory: could not read the answer: %s", error)
+                memory = None
+        extra: dict = {}
+        if memory is not None:
+            sql = memory.get("sql")
+            check, problem = memory.get("check"), memory.get("check_error")
+            placeholders = placeholders_of(check) if check else []
+            notices = [line for line in memory.get("notices") or [] if line]
+            shown = text + ("\n\n" + "\n".join(notices) if notices else "")
+            extra["memory"] = memory.get("event")
+            self.run.memory = memory
+        else:
+            sql, shown = (segments[0] if segments else None), text
+            placeholders, problem = [], None
+            if sql:
+                try:
+                    placeholders = placeholders_of(self.tools.state.check_sql(sql).result)
+                except Exception as error:  # noqa: BLE001 -- any refusal only hides the list
+                    problem = str(getattr(error, "message", error))
+        self.run.answer = {"text": shown, "sql": sql, "brief": brief}
+        self.run.emit("answer", text=shown, sql=sql, brief=brief, brief_missing=missing,
+                      placeholders=placeholders, placeholder_check_error=problem, **extra)
 
 
 def run_question(run: Run, model: Model, tools: ToolBox, system: list, limits: Limits) -> None:

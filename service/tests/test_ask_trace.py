@@ -29,7 +29,7 @@ TOOL_KEYS = {"schema", "kind", "at", "conversation", "run", "turn", "id", "name"
              "result_chars"}
 RUN_KEYS = {"schema", "kind", "at", "conversation", "run", "model_id", "question", "follow_up",
             "status", "reason", "error_kind", "error_message", "answer", "has_sql", "has_brief",
-            "brief_missing", "elapsed", "turns", "tool_calls", "usage", "usage_estimated"}
+            "brief_missing", "elapsed", "turns", "tool_calls", "usage", "usage_estimated", "memory"}
 
 
 def _state(inputs):
@@ -85,6 +85,7 @@ def test_a_run_is_recorded_turn_by_turn_without_the_catalog_text(inputs, tmp_pat
     assert end["answer"] == job.answer["text"] and end["has_sql"] and end["has_brief"]
     assert end["brief_missing"] is False and end["error_kind"] is None and end["error_message"] is None
     assert end["turns"] == len(turns) and end["tool_calls"] == len(tools)
+    assert end["memory"] is None  # a run without a state card
     assert end["usage"]["output_tokens"] == sum(t["usage"]["output_tokens"] for t in turns)
 
 

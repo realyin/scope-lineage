@@ -13,7 +13,8 @@ of any installed package::
 
 ``send`` waits until the run finishes and prints one JSON object: ``conversation``, ``run``,
 ``follow_up``, ``model``, ``status``, ``reason``, ``detail``, ``elapsed`` (the server's
-seconds), ``answer``, ``sql``, ``brief``, ``brief_missing`` and ``usage``. Exit 0 when the
+seconds), ``answer``, ``sql``, ``brief``, ``brief_missing``, ``memory`` (topic, SQL version,
+block status, the lines the guard added; null from a server without it) and ``usage``. Exit 0 when the
 status is ``done``, 1 for any other end (``timeout`` when ``--timeout`` passed first: the run
 is cancelled), 2 when the server refused the request (its error JSON on stderr). ``show``
 prints the conversation with each run's outcome read from its events.
@@ -95,7 +96,8 @@ def outcome(events: list) -> dict:
         "status": finished.get("status"), "reason": finished.get("reason"),
         "detail": finished.get("detail"), "elapsed": finished.get("t"),
         "answer": answer.get("text"), "sql": answer.get("sql"), "brief": answer.get("brief"),
-        "brief_missing": answer.get("brief_missing"), "usage": finished.get("usage"),
+        "brief_missing": answer.get("brief_missing"), "memory": answer.get("memory"),
+        "usage": finished.get("usage"),
     }
 
 

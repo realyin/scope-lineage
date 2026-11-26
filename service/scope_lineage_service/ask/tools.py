@@ -113,6 +113,24 @@ CHECK_SQL = {
         "sql": {"type": "string", "description": "One or more SELECT statements, as text"},
     }, ("sql",)),
 }
+# Panel only (not an MCP tool): an earlier turn of this conversation, from its record. The
+# conversation is bound by the service, never a parameter.
+RECALL = {
+    "name": "recall",
+    "description": (
+        "Get back an earlier turn of this conversation from its full record: the asker's "
+        "question, the answer shown and every SQL block with its role and version. By turn "
+        "number, or by topic number and SQL version (topic alone: its latest version), as the "
+        "state card's topic index lists them. Read-only; reaches no other conversation."
+    ),
+    "input_schema": _schema({
+        "turn": {"type": "integer", "minimum": 1, "description": "The turn number (the asker's Nth message)"},
+        "topic": {"type": "integer", "minimum": 1, "description": "A topic number from the card's index"},
+        "version": {"type": "integer", "minimum": 1, "description": "A SQL version of that topic"},
+    }),
+}
+
+
 @dataclass
 class ToolOutcome:
     """One tool call's result: ``text`` goes to the model, ``data`` to the page."""
@@ -266,3 +284,33 @@ def placeholders_of(check_result: dict) -> list[dict]:
         {key: item.get(key) for key in ("statement", "text", "written", "table", "column")}
         for item in check_result.get("placeholders", [])[:SUMMARY_ITEMS]
     ]
+
+
+class ConversationTools:
+    """The catalog tools plus ``recall`` bound to one conversation: what the panel offers.
+
+    ``recall`` is a function of ``turn``, ``topic`` and ``version`` returning ``(ok, text,
+    data)``; the service binds it to the conversation, so the model cannot name another one.
+    The tool list is the catalog tools in their fixed order, then ``recall``: the same on every
+    request, so it stays in the cached prefix."""
+
+    def __init__(self, toolbox: ToolBox, recall) -> None:
+        self.toolbox = toolbox
+        self.recall = recall
+        self.state = toolbox.state
+        self.pending = toolbox.pending
+        self.max_sql = toolbox.max_sql
+
+    def definitions(self) -> list[dict]:
+        return self.toolbox.definitions() + [dict(RECALL)]
+
+    def call(self, name: str, args) -> ToolOutcome:
+        if name != "recall":
+            return self.toolbox.call(name, args)
+        problem = check_input(RECALL["input_schema"], args)
+        if problem is None and "turn" not in args and "topic" not in args:
+            problem = "give turn, or topic (and version)"
+        if problem:
+            return ToolOutcome(False, f"recall: {problem}")
+        ok, text, data = self.recall(**args)
+        return ToolOutcome(ok, text, data, 0 if ok else 1)
