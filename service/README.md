@@ -573,16 +573,26 @@ from one question to the next, all kept by the service's code -- no extra model 
   model's increment block replaces the topic's 表 / 关联 / 条件 / 假设 as a whole group when it marks a new 当前版,
   and adds name mappings and preferences. A missing or invalid block (unknown topic, SQL roles that do not
   number the answer's SQL blocks, a cited turn that does not exist) leaves every model field as it was; two
-  in a row and the answer says the model may not suit multi-turn use.
-- **The guard.** A statement has a scope (a topic and tables). When a question stays in that topic, or its
-  current SQL reads a table in scope, and none of the block's 条件 lines cites the statement's turn
-  (`提问者第 N 轮`), the answer shown gets one line: 「这次没有沿用你第 N 轮说的「X」，要不要加上？」. Only
-  statements from earlier turns, only when the question produced a current SQL; a topic switch that touches no
-  table in scope says nothing.
+  in a row and the answer says the model may not suit multi-turn use. Not invalid: a missing topic line (the
+  turn stays in the current topic), `SQL角色：无` beside a SQL block (no new version), a role note holding `；`
+  (roles are split at each `段N=`), `新 #3 名称` for a new topic. A statement is a business rule, definition or
+  correction the asker states (the walk gives examples); a quoted question is not kept.
+- **The guard.** A statement has a scope (a topic and tables). It is checked when a question produced a new
+  current SQL and stays in the statement's topic, or that SQL reads a table in scope; never for a 待定说法, a
+  statement of the same turn, or a topic the asker said it does not apply to. It counts as kept when its turn
+  is cited (`提问者第 N 轮`) in any 条件, 关联 or 表 line of the block, or when the current SQL contains the
+  expression its 说法 line tied to it (`；SQL：<表达式>`, compared without whitespace or case). Not kept: the
+  answer shown gets 「这次没有沿用你第 N 轮说的「X」，要不要加上？」 -- **once per statement**. The next card
+  says 「上一轮提醒过：第 N 轮「…」是否加上」 and asks the model to read the asker's message as the reply and
+  report it as `提醒答复：第 N 轮 加上` (and add the rule) or `提醒答复：第 N 轮 不加`. 「不加」 marks the
+  statement 不适用 in that topic (no more prompts there); 「加上」 while the new SQL still does not keep it gives
+  one more line; nothing else prompts again. A message answering a guard question is never recorded as a
+  statement.
 - **Budget.** Over `--ask-card-budget` characters (6,000), the least recently used topics other than the
   current one are archived to one index line each, then the current topic's SQL versions are listed by number
-  and change note only; a line in the answer says what was archived. Statements are never archived: past
-  their 1,500-character reserve the answer lists them and asks which to drop.
+  and change note only; a line in the answer says what was archived. Statements are never archived: when a
+  turn adds one and the statements other than 待定说法 pass their 1,500-character reserve, the answer lists them
+  and asks which to drop.
 - **`recall`.** A fifth tool, panel only and read-only: `recall(turn)` or `recall(topic, version)` returns
   that turn's question, the answer shown and every SQL block with its role and version. The conversation is
   bound by the service, never a parameter, so no other conversation is reachable. The preamble tells the

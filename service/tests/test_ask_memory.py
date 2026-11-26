@@ -82,7 +82,7 @@ def test_the_block_parses_roles_statements_gaps_and_the_optional_lines() -> None
                                {"segment": 2, "role": "当前版", "note": "按性别分"},
                                {"segment": 3, "role": "备选", "note": "去重口径"}]
     assert parsed["statements"] == [{"raw": parsed["statements"][0]["raw"], "turn": 3, "quote": "只算有效客户",
-                                     "topic": 2, "tables": [CUSTOMER, "t2"]}]
+                                     "topic": 2, "tables": [CUSTOMER, "t2"], "expr": None}]
     assert parsed["gaps"][0] | {"raw": None} == {"raw": None, "missing": "有效客户的定义",
                                                  "column": "demo_dwd.x.status", "proposed": "status = 'A'",
                                                  "turn": 3}
@@ -162,7 +162,7 @@ def test_statements_are_taken_word_for_word_from_the_message() -> None:
         messages={1: "客户数"})
 
     assert out["state"]["statements"] == [{"turn": 2, "text": "只算有效客户", "topic": 1,
-                                           "tables": [CUSTOMER], "pending": False}]
+                                           "tables": [CUSTOMER], "pending": False, "expr": None}]
     assert "第 2 轮「只算有效客户」— 范围：#1" in memory.render_card(out["state"], turn=3)
 
 

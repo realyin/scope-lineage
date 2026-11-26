@@ -114,3 +114,14 @@ def test_the_preamble_explains_the_card_and_recall() -> None:
     assert "【对话状态卡】" in text and "今天：YYYY-MM-DD" in text
     assert "`recall(turn, topic, version)`" in text and "没调 `recall` 之前" in text
     assert "第一行以\"话题：\"开头" in text
+    assert "上一轮提醒过" in text and "`提醒答复：第 N 轮 加上`" in text and "`提醒答复：第 N 轮 不加`" in text
+
+
+def test_the_walk_defines_a_statement_narrowly_with_examples() -> None:
+    answers = walk.walk_text("catalog-answers.md")
+    rule = answers.split("- 说法只记", 1)[1].split("\n- ", 1)[0]
+
+    assert "业务规则、定义或纠正" in rule and rule.count("」「") >= 1  # two positive examples
+    for not_one in ("问题本身", "选哪张表、哪一列、按什么维度拆", "对服务提醒「要不要加上」的答复"):
+        assert not_one in rule
+    assert "`；SQL：<表达式>`" in answers

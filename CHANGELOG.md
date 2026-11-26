@@ -8,7 +8,9 @@
   message's leading `今天：YYYY-MM-DD` line, or, with no such line (Claude Code), from what the model knows,
   saying the date is assumed; dates in the catalog's examples are not "the latest". The multi-turn brief
   gains `话题` (first line: `#n 名称`, or `新：名称`), `SQL角色` (`段1=当前版（改了什么）；段2=备选…；段3=诊断`,
-  numbering the answer's SQL blocks), `说法` (`第 N 轮「原话」— 范围：#n；表 …`), `提议缺口` (gaps that are not
+  numbering the answer's SQL blocks), `说法` (`第 N 轮「原话」— 范围：#n；表 …[；SQL：<表达式>]`, only a business
+  rule, definition or correction the asker states -- not the question, not this turn's choice of table, column
+  or dimension, not a reply to a reminder; with two positive and three negative examples), `提议缺口` (gaps that are not
   SQL placeholders), `条件` bases written as `本体 · 出处 / 提问者第 N 轮 / 假设`, and four optional lines
   (`撤销说法`, `名字映射`, `偏好`, `未决问题`); its other lines and rules are unchanged. One format for both
   paths.
@@ -25,10 +27,15 @@
   unchanged between requests; its preamble now explains the card and a new panel-only, read-only tool,
   `recall(turn | topic, version)`, which returns an earlier turn's question, answer and SQL from the record
   of this conversation only (bound by the service). A **guard** adds 「这次没有沿用你第 N 轮说的「X」，要不要
-  加上？」 to the answer when a question in a statement's topic (or reading a table in its scope) cites none of
-  that statement's turn. The card has a budget (`--ask-card-budget N`, default 6,000 characters): older
-  topics are archived to one index line, then older SQL versions are listed by number and note; statements
-  are never archived and past 1,500 characters the answer asks which to drop. Each conversation keeps a full
+  加上？」 to the answer, once per statement, when a question with a new current SQL in a statement's topic
+  (or reading a table in its scope) does not keep it -- kept means its turn is cited in a 条件, 关联 or 表 line,
+  or the SQL contains the expression its 说法 line tied to it; 待定说法 and same-turn statements never prompt.
+  The next card says the reminder was shown; the model reports the asker's reply as `提醒答复：第 N 轮 加上 /
+  不加` (不加 marks the statement 不适用 in that topic; 加上 while still not kept gives one more line), and a
+  reply is never recorded as a statement. The card has a budget (`--ask-card-budget N`, default 6,000
+  characters): older topics are archived to one index line, then older SQL versions are listed by number and
+  note; statements are never archived and past 1,500 characters (待定说法 not counted) the answer asks which
+  to drop. Each conversation keeps a full
   record (at most 200 questions); **`--ask-store DIR`** (off unless given, no default place; directory 0700,
   files 0600, atomic rewrites, `schema: "ask-store/1"`, older versions read-only) keeps it on disk with the
   question text (pasted SQL and data included), the answer, every SQL with its role and version, the parsed

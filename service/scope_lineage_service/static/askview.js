@@ -74,7 +74,7 @@ export function pendingResult(status, body) {
 // The walk's brief (the increment block): the keys the page draws and the ones it only
 // recognises, so a line of one never runs on into the line before it.
 const BRIEF_KEYS = ["话题", "问题", "结论", "SQL角色", "SQL", "表", "关联", "条件", "假设", "说法", "提议缺口",
-  "待确认", "check-sql", "撤销说法", "名字映射", "偏好", "未决问题"];
+  "待确认", "check-sql", "撤销说法", "名字映射", "偏好", "未决问题", "提醒答复"];
 const BRIEF_LINE = new RegExp(`^(${BRIEF_KEYS.join("|")})[：:](.*)$`);
 
 /**
