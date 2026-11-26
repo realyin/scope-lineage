@@ -111,6 +111,24 @@ def test_a_tool_round_trip_then_an_answer(tools) -> None:
     assert answer["placeholders"][0]["text"] == "注销的客户算不算"
 
 
+def test_an_answer_with_placeholders_writes_nothing_to_the_pending_file(tools, inputs) -> None:
+    # a model that still tries to record (an old habit) gets a tool error; the gap waits for
+    # the asker's click on the page
+    model = Scripted(
+        turn(call("t1", "check_sql", sql=SQL)),
+        turn(call("t2", "add_pending", question="客户数", sql=SQL)),
+        turn(text(ANSWER), stop="end_turn"),
+    )
+    job = run(model, tools)
+
+    assert finished(job)["status"] == "done"
+    refused = events(job, "tool_result")[1]
+    assert refused["name"] == "add_pending" and not refused["ok"]
+    assert events(job, "answer")[0]["placeholders"][0]["text"] == "注销的客户算不算"
+    assert not inputs["pending"].exists()
+    assert "add_pending" not in {tool["name"] for tool in model.requests[0]["tools"]}
+
+
 def test_parallel_tool_calls_go_back_in_one_user_message(tools) -> None:
     model = Scripted(
         turn(call("a", "query_catalog", kind="table", term=CUSTOMER),

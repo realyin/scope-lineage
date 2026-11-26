@@ -7,7 +7,8 @@ exactly what it prints for ``--json`` (without the final newline). A nothing-fou
 answer is an ordinary result (the text says so); an input the command refuses is a tool
 error carrying the command's own sentence. No tool runs SQL; ``add_pending`` -- offered
 only when the server was started with a pending file -- is the one tool that writes, and
-only to that file.
+only to that file; its description tells the client's model to call it only after the
+asker agrees (the ask panel's own model has no such tool).
 """
 
 from __future__ import annotations
@@ -48,8 +49,9 @@ into the catalog's own names; catalog_context for the tables, columns and concep
 question needs (keys, time columns, joins, constraints, metrics, how to read each table,
 what to watch); write the SQL yourself; check_sql to hold it to the catalog before showing
 it. query_catalog answers one exact lookup. Where the catalog gives no definition, write a
-/* 待确认：… */ placeholder instead of guessing, and record it with add_pending when that
-tool is offered. Nothing here runs SQL against any database."""
+/* 待确认：… */ placeholder instead of guessing, list the gaps for the asker and ask whether
+to record them; call add_pending (when that tool is offered) only after the asker agrees.
+Nothing here runs SQL against any database."""
 
 
 def _answer(produce, fmt: str) -> str:
@@ -203,7 +205,8 @@ def _add_pending_tools(server: MCPServer, state: CatalogState) -> None:
         format: Format = "text",
     ) -> str:
         """Record a definition the catalog lacks in this server's pending file for the
-        catalog's owner: give missing (one line) or sql (one line a 待确认 placeholder). Lines
+        catalog's owner: give missing (one line) or sql (one line a 待确认 placeholder). Call
+        it only after the asker agrees to record the gap: list the gaps first and ask. Lines
         are only ever appended. Same as `scope-lineage catalog pending add`."""
         request = dict(
             question=question, missing=missing, sql=sql, sql_name=sql_name, term=term,

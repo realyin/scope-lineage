@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- **Changed (skill walk, behaviour change of the published skill): gaps are no longer recorded
+  automatically.** `workflows/catalog-answers.md` step 6 used to run `catalog pending add` for every
+  `/* 待确认：… */` placeholder; it now lists the gaps in the answer's 待确认 part and asks the asker whether
+  to record them, and runs `catalog pending add` only after the asker agrees (in a conversation the asker
+  says to record; on the service page the asker clicks). Only some agreed: one `--missing … --column …` run
+  each. Step 7 and the multi-turn brief write each gap as `未记入 / 已按提问者同意记入 <P>` instead of
+  `已记入 <P>`; with subagents, the main conversation (not the subagent) asks and records. `check-sql`'s
+  `pending_definition` message now says to record the gap after the asker agrees.
+- **Changed (service): the ask panel's model no longer has a tool that writes the pending file.**
+  `add_pending` is gone from the panel's tools and from the preamble's command mapping; the preamble says
+  the asker records a gap with the page's 「记入待确认」 button and that the model must not claim it recorded
+  anything. One click records a gap (the definition box may be left empty). `POST /api/pending` takes an
+  optional `unless_recorded`: with it, a `missing` the pending file already names (grouped as
+  `catalog pending list` groups, closed items included) appends nothing and answers 200 with
+  `appended: 0` and the existing item as `recorded`; the page sends it and says 「已有人记过」. Without the
+  field the endpoint appends as before. New core helper `cli_catalog_answers.pending_recorded`. The MCP
+  `add_pending` tool stays (its client's own user decides) and its description now says to call it only
+  after the asker agrees.
+- **Changed (service): an ask-panel question may be up to 20,000 characters** (was 4000), so a SQL can be
+  pasted for review; longer is still 400 `bad_input`, now saying to send it in parts. `GET /api/ask/status`
+  carries `max_question_chars`; the page shows the limit and, over it, asks for the paste in parts
+  (请分段贴) instead of sending (the box no longer cuts a paste silently at a `maxlength`).
 - **Added (service): `http --ask --ask-trace DIR` records every ask-panel run, read-only.** Each
   conversation appends JSON lines (`schema: "ask-trace/1"`) to `DIR/<conversation id>.jsonl` (mode 0600,
   one append per line): per model turn its time, stop reason, token usage (and whether estimated), the

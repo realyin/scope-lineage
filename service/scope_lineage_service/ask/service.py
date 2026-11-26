@@ -30,7 +30,9 @@ from .models import ModelEntry, ModelSet
 from .tools import ToolBox
 from .walk import system_blocks
 
-MAX_QUESTION_CHARS = 4000
+# Long enough for a pasted SQL to review or fix; a longer paste is refused (400) and the
+# page asks for it in parts.
+MAX_QUESTION_CHARS = 20_000
 MAX_RUNS_KEPT = 20
 MAX_WAIT = 25.0
 
@@ -110,6 +112,7 @@ class AskService:
             "models": self.models.public(),
             "pending": self.tools.pending,
             "executes_sql": False,
+            "max_question_chars": MAX_QUESTION_CHARS,
             "limits": self.limits.as_dict(),
             "conversations": {
                 "max": self.max_conversations, "max_idle_seconds": self.max_idle_seconds,
@@ -135,7 +138,8 @@ class AskService:
         if not question:
             raise AskError(400, "bad_input", "question is empty")
         if len(question) > MAX_QUESTION_CHARS:
-            raise AskError(400, "bad_input", f"question is longer than {MAX_QUESTION_CHARS} characters")
+            raise AskError(400, "bad_input", f"question is longer than {MAX_QUESTION_CHARS} characters; "
+                           "send it in parts (请分段贴)")
         with self._lock:
             if conversation_id is None:
                 self._expire()

@@ -7,8 +7,8 @@ answers through the same loop with a fixed sequence of real tool calls against t
 catalog -- search, then the best table's column list beside a metric search (two calls in
 one turn), then a context pack, then a check of a SQL it assembles with 待确认
 placeholders -- and ends with an answer in the walk's format that says on its first line
-that it is not one. It never calls ``add_pending``, so a review does not write lines into
-a real pending file (the page's own fill-in still does, when the reader submits one). Its
+that it is not one. Like a real model on this panel it has no tool that writes the pending
+file, so a review writes nothing there unless the reader clicks a placeholder's 「记入待确认」. Its
 token counts are made up from text lengths. The page shows a banner whenever the server
 runs in this mode.
 """
@@ -112,7 +112,7 @@ class FakeModel:
         warnings = sum(1 for f in check["findings"] if f["severity"] == "warning")
         holes = [p["text"] for p in check.get("placeholders", [])]
         conditions = [f"t.{column} IN (…) — 假模型占位，没有依据" for column in columns[:1]] or ["无"]
-        pending = [f"{text} — {column}；无；未记入（假模型不记）"
+        pending = [f"{text} — {column}；无；未记入（要记请点页面上的「记入待确认」）"
                    for text, column in zip(holes, columns[:1] + ["无"] * len(holes))] or ["无"]
         brief = "\n".join([
             f"问题：{question}", "结论：（假模型）没有结论", f"SQL：{sql}",

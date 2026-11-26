@@ -503,3 +503,17 @@ def test_the_board_shows_a_replied_pending_item_as_answered(tmp_path: Path) -> N
     assert replied["reply"]["reply"] == "目录已有"
     board = questions(document, None, text, source="pending").result
     assert [item["missing"] for item in board["items"]] == ["哪些码算 未接通"]
+
+
+def test_pending_recorded_finds_the_item_naming_the_same_missing_thing(tmp_path: Path) -> None:
+    from scope_lineage.cli_catalog_answers import pending_recorded
+
+    assert pending_recorded(str(tmp_path / "absent.jsonl"), "豁免的范围") is None
+    pending = _two_groups(tmp_path)
+    item = pending_recorded(str(pending), "  哪些码算　未接通 ")
+    assert item["missing"] == "哪些码算 未接通" and item["hits"] == 2
+    assert item["questions"] == ["问一", "问二"]
+    assert pending_recorded(str(pending), "哪些码算未接通") is None  # no space: another thing
+    # a group a reply closed is still recorded: the asker is told, nothing is appended again
+    assert _reply(pending, "豁免的范围", "--reply", "不定义", "--status", "rejected") == 0
+    assert pending_recorded(str(pending), "豁免的范围")["status"] == "rejected"

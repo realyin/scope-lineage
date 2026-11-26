@@ -305,6 +305,24 @@ def pending_list(
     return pending_answer(read_pending_file(path), document, semantics, status)
 
 
+def pending_recorded(path: str, missing: str) -> dict | None:
+    """The item of the pending file that names the same missing thing as ``missing``
+    (grouped as ``catalog pending list`` groups: NFKC, case folding, whitespace collapsed),
+    closed or not; None when there is none or the file does not exist yet. The item is the
+    one ``pending list --status all --json`` would show (``hits``, ``questions``,
+    ``proposed``, ``dates``, ``lines``; ``status`` and ``reply`` when the file has replies)."""
+    from .render.catalog_pending import pending_report, read_pending, same_missing
+
+    if not Path(path).exists():
+        return None
+    entries, problems = read_pending(read_pending_file(path).splitlines())
+    key = same_missing(missing)
+    for item in pending_report(entries, problems, status="all")["items"]:
+        if same_missing(item["missing"]) == key:
+            return item
+    return None
+
+
 def pending_reply(
     path: str,
     *,

@@ -19,6 +19,9 @@ refused, which keeps a web page elsewhere from reaching the server through DNS r
 ``POST /api/pending`` takes only ``application/json``, which a browser cannot send to
 another origin without a preflight this server never grants. No endpoint runs SQL, and
 the pending file is the only thing written -- and, with ``--answers``, the answers file.
+The ask panel's model has no tool that writes the pending file: a gap is posted only when
+the asker clicks the page's 「记入待确认」, with ``unless_recorded`` so an item the file
+already names is reported instead of appended again.
 
 The browse page (``GET /``) is a fixed set of files packaged with this module
 (``static/``), each served at one fixed path from ``STATIC_FILES``: no request path is ever
@@ -225,13 +228,15 @@ ENDPOINTS = [
         "description": (
             "Append one missing definition (missing) or one line a 待确认 placeholder of "
             "the SQL given (sql) to the pending file (catalog pending add). 201 with the "
-            "lines written; 422 when the SQL has no placeholder."
+            "lines written; 422 when the SQL has no placeholder. With unless_recorded, a "
+            "missing the file already names (grouped as pending list groups) appends "
+            "nothing: 200 with appended 0 and the existing item as recorded."
         ),
         "params": {
             "body": (
                 "application/json: question (required), and exactly one of missing or sql; "
                 "with missing: term, tables[], columns[], proposed; with sql: sql_name; "
-                "date YYYY-MM-DD (default today)"
+                "date YYYY-MM-DD (default today); unless_recorded true/false (default false)"
             ),
         },
         "cli": "catalog pending add PENDING --question Q (--missing M | --from-sql FILE) ...",
@@ -247,7 +252,7 @@ ENDPOINTS = [
         "method": "POST", "path": "/api/ask", "ask": True,
         "description": (
             "Ask a data question: a model on this server answers it through the catalog tools "
-            "(search, context, query, check-sql, pending add), following the skill's walk. 202 "
+            "(search, context, query, check-sql; none writes), following the skill's walk. 202 "
             "with the conversation and run ids; poll /api/ask/events. Never runs SQL. Costs "
             "money and sends catalog text to the model provider. 409 while the conversation "
             "is still answering."
@@ -721,6 +726,9 @@ class CatalogHandler(BaseHTTPRequestHandler):
             raise RequestError(415, "unsupported_media_type",
                                "POST /api/pending takes application/json")
         payload = self._json_object(body)
+        unless_recorded = payload.pop("unless_recorded", False)
+        if not isinstance(unless_recorded, bool):
+            raise _bad("unless_recorded takes true or false")
         unknown = sorted(set(payload) - set(PENDING_FIELDS))
         if unknown:
             raise _bad(f"unknown field(s): {', '.join(unknown)}")
@@ -736,11 +744,19 @@ class CatalogHandler(BaseHTTPRequestHandler):
         if not isinstance(payload.get("question"), str):
             raise _bad("question is required")
         request = {key: value for key, value in payload.items() if value is not None}
+        recorded = None
         try:
-            lines = self.server.state.pending_add(**request)
+            if unless_recorded:
+                lines, recorded = self.server.state.pending_add_unless_recorded(**request)
+            else:
+                lines = self.server.state.pending_add(**request)
         except CatalogAnswerError as error:
             status, kind = (422, "not_added") if error.exit_code == 1 else (400, "bad_input")
             raise RequestError(status, kind, error.message, error.exit_code) from None
+        if recorded is not None:
+            # Already in the file: nothing appended, the existing item answers instead.
+            self._send_json(200, {"appended": 0, "lines": [], "recorded": recorded}, exit_code=0)
+            return
         self._send_json(201, {"appended": len(lines), "lines": lines}, exit_code=0)
 
     # ------------------------------------------------------------------ browse page

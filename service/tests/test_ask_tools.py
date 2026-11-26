@@ -61,14 +61,24 @@ def test_the_tools_say_what_the_mcp_tools_say(tools) -> None:
         assert tool["input_schema"]["additionalProperties"] is False
 
 
-def test_pending_add_is_offered_only_with_a_pending_file(inputs, tools) -> None:
+def test_the_model_has_no_tool_that_writes_the_pending_file(inputs, tools) -> None:
     bare = ToolBox(CatalogState(str(inputs["ontology"])), max_sql=4096)
+    read_only = ["search_catalog", "catalog_context", "query_catalog", "check_sql"]
 
-    assert [t["name"] for t in tools.definitions()] == [
-        "search_catalog", "catalog_context", "query_catalog", "check_sql", "add_pending"]
-    assert "add_pending" not in [t["name"] for t in bare.definitions()]
-    assert not bare.call("add_pending", {"question": "q", "missing": "m"}).ok
+    # with a pending file or without: the asker records a gap with the page's button
+    assert tools.pending is True and bare.pending is False
+    assert [t["name"] for t in tools.definitions()] == read_only
+    assert [t["name"] for t in bare.definitions()] == read_only
+    for box in (tools, bare):
+        outcome = box.call("add_pending", {"question": "q", "missing": "m"})
+        assert not outcome.ok and "no tool named" in outcome.text
     assert not inputs["pending"].exists()
+
+
+def test_the_mcp_add_pending_says_to_record_only_after_the_asker_agrees() -> None:
+    doc = _words(_mcp_tools()["add_pending"]["doc"])
+
+    assert "only after the asker agrees" in doc
 
 
 def test_a_result_is_the_command_text_and_the_page_gets_a_summary(state, tools) -> None:
@@ -137,15 +147,6 @@ def test_an_input_the_command_refuses_is_an_error_with_its_sentence(state, tools
     assert not outcome.ok and outcome.exit_code == 2
     assert "give at least one --table" in outcome.text
     assert not tools.call("check_sql", {"sql": "SELECT FROM ("}).ok
-
-
-def test_add_pending_appends_through_the_pending_answer(inputs, tools) -> None:
-    sql = f"SELECT 1 FROM {CUSTOMER} c WHERE /* 待确认：注销的算不算 */ 1 = 1"
-    outcome = tools.call("add_pending", {"question": "上月新增客户数", "sql": sql})
-
-    assert outcome.ok and outcome.data["appended"] == 1
-    line = json.loads(inputs["pending"].read_text("utf-8"))
-    assert line["missing"] == "注销的算不算" and line["question"] == "上月新增客户数"
 
 
 def test_a_long_result_is_cut_with_a_note(state) -> None:

@@ -1,15 +1,18 @@
 // The ask panel (#/ask, #/ask/<conversation>): a question goes to the server, a model there
 // answers it through the catalog tools, and this view polls the run's events and draws
 // them as they arrive. The page never runs SQL and never changes the catalog: the only
-// write is a 待确认 definition the reader types, sent to the pending file through
-// POST /api/pending when the server has one. Model text and catalog text are untrusted:
+// write is a 待确认 gap the reader chooses to record -- one click on 「记入待确认」 beside a
+// placeholder, with a definition when the reader types one -- sent to the pending file
+// through POST /api/pending when the server has one (the model has no tool that writes it;
+// a gap someone already recorded is reported, not appended again). Model text and catalog text are untrusted:
 // they only ever become text nodes. When the server lists several models, a picker lets
 // the reader choose the one that answers each question; the last choice is remembered in
 // this browser (localStorage, when the browser allows it).
 
 import { api, badge, code, fold, grid, h, joined, text } from "./dom.js";
 import {
-  REASON_TEXT, SEVERITY_TEXT, STATUS_TEXT, TOOL_TEXT, modelOptionText, pickModel, usageText, viewModel,
+  REASON_TEXT, SEVERITY_TEXT, STATUS_TEXT, TOOL_TEXT, modelOptionText, pendingPayload, pendingResult,
+  pickModel, questionLength, usageText, viewModel,
 } from "./askview.js";
 
 const MODEL_KEY = "scope-lineage-service.ask.model";
@@ -95,8 +98,15 @@ class Panel {
     this.conversation = null;
     this.running = null;
     this.runs = h("div", { class: "ask-runs" });
-    this.question = h("textarea", { id: "ask-question", rows: "3", maxlength: "4000",
-      placeholder: "问一个数据问题，比如：上个月新增了多少客户？", "aria-label": "数据问题" });
+    // No maxlength: the browser would cut a long paste silently; the length note says when
+    // it is over the server's limit and send() refuses it.
+    this.maxChars = info.max_question_chars;
+    this.question = h("textarea", { id: "ask-question", rows: "3",
+      placeholder: "问一个数据问题，比如：上个月新增了多少客户？也可以贴一段 SQL 让它审查或解释。",
+      "aria-label": "数据问题" });
+    this.length = h("p", { class: "muted ask-length", "aria-live": "polite" },
+      questionLength("", this.maxChars).text);
+    this.question.addEventListener("input", () => this.showLength());
     this.submit = h("button", { type: "submit" }, "提问");
     this.stop = h("button", { type: "button", onclick: () => this.cancel() }, "停止");
     this.fresh = h("button", { type: "button", onclick: () => this.restart() }, "新对话");
@@ -105,7 +115,7 @@ class Panel {
     this.models = info.models || [];
     this.picker = this.models.length > 1 ? modelPicker(this.models) : null;
     const form = h("form", { class: "ask-form", onsubmit: (event) => { event.preventDefault(); this.send(); } },
-      this.question, h("div", { class: "ask-buttons" },
+      this.question, this.length, h("div", { class: "ask-buttons" },
         this.picker ? h("label", { class: "ask-model" }, "模型 ", this.picker) : null,
         this.submit, this.stop, this.fresh, this.status));
     this.question.addEventListener("keydown", (event) => {
@@ -123,12 +133,20 @@ class Panel {
           `每个问题都会在服务器上调用模型（${text(info.model)}，effort ${text(info.effort)}），产生费用，`,
           "并把问题、工具返回的目录文字和写出的 SQL 发给模型提供方。"),
       h("p", { class: "muted" },
-        "模型按目录工具（检索、取数包、查询、SQL 检查", info.pending ? "、记入待确认" : "", "）写 SQL；",
-        "不执行 SQL，也不改目录。追问带上一题的简报，不带全部记录。",
+        "模型按目录工具（检索、取数包、查询、SQL 检查）写 SQL；不执行 SQL，也不改目录。",
+        info.pending ? "模型不会替你记待确认：要记就在答案的「待确认」下点「记入待确认」。" : "",
+        "追问带上一题的简报，不带全部记录。",
         `对话只存在服务内存里：服务重启或闲置超过 ${Math.round(info.conversations.max_idle_seconds / 60)} 分钟就没了。`,
         `每题上限：${info.limits.max_turns} 轮、${info.limits.max_tool_calls} 次工具调用、`,
         `${info.limits.max_output_tokens} 个输出 token、${info.limits.max_seconds} 秒。`),
       form, this.runs);
+  }
+
+  showLength() {
+    const length = questionLength(this.question.value, this.maxChars);
+    this.length.textContent = length.text;
+    this.length.className = length.over ? "error ask-length" : "muted ask-length";
+    return length;
   }
 
   setBusy(busy) {
@@ -159,6 +177,10 @@ class Panel {
   async send() {
     const question = this.question.value.trim();
     if (!question || this.running) return;
+    if (this.showLength().over) {
+      this.question.focus();
+      return;
+    }
     this.setBusy(true);
     const payload = { question };
     if (this.conversation) payload.conversation = this.conversation;
@@ -177,6 +199,7 @@ class Panel {
     this.conversation = body.conversation;
     setHash(body.conversation);
     this.question.value = "";
+    this.showLength();
     this.follow(body.run, question);
   }
 
@@ -296,7 +319,6 @@ function drawResult(step) {
       data.sql ? fold("这一轮检查的 SQL", false, h("pre", { class: "sql" }, data.sql)) : null,
     ];
   }
-  if (step.name === "add_pending") return h("p", {}, `记入了 ${data.appended || 0} 条待确认。`);
   return null;
 }
 
@@ -339,6 +361,9 @@ function drawPlaceholders(vm, panel) {
   }
   if (!panel.info.pending) {
     parts.push(h("p", { class: "muted" }, "服务没有待确认文件（--pending），这里只能看，不能记入。"));
+  } else {
+    parts.push(h("p", { class: "muted" },
+      "模型没有记这些缺口。要交给目录负责人的，点「记入待确认」（定义可以不填）；不点不记。"));
   }
   parts.push(h("ul", { class: "plain ask-holes" }, holes.map((hole) => h("li", {}, drawHole(hole, vm, panel)))));
   return parts;
@@ -349,26 +374,18 @@ function drawHole(hole, vm, panel) {
   const head = h("div", {}, h("span", { class: "badge warn" }, "待确认"), " ", text(hole.text),
     where ? [" — ", code(where)] : h("span", { class: "muted" }, "（不归某一列）"));
   if (!panel.info.pending) return head;
-  const input = h("input", { type: "text", maxlength: "2000", placeholder: "你知道的定义，比如：只算状态为 A 的",
-    "aria-label": `${hole.text} 的定义` });
+  const input = h("input", { type: "text", maxlength: "2000",
+    placeholder: "（可不填）你知道的定义，比如：只算状态为 A 的", "aria-label": `${hole.text} 的定义（可不填）` });
   const button = h("button", { type: "submit" }, "记入待确认");
   const note = h("span", { class: "muted", role: "status" });
   const form = h("form", { class: "ask-fill", onsubmit: async (event) => {
     event.preventDefault();
-    const proposed = input.value.trim();
-    if (!proposed) { note.textContent = "先写定义。"; return; }
     button.disabled = true;
-    const payload = { question: vm.question, missing: hole.text || "（占位没写缺什么）", proposed };
-    if (hole.table) payload.tables = [hole.table];
-    if (where) payload.columns = [where];
-    const { status, body } = await postJson("/api/pending", payload);
-    if (status === 201) {
-      note.textContent = "已记入待确认文件。";
-      input.disabled = true;
-    } else {
-      note.textContent = message(body, status);
-      button.disabled = false;
-    }
+    const { status, body } = await postJson("/api/pending", pendingPayload(hole, vm.question, input.value));
+    const result = pendingResult(status, body);
+    note.textContent = result.text || message(body, status);
+    if (result.done) input.disabled = true;
+    else button.disabled = false;
   } }, input, button, note);
   return [head, form];
 }

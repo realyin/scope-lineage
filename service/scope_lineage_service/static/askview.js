@@ -17,8 +17,59 @@ export const REASON_TEXT = {
 export const SEVERITY_TEXT = { error: "错误", warning: "警告", info: "提示" };
 export const TOOL_TEXT = {
   search_catalog: "检索", query_catalog: "查询", catalog_context: "取数包",
-  check_sql: "SQL 检查", add_pending: "记入待确认",
+  check_sql: "SQL 检查",
 };
+
+// The server's limit when /api/ask/status does not say (an older server).
+export const DEFAULT_MAX_QUESTION_CHARS = 20000;
+
+/**
+ * How long a question is against the server's limit, counted as the server counts it
+ * (characters of the trimmed text): {chars, limit, over, text}. Over the limit the page does
+ * not send it and asks for the paste in parts.
+ */
+export function questionLength(question, limit) {
+  const max = Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_MAX_QUESTION_CHARS;
+  const chars = [...String(question || "").trim()].length;
+  const over = chars > max;
+  const text = over
+    ? `问题有 ${chars} 字，超过上限 ${max} 字：请分段贴，先贴一段问完，再在追问里贴下一段。`
+    : `最多 ${max} 字${chars ? `（已 ${chars} 字）` : ""}。`;
+  return { chars, limit: max, over, text };
+}
+
+/**
+ * The POST /api/pending body for one placeholder the asker chose to record: the definition
+ * is optional (one click records the gap alone), and unless_recorded makes the server report
+ * an item the pending file already names instead of appending it again.
+ */
+export function pendingPayload(hole, question, proposed) {
+  const payload = { question: String(question || ""), missing: hole.text || "（占位没写缺什么）",
+    unless_recorded: true };
+  const definition = String(proposed || "").trim();
+  if (definition) payload.proposed = definition;
+  if (hole.table) payload.tables = [hole.table];
+  if (hole.table && hole.column) payload.columns = [`${hole.table}.${hole.column}`];
+  return payload;
+}
+
+/**
+ * What the page says after POST /api/pending: {done, text}; done false means the button
+ * stays usable (text is null: show the server's error message).
+ */
+export function pendingResult(status, body) {
+  if (status === 201) return { done: true, text: "已记入待确认文件。" };
+  if (status === 200 && body && body.recorded) {
+    const item = body.recorded;
+    const parts = [`已有人记过（${item.hits || 1} 次`];
+    if (item.dates && item.dates.last) parts.push(`，最近 ${item.dates.last}`);
+    parts.push("），没有重复记。");
+    if (item.status && item.status !== "open") parts.push(`负责人的回复：${item.status}。`);
+    if (item.proposed && item.proposed.length) parts.push(`已有的提议：${item.proposed.join("；")}`);
+    return { done: true, text: parts.join("") };
+  }
+  return { done: false, text: null };
+}
 
 const BRIEF_KEYS = ["问题", "结论", "SQL", "表", "关联", "条件", "假设", "待确认", "check-sql"];
 const BRIEF_LINE = new RegExp(`^(${BRIEF_KEYS.join("|")})[：:](.*)$`);

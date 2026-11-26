@@ -63,7 +63,7 @@ def test_the_brief_splits_into_its_labelled_lines() -> None:
         "问题：上月新增客户数\n结论：见 SQL\nSQL：SELECT COUNT(*)\nFROM t\n"
         "表：db.t — 一行是一个客户\n关联：无\n"
         "条件：t.dt = '2024-01-31' — db.t · 目录 · 分区\n条件：t.status = 'A' — 约束 c1\n"
-        "假设：无\n待确认：注销的算不算 — status；无；已记入\ncheck-sql：错误 0，警告 1"
+        "假设：无\n待确认：注销的算不算 — status；无；未记入\ncheck-sql：错误 0，警告 1"
     )
     parsed = _call("parseBrief", brief)
 
@@ -74,7 +74,7 @@ def test_the_brief_splits_into_its_labelled_lines() -> None:
     ]
     assert parsed["tables"] == [{"text": "db.t", "basis": "一个客户"}]
     assert parsed["joins"] == [] and parsed["assumptions"] == []
-    assert parsed["pending"] == ["注销的算不算 — status；无；已记入"]
+    assert parsed["pending"] == ["注销的算不算 — status；无；未记入"]
 
 
 def test_a_real_run_becomes_the_view_model(state) -> None:
@@ -110,6 +110,42 @@ def test_without_the_server_list_placeholders_come_from_the_sql() -> None:
 
     assert vm["answer"]["placeholders"] == [{"text": "口径", "table": None, "column": None}]
     assert vm["elapsed"] == 1.5
+
+
+def test_the_question_length_shows_the_limit_and_asks_for_parts_when_over() -> None:
+    empty = _call("questionLength", "", 20000)
+    assert empty == {"chars": 0, "limit": 20000, "over": False, "text": "最多 20000 字。"}
+
+    fits = _call("questionLength", "  " + "字" * 20000 + "\n", 20000)  # trimmed, as the server does
+    assert fits["chars"] == 20000 and not fits["over"] and "已 20000 字" in fits["text"]
+
+    over = _call("questionLength", "字" * 20001, 20000)
+    assert over["over"] and "请分段贴" in over["text"] and "20001" in over["text"]
+
+    # an older server's status has no limit: the page assumes this server's
+    assert _call("questionLength", "x", None)["limit"] == 20000
+
+
+def test_a_click_records_the_gap_with_or_without_a_definition() -> None:
+    hole = {"text": "注销的算不算", "table": "db.t", "column": "status"}
+
+    assert _call("pendingPayload", hole, "上月客户数", "  ") == {
+        "question": "上月客户数", "missing": "注销的算不算", "unless_recorded": True,
+        "tables": ["db.t"], "columns": ["db.t.status"]}
+    assert _call("pendingPayload", hole, "q", "只算 A")["proposed"] == "只算 A"
+    loose = _call("pendingPayload", {"text": "", "table": None, "column": None}, "q", "")
+    assert loose == {"question": "q", "missing": "（占位没写缺什么）", "unless_recorded": True}
+
+
+def test_the_page_says_when_someone_already_recorded_the_gap() -> None:
+    assert _call("pendingResult", 201, {"appended": 1}) == {"done": True, "text": "已记入待确认文件。"}
+    recorded = {"appended": 0, "lines": [], "recorded": {
+        "missing": "注销的算不算", "hits": 2, "dates": {"first": "2026-11-20", "last": "2026-11-21"},
+        "proposed": ["只算 A"]}}
+    said = _call("pendingResult", 200, recorded)
+    assert said["done"] and said["text"].startswith("已有人记过（2 次，最近 2026-11-21）")
+    assert "只算 A" in said["text"]
+    assert _call("pendingResult", 422, {"error": {"message": "x"}}) == {"done": False, "text": None}
 
 
 def test_usage_reads_as_one_line() -> None:
